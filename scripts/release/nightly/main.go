@@ -33,7 +33,8 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 	}
 	fs := flag.NewFlagSet("nightly", flag.ContinueOnError)
 	trust := fs.String("trust", "release/trust", "independently pinned public trust directory")
-	directory := fs.String("directory", "", "complete signed nightly download")
+	var directories multiFlag
+	fs.Var(&directories, "directory", "complete signed nightly download; sources accepts it repeatedly, newest predecessor first")
 	sources := fs.String("sources", "release/compatibility/sources.json", "reviewed genesis/source edges")
 	out := fs.String("out", "", "new source edges file")
 	if err := fs.Parse(args[1:]); err != nil {
@@ -46,22 +47,28 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("signed nightly bootstrap required: %w", err)
 	}
+	directory := ""
+	if len(directories) == 1 {
+		directory = directories[0]
+	} else if len(directories) > 1 && args[0] != "sources" {
+		return errors.New("only sources accepts multiple --directory values")
+	}
 	switch args[0] {
 	case "preflight":
 		_, err = fmt.Fprintf(output, "Authenticated nightly policy %s\n", releaseidentity.Hash(policy))
 		return err
 	case "verify":
-		release, err := upgradebundle.VerifyNightlyDirectory(ctx, *directory, snapshot)
+		release, err := upgradebundle.VerifyNightlyDirectory(ctx, directory, snapshot)
 		if err != nil {
 			return err
 		}
 		return json.NewEncoder(output).Encode(release.Identity())
 	case "legacy-bridges":
-		release, err := upgradebundle.VerifyNightlyDirectory(ctx, *directory, snapshot)
+		release, err := upgradebundle.VerifyNightlyDirectory(ctx, directory, snapshot)
 		if err != nil {
 			return err
 		}
-		raw, err := read(filepath.Join(*directory, releasetrust.CompatibilityArtifact))
+		raw, err := read(filepath.Join(directory, releasetrust.CompatibilityArtifact))
 		if err != nil {
 			return err
 		}
@@ -117,12 +124,20 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 		if document.Schema != "hikyo.dev/upgrade-sources/v1" || len(document.Engines) != 2 {
 			return errors.New("invalid reviewed source inventory")
 		}
-		if *directory != "" {
-			release, err := upgradebundle.VerifyNightlyDirectory(ctx, *directory, snapshot)
+		// Every verified predecessor becomes an exact-schema source edge, so a
+		// route can skip a revoked or missing nightly as long as an older
+		// declared predecessor still exists (#700). Identities must be distinct
+		// and the count bounded; nothing here authorizes a route by itself.
+		if len(directories) > MaxPredecessors {
+			return fmt.Errorf("at most %d predecessor directories", MaxPredecessors)
+		}
+		seen := map[releaseidentity.Identity]bool{}
+		for _, dir := range directories {
+			release, err := upgradebundle.VerifyNightlyDirectory(ctx, dir, snapshot)
 			if err != nil {
-				return err
+				return fmt.Errorf("%s: %w", dir, err)
 			}
-			raw, err := read(filepath.Join(*directory, releasetrust.CompatibilityArtifact))
+			raw, err := read(filepath.Join(dir, releasetrust.CompatibilityArtifact))
 			if err != nil {
 				return err
 			}
@@ -130,6 +145,10 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 			if err != nil {
 				return err
 			}
+			if seen[node.Identity()] {
+				return fmt.Errorf("%s: duplicate predecessor %s", dir, node.Identity().Version)
+			}
+			seen[node.Identity()] = true
 			for engine, edges := range document.Engines {
 				manifest, err := node.Manifest(engine)
 				if err != nil {
@@ -247,3 +266,12 @@ func loadTrust(directory string) (releasetrust.Snapshot, []byte, error) {
 	}
 	return snapshot, policyRaw, nil
 }
+
+// MaxPredecessors bounds how many signed predecessors one nightly declares as
+// direct upgrade sources. Each costs a full verified release download in CI.
+const MaxPredecessors = 8
+
+type multiFlag []string
+
+func (m *multiFlag) String() string     { return strings.Join(*m, ",") }
+func (m *multiFlag) Set(v string) error { *m = append(*m, v); return nil }

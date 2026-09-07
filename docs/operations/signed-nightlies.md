@@ -82,7 +82,11 @@ bundle and boots/restarts the packaged Linux binary in production mode on both
 engines. After the first signed nightly, it also runs the previous published
 binary, populates an encrypted secret, exports and drills a backup, signs local
 operator evidence, upgrades with the candidate binary, and checks readiness,
-secret readability and restart. A run with no signed predecessor release fails
+secret readability and restart. Each nightly declares up to three signed
+predecessors as exact-schema upgrade sources, newest first, and the populated
+upgrade proof runs from both the newest and the oldest of them, so a route can
+skip one revoked or missing release without a bridge ceremony as long as an
+older declared predecessor still exists. A run with no signed predecessor release fails
 before building: every nightly declares its predecessor as an upgrade source,
 so a missing one means the chain was cut and every installation below the gap
 would be stranded. Revoke a bad nightly through the policy instead of deleting
