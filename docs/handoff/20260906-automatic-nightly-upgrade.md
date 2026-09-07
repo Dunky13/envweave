@@ -26,8 +26,10 @@ command, rerun that same bootstrap command. Subsequent upgrades use the CLI.
   isolation, atomic executable replacement and exact process/readiness proof.
 - `internal/upgradecustody`: age-encrypted, installation-bound backup identity,
   independent attestation signer and root escrow. Root-only vault defaults to
-  `/etc/hikyo/upgrade-keys/operator.age`; the passphrase is interactive and is
-  never persisted. Runtime receives only the public operator pin and proof.
+  `/etc/hikyo/upgrade-keys/operator.age`, wrapped since 2026-09-07 with a
+  secret derived from the root key file (operator decision, ADR amended);
+  passphrase vaults are rewrapped once. Runtime receives only the public
+  operator pin and proof.
 - `internal/selfupdate` and `internal/upgradeassembly`: reuse complete nightly
   verification and atomic public bundle assembly. Cached assets are rechecked
   against immutable API inventory and current signed trust. Route discovery
@@ -136,3 +138,13 @@ Still open: the server on nightly 23 cannot upgrade until a nightly containing
 this feature is published; then the bootstrap command in the Upgrades docs
 applies. The stale worktree `~/.t3/worktrees/wenv/t3code-4827c9b7` and its
 local `feat/automatic-systemd-upgrade` branch can be removed after merge.
+
+## 2026-09-07 evening: live bootstrap findings
+
+The first real bootstrap of the nightly 23 server surfaced and fixed: deleted
+nightly 26 release (catalog 3, #696), bootstrap umask hiding the public bundle
+and a bare child exit status (#697), operator commands needing hand-fed
+environment (#701), the nightly building silently without a predecessor
+(#699), and the passphrase prompt blocking unattended upgrades (this branch).
+Releases 5 through 23 were deleted by the operator; only 27 and later exist.
+Open: #700 multi-predecessor edges, #694 floor-bench margin.

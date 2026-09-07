@@ -5,7 +5,9 @@ package upgradecustody
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/Hikyo-Org/hikyo/internal/crypto/backup"
 	"os"
@@ -265,5 +267,67 @@ func TestCustodyRefusesUnsafeAncestorAndOversizedFile(t *testing.T) {
 	}
 	if _, err := open(dir, []byte("correct horse battery staple"), instance, os.Geteuid()); err == nil {
 		t.Fatal("oversized ciphertext accepted")
+	}
+}
+
+func TestRootKeySecretIsDerivedAndBoundToKeyLength(t *testing.T) {
+	root := bytes.Repeat([]byte{0x7b}, 32)
+	a, err := RootKeySecret(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := RootKeySecret(bytes.Clone(root))
+	if err != nil || !bytes.Equal(a, b) || len(a) != 64 {
+		t.Fatal("wrapping secret must be deterministic hex of 32 derived bytes", err)
+	}
+	if bytes.Contains(a, root) || bytes.Contains(a, []byte(hex.EncodeToString(root))) {
+		t.Fatal("wrapping secret must not expose the root key")
+	}
+	other, err := RootKeySecret(bytes.Repeat([]byte{0x7c}, 32))
+	if err != nil || bytes.Equal(other, a) {
+		t.Fatal("different root keys must derive different secrets")
+	}
+	if _, err := RootKeySecret(root[:31]); err == nil {
+		t.Fatal("accepted a short root key")
+	}
+}
+
+func TestRewrapMigratesPassphraseCustodyWithoutChangingIdentity(t *testing.T) {
+	dir, v := testVault(t)
+	derived, err := RootKeySecret(v.RootKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(filepath.Join(dir, fileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rewrap(dir, []byte("wrong passphrase"), derived, instance, os.Geteuid()); !errors.Is(err, ErrUnlock) {
+		t.Fatalf("rewrap with the wrong secret: %v", err)
+	}
+	if after, err := os.ReadFile(filepath.Join(dir, fileName)); err != nil || !bytes.Equal(before, after) {
+		t.Fatal("failed rewrap changed custody")
+	}
+	if err := rewrap(dir, []byte("correct horse battery staple"), derived, instance, os.Geteuid()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := open(dir, []byte("correct horse battery staple"), instance, os.Geteuid()); !errors.Is(err, ErrUnlock) {
+		t.Fatalf("old passphrase still opens rewrapped custody: %v", err)
+	}
+	got, err := open(dir, derived, instance, os.Geteuid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer got.Close()
+	if got.Recipient() != v.Recipient() || got.Pin().KeyID() != v.Pin().KeyID() || !bytes.Equal(got.RootKey(), v.RootKey()) {
+		t.Fatal("rewrap changed the custody record")
+	}
+	files, err := os.ReadDir(dir)
+	if err != nil || len(files) != 1 || files[0].Name() != fileName {
+		t.Fatalf("rewrap left extra files: %v %v", files, err)
+	}
+	info, err := os.Lstat(filepath.Join(dir, fileName))
+	if err != nil || info.Mode().Perm() != 0600 {
+		t.Fatal("rewrapped custody lost its private mode", err)
 	}
 }

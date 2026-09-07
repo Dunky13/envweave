@@ -57,7 +57,7 @@ func custodyDirectory(path string, create bool, owner int) (*os.File, error) {
 	return current, nil
 }
 
-func publish(dir *os.File, ciphertext []byte) error {
+func publish(dir *os.File, ciphertext []byte, replace bool) error {
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return errors.New("create encrypted custody temporary name")
@@ -79,13 +79,21 @@ func publish(dir *os.File, ciphertext []byte) error {
 	if err := f.Close(); err != nil {
 		return errors.New("close encrypted operator custody")
 	}
-	// linkat is the atomic no-overwrite publication point. A crash may leave an
-	// encrypted temporary file, never a plaintext secret or a partial final file.
-	if err := unix.Linkat(int(dir.Fd()), name, int(dir.Fd()), fileName, 0); err != nil {
-		return errors.New("publish operator custody: existing custody is never replaced")
-	}
-	if err := unix.Unlinkat(int(dir.Fd()), name, 0); err != nil {
-		return errors.New("remove encrypted operator custody temporary link")
+	if replace {
+		// Rewrapping replaces the whole file atomically; the record inside is
+		// the same, so a crash leaves either the old or the new container.
+		if err := unix.Renameat(int(dir.Fd()), name, int(dir.Fd()), fileName); err != nil {
+			return errors.New("replace encrypted operator custody")
+		}
+	} else {
+		// linkat is the atomic no-overwrite publication point. A crash may leave an
+		// encrypted temporary file, never a plaintext secret or a partial final file.
+		if err := unix.Linkat(int(dir.Fd()), name, int(dir.Fd()), fileName, 0); err != nil {
+			return errors.New("publish operator custody: existing custody is never replaced")
+		}
+		if err := unix.Unlinkat(int(dir.Fd()), name, 0); err != nil {
+			return errors.New("remove encrypted operator custody temporary link")
+		}
 	}
 	if err := dir.Sync(); err != nil {
 		return errors.New("sync operator custody directory")
