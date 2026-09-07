@@ -53,6 +53,13 @@ upgrade path is a server-side bulk metadata move that produces one revision for
 N keys. Not built: it needs a new OpenAPI operation, generated client, service
 and store code, and the parity and contract tests that go with them.
 
+## Follow-up worth folding in later
+
+`Matrix.tsx` now reads the folder list on every mount so the dry run can
+create only the folder rows that are missing. Listing folders inside the
+mutation instead would drop that read, the `existingFolders` prop and the
+stale-list race that the 409 tolerance covers.
+
 ## Not built
 
 - Import-time folder suggestion. The wizard's review step already shows a

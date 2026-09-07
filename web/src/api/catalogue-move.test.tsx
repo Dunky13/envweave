@@ -152,6 +152,28 @@ describe('useMoveKeysToFolders', () => {
     expect(calls.filter((call) => call.method === 'PATCH')).toHaveLength(2);
   });
 
+  it('reports a throttled folder create on that key, not as the revision budget', async () => {
+    const { calls, outcomes } = await run(
+      (call) => {
+        if (call.method === 'POST') {
+          return json(429, { title: 'Too Many Requests', status: 429 });
+        }
+        if (call.method === 'PATCH') {
+          return json(200, keyRecord(call.path.slice(call.path.lastIndexOf('/') + 1), 'Argon2'));
+        }
+        return json(200, { items: [], count: 0 });
+      },
+      { moves, existingFolders: ['Argon2'] },
+    );
+    // Argon2 existed, so its two moves PATCH fine; Backup's create is
+    // refused, so its key is reported as a folder-create failure and no
+    // PATCH is sent for it.
+    expect(outcomes.map((outcome) => outcome.error === null)).toEqual([true, true, false]);
+    expect(outcomes[2]?.error).toContain('create the folder');
+    expect(outcomes[2]?.error).not.toContain('schema-revision budget');
+    expect(calls.filter((call) => call.method === 'PATCH')).toHaveLength(2);
+  });
+
   it('records a non-429 refusal on that key and continues with the others', async () => {
     const { outcomes } = await run(
       (call) => {

@@ -179,6 +179,11 @@ export function useMoveKeysToFolders(ref: MatrixRef) {
             await createFolderTolerant(transport, ref, move.folder);
             known.add(move.folder);
           }
+        } catch (error) {
+          outcomes.push({ id: move.id, error: catalogueRefusalText(error, 'create the folder') });
+          continue;
+        }
+        try {
           await parsed(updateKeyMetadataOp, {
             path: { ...ref, key: move.id },
             body: { folder_path: move.folder },
@@ -186,6 +191,8 @@ export function useMoveKeysToFolders(ref: MatrixRef) {
           });
           outcomes.push({ id: move.id, error: null });
         } catch (error) {
+          // Only the PATCH is a schema revision, so only its 429 is the
+          // budget; a throttled folder create is reported as that.
           if (error instanceof ApiError && error.status === 429) {
             exhausted = REVISION_BUDGET_REFUSAL;
             outcomes.push({ id: move.id, error: exhausted });
