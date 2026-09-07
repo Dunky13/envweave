@@ -64,7 +64,7 @@ func Assemble(ctx context.Context, o Options) error {
 	index := upgradebundle.Index{Format: upgradebundle.IndexFormat, PrimaryKeyIDs: []string{}, Releases: []upgradebundle.ReleaseEntry{}, Bridges: []releaseidentity.Digest{}}
 	idPattern := regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 	for _, key := range metadata.PrimaryKeys {
-		if !safeName(key.PublicKey) || !idPattern.MatchString(key.ID) {
+		if !releaseidentity.SafeName(key.PublicKey) || !idPattern.MatchString(key.ID) {
 			return errors.New("unsafe primary key locator")
 		}
 		names = append(names, key.PublicKey)
@@ -202,10 +202,6 @@ func Assemble(ctx context.Context, o Options) error {
 		}
 	}
 	return nil
-}
-
-func safeName(name string) bool {
-	return name != "" && name != "." && !strings.Contains(name, "..") && !strings.ContainsAny(name, `/\`)
 }
 
 func writeDocument(directory, name string, raw []byte) error {

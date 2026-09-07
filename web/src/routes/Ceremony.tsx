@@ -35,7 +35,7 @@ import { useWorkspaceHandoff, workspaceHandoffAction } from './useWorkspaceHando
  *  3. **Disclosure reauth is not account step-up.** Said in the modal, because
  *     the two look identical to a human and only one of them ends with a
  *     secret on screen.
- *  4. **A protected environment offers no TOTP option at all.** Not disabled , 
+ *  4. **A protected environment offers no TOTP option at all.** Not disabled, 
  *     absent, with the reason stated. A greyed-out control invites a support
  *     ticket; a sentence explaining that this environment takes a passkey
  *     every time is the answer to the question that ticket would ask.

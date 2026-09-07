@@ -750,33 +750,6 @@ func runDrillSteps(ctx context.Context, cfg *config.Config, scratch store.Config
 	return manifest, err
 }
 
-// drillMintAndRevoke creates a throwaway workload service account in the
-// scratch instance, mints one credential and revokes it at once, proving the
-// recovered instance issues new machine identity. A fresh workload SA reaches
-// no plaintext, so the mint's disclosure conjunct is vacuous and needs no
-// reauthentication window - which a host-local operator verb has no way to
-// open anyway.
-func drillMintAndRevoke(ctx context.Context, db *store.DB, kr *crypto.Keyring, principal domain.PrincipalID, scope domain.Scope) (bool, error) {
-	ids := &service.Identities{DB: db, Auth: &service.Auth{DB: db, Keyring: kr}}
-	actor := service.LocalPrincipal(principal)
-	sa, err := ids.CreateServiceAccount(ctx, actor, scope, "drill-verification", domain.ClassWorkload)
-	if err != nil {
-		return false, fmt.Errorf("create drill service account: %w", err)
-	}
-	if _, err := ids.MintCredential(ctx, actor, scope, sa.ID, service.MintRequest{}); err != nil {
-		return false, fmt.Errorf("mint drill credential: %w", err)
-	}
-	// The credential proved issuance; it must not outlive the drill. Deleting
-	// the service account atomically revokes its one credential (cascade). A
-	// revoke failure is reported as NOT minted-and-revoked: a usable credential
-	// left behind is a failed drill, not a passed one, and the returned error
-	// keeps the scratch target around (no --cleanup on failure) for cleanup.
-	if err := ids.DeleteServiceAccount(ctx, actor, scope, sa.ID); err != nil {
-		return false, fmt.Errorf("revoke drill credential: %w", err)
-	}
-	return true, nil
-}
-
 func drillTargetConfig(sqlitePath, postgresDSNFile string) (store.Config, error) {
 	if sqlitePath != "" {
 		return store.Config{Engine: store.EngineSQLite, Path: sqlitePath}, nil

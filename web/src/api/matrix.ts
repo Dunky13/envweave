@@ -876,7 +876,7 @@ export function useReclassifyKey(ref: MatrixRef) {
     // re-materialises the value under ordinary config read, and tightening
     // (`config` → `secret`) drops the key's config dismissals and re-secures the
     // cells. Both change what the value/signals/pending views must show, so the
-    // whole matrix is invalidated alongside the single-key detail and the list , 
+    // whole matrix is invalidated alongside the single-key detail and the list, 
     // the metadata-only edit's narrow key+list invalidation is not enough here.
     onSuccess: (_result, input) =>
       Promise.all([

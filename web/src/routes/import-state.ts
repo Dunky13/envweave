@@ -5,7 +5,7 @@ import type { ValueOccurrence } from '@hikyo/client';
  *
  * The file is parsed in the browser and never leaves it until the reviewed
  * phase-2 write. Everything here is deterministic and unit-tested so the risky
- * parts, the dotenv grammar, the type suggestion, the collision/trim buckets , 
+ * parts, the dotenv grammar, the type suggestion, the collision/trim buckets, 
  * match the Go importer the CLI drives (`internal/dotenv`, `internal/importer`).
  * The server re-validates every one of these; the browser mirror exists so the
  * operator reviews an accurate preview, never so a mismatch can slip a write.

@@ -4,10 +4,13 @@ package securefile
 import (
 	"os"
 	"path/filepath"
+
+	"github.com/Hikyo-Org/hikyo/internal/filedurability"
 )
 
 // WriteAtomic writes contents beside path, syncs and closes the file, then
-// atomically replaces path. Callers own validation and contextual error text.
+// atomically replaces path and syncs the directory so the rename is durable.
+// Callers own validation and contextual error text.
 func WriteAtomic(path string, contents []byte, mode os.FileMode) (returnErr error) {
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".secure-write-*")
 	if err != nil {
@@ -34,5 +37,8 @@ func WriteAtomic(path string, contents []byte, mode os.FileMode) (returnErr erro
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpPath, path)
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	return filedurability.SyncDirectory(filepath.Dir(path))
 }

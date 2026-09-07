@@ -158,10 +158,6 @@ type migrationSQLiteConn struct{ migrationSQLiteDriver }
 
 func (*migrationSQLiteConn) Close() error { return nil }
 
-func runBorrowedMigrations(ctx context.Context, borrowed driver.Conn, engine releaseidentity.Engine, migrations fs.FS) (err error) {
-	return runBorrowedMigrationsThrough(ctx, borrowed, engine, migrations, 0)
-}
-
 func runBorrowedMigrationsThrough(ctx context.Context, borrowed driver.Conn, engine releaseidentity.Engine, migrations fs.FS, version int64) (err error) {
 	connector := &migrationConnector{conn: borrowed, active: true}
 	inner := sql.OpenDB(connector)

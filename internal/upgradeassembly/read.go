@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/Hikyo-Org/hikyo/internal/releaseidentity"
 	"github.com/Hikyo-Org/hikyo/internal/releasetrust"
 )
 
@@ -35,7 +36,7 @@ func openDirectory(path string) (*os.Root, error) {
 }
 
 func readMember(root *os.Root, name string) ([]byte, error) {
-	if !safeName(name) {
+	if !releaseidentity.SafeName(name) {
 		return nil, errors.New("unsafe input member")
 	}
 	file, err := openDocument(root, name)
@@ -74,7 +75,7 @@ func ReadDocument(path string) ([]byte, error) {
 func readExact(directory string, names []string) (map[string][]byte, error) {
 	wanted := make(map[string]bool, len(names))
 	for _, name := range names {
-		if !safeName(name) || wanted[name] {
+		if !releaseidentity.SafeName(name) || wanted[name] {
 			return nil, errors.New("unsafe or duplicate input member")
 		}
 		wanted[name] = true

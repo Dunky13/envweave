@@ -37,7 +37,7 @@ vi.mock('../api/definitions.ts', async (importActual) => {
 });
 
 // The #493 editors (rules/presence, group) call catalogue hooks; stub them so
-// this suite exercises the foundation without live fetches (the pure helpers , 
+// this suite exercises the foundation without live fetches (the pure helpers, 
 // presenceImpact, catalogueRefusalText, stay real).
 vi.mock('../api/catalogue.ts', async (importActual) => {
   const actual = await importActual<typeof import('../api/catalogue.ts')>();

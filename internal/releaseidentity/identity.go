@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"math"
 	"path"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -247,4 +248,12 @@ func BuildMigrationManifest(source fs.FS, directory string, engine Engine) (Migr
 		return MigrationManifest{}, err
 	}
 	return manifest, nil
+}
+
+// SafeName reports whether name is a single plain path component: no empty
+// name, no dot entries, no traversal and no separators. Every trust, bundle and
+// archive reader validates member names through this one predicate.
+func SafeName(name string) bool {
+	return name != "" && name != "." && name != ".." && filepath.Base(name) == name &&
+		!strings.Contains(name, "..") && !strings.ContainsAny(name, `/\`)
 }

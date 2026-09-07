@@ -134,7 +134,6 @@ func open(ctx context.Context, parentDirectory string, syncFile func(*os.File) e
 			return Material{}, err
 		}
 		published = true
-		child = staging
 		// Keep one descriptor owner in the caller; the deferred staging close is
 		// harmless after our duplicated child is closed below.
 		dup, err := unix.Dup(int(staging.Fd()))

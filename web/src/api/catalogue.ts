@@ -57,7 +57,7 @@ function ackBody(input: Acknowledgeable): { acknowledgements?: string[] } {
  * scanFindings returns the Surface-2 findings a refusal carries, or null when
  * the error is anything else. `ApiError.findings` is always an array (empty for
  * a non-scanner refusal), so an empty list reads as null and callers branch
- * cleanly. A 404 NEVER opens a findings dialog even if one somehow rode it , 
+ * cleanly. A 404 NEVER opens a findings dialog even if one somehow rode it, 
  * that would leak existence through the uniform missing-resource mask, matching
  * the foundation's own `scanBlockFrom` guard.
  */

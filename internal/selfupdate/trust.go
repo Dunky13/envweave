@@ -11,8 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strings"
 
+	"github.com/Hikyo-Org/hikyo/internal/releaseidentity"
 	"github.com/Hikyo-Org/hikyo/internal/releasetrust"
 	"github.com/Hikyo-Org/hikyo/internal/updatecheck"
 	"github.com/Masterminds/semver/v3"
@@ -192,13 +192,13 @@ func validateStableRelease(status updatecheck.Status, metadata trustMetadata, ma
 		return trustPrimary{}, errors.New("selfupdate: release manifest is not authorized by trust metadata")
 	}
 	if candidate.Version != manifest.Version || candidate.Sequence != manifest.ReleaseSequence || candidate.Commit != manifest.SourceCommit ||
-		candidate.KeyID != manifest.SigningKeyID || !commitPattern.MatchString(candidate.Commit) || !safeName(candidate.PublicKey) {
+		candidate.KeyID != manifest.SigningKeyID || !commitPattern.MatchString(candidate.Commit) || !releaseidentity.SafeName(candidate.PublicKey) {
 		return trustPrimary{}, errors.New("selfupdate: release candidate does not match manifest identity")
 	}
 	seenArtifacts := map[string]bool{}
 	archiveMatches, candidateMatches := 0, 0
 	for _, artifact := range manifest.Artifacts {
-		if !safeName(artifact.Name) || artifact.Kind == "" || !sha256Pattern.MatchString(artifact.SHA256) || seenArtifacts[artifact.Name] {
+		if !releaseidentity.SafeName(artifact.Name) || artifact.Kind == "" || !sha256Pattern.MatchString(artifact.SHA256) || seenArtifacts[artifact.Name] {
 			return trustPrimary{}, errors.New("selfupdate: release manifest artifact list is invalid")
 		}
 		seenArtifacts[artifact.Name] = true
@@ -302,11 +302,6 @@ func decodeStamped(name, encoded string) ([]byte, error) {
 		return nil, fmt.Errorf("selfupdate: embedded %s is invalid", name)
 	}
 	return raw, nil
-}
-
-func safeName(name string) bool {
-	return name != "" && name != "." && name != ".." && filepath.Base(name) == name &&
-		!strings.Contains(name, "..") && !strings.ContainsAny(name, `/\\`)
 }
 
 func trustURL(name string) string {

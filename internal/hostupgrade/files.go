@@ -8,6 +8,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/Hikyo-Org/hikyo/internal/filedurability"
 )
 
 func trustedDirectory(path string) error {
@@ -45,14 +47,6 @@ func trustedFile(path string) error {
 	return nil
 }
 
-func syncDirectory(path string) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	return errors.Join(f.Sync(), f.Close())
-}
-
 func atomicWrite(path string, data []byte, mode os.FileMode) error {
 	if err := trustedDirectory(filepath.Dir(path)); err != nil {
 		return err
@@ -81,7 +75,7 @@ func atomicWrite(path string, data []byte, mode os.FileMode) error {
 	if err = os.Rename(f.Name(), path); err != nil {
 		return err
 	}
-	return syncDirectory(filepath.Dir(path))
+	return filedurability.SyncDirectory(filepath.Dir(path))
 }
 
 func fileDigest(path string) (string, error) {
@@ -158,5 +152,5 @@ func copyBinary(source, destination, digest string) error {
 	if err = os.Rename(out.Name(), destination); err != nil {
 		return err
 	}
-	return syncDirectory(filepath.Dir(destination))
+	return filedurability.SyncDirectory(filepath.Dir(destination))
 }

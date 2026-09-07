@@ -1377,7 +1377,7 @@ function DeclarationEditor({
     // `done` is deliberately NOT reset here: the successful-save refetch changes
     // these signatures, and clearing it would wipe the "Saved." it just set.
     // `keyId` is a dep so navigating to ANOTHER key always re-seeds, even when
-    // the two keys' declaration/presence signatures happen to be identical , 
+    // the two keys' declaration/presence signatures happen to be identical, 
     // otherwise a stale dirty draft could be written into the new key.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- content signatures stand in for the objects
   }, [keyId, declSignature, presSignature]);

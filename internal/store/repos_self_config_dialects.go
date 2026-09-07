@@ -168,9 +168,6 @@ func (r sqliteSelfConfigStorage) deleteNodes(ctx context.Context) error {
 func (r sqliteSelfConfigStorage) retained(ctx context.Context) ([]string, error) {
 	return r.q.ListSelfConfigRetained(ctx)
 }
-func (r sqliteSelfConfigStorage) retentionSlot(ctx context.Context, slot string) (string, error) {
-	return r.q.GetSelfConfigRetentionSlot(ctx, slot)
-}
 func (r sqliteSelfConfigStorage) retain(ctx context.Context, slot, id string) error {
 	return r.q.SetSelfConfigRetention(ctx, sqlitegen.SetSelfConfigRetentionParams{Slot: slot, SnapshotID: id})
 }
@@ -346,9 +343,6 @@ func (r pgSelfConfigStorage) deleteNodes(ctx context.Context) error {
 }
 func (r pgSelfConfigStorage) retained(ctx context.Context) ([]string, error) {
 	return r.q.ListSelfConfigRetained(ctx)
-}
-func (r pgSelfConfigStorage) retentionSlot(ctx context.Context, slot string) (string, error) {
-	return r.q.GetSelfConfigRetentionSlot(ctx, slot)
 }
 func (r pgSelfConfigStorage) retain(ctx context.Context, slot, id string) error {
 	return r.q.SetSelfConfigRetention(ctx, pggen.SetSelfConfigRetentionParams{Slot: slot, SnapshotID: id})

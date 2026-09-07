@@ -154,7 +154,7 @@ export const SURFACES = defineSurfaceRegistry([
   // SCIM provisioning administration (#501, #73). Org-scoped for the same
   // reason members is: `manage-members@org` addresses ONE organisation, so the
   // org is route data and the rail's active circle fills it. The binding under
-  // administration is a `?binding=` query parameter, an id, never a secret , 
+  // administration is a `?binding=` query parameter, an id, never a secret, 
   // so a reload and a shared link resolve the same binding, exactly as the
   // matrix's per-key filter does.
   {

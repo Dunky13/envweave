@@ -562,18 +562,6 @@ func fieldNames(fields []apiField) []string {
 	return out
 }
 
-func compatibleFieldTypes(sqlite, postgres []apiField) bool {
-	if len(sqlite) != len(postgres) {
-		return false
-	}
-	for i := range sqlite {
-		if !compatibleType(sqlite[i].Name, sqlite[i].Type, postgres[i].Type) {
-			return false
-		}
-	}
-	return true
-}
-
 func compatibleParameterTypes(queryName string, sqlite, postgres []apiField) bool {
 	return matchParameterFields(queryName, sqlite, postgres, true)
 }

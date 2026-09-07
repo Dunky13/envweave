@@ -361,7 +361,7 @@ describe('serviceAccountNameRefusal', () => {
 describe('createServiceAccountRefusalText', () => {
   it('names the duplicate-name / limit conflict on 409, not the credential ceiling', () => {
     const text = createServiceAccountRefusalText(new ApiError(409, 'conflict'));
-    // The account-create 409 is a duplicate live name or a structural limit , 
+    // The account-create 409 is a duplicate live name or a structural limit, 
     // never the "live-credential ceiling or identical binding" the mint's 409
     // is. A wrong sentence here sends an operator to look at credentials.
     expect(text).toContain('name');

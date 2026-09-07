@@ -119,7 +119,7 @@ func VerifyStable(snapshot Snapshot, material StableMaterial) (VerifiedRelease, 
 	if err := decodeDocument(material.Candidate, &candidate); err != nil {
 		return VerifiedRelease{}, err
 	}
-	if candidate.Version != manifest.Version || candidate.Sequence != manifest.ReleaseSequence || candidate.Commit != manifest.SourceCommit || candidate.KeyID != manifest.SigningKeyID || !safeName(candidate.PublicKey) {
+	if candidate.Version != manifest.Version || candidate.Sequence != manifest.ReleaseSequence || candidate.Commit != manifest.SourceCommit || candidate.KeyID != manifest.SigningKeyID || !releaseidentity.SafeName(candidate.PublicKey) {
 		return VerifiedRelease{}, errors.New("release candidate does not match manifest")
 	}
 	var primary Primary
@@ -179,7 +179,7 @@ func validateArtifacts(artifacts []Artifact) error {
 	}
 	seen := map[string]bool{}
 	for _, artifact := range artifacts {
-		if !safeName(artifact.Name) || seen[artifact.Name] || releaseidentity.Digest(artifact.SHA256).Validate() != nil {
+		if !releaseidentity.SafeName(artifact.Name) || seen[artifact.Name] || releaseidentity.Digest(artifact.SHA256).Validate() != nil {
 			return errors.New("invalid or duplicate artifact identity")
 		}
 		seen[artifact.Name] = true

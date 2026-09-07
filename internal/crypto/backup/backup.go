@@ -75,10 +75,6 @@ type Unlock struct {
 	Passphrase string
 }
 
-// Configured reports whether an export could run — the pre-migration export's
-// with-recipients / loud-skip-without decision (ops spec § 11).
-func (o Options) Configured() bool { return len(o.Recipients) > 0 || o.Passphrase != "" }
-
 // Validate resolves the recipient policy without producing a container, so a
 // caller can refuse a bad policy before it creates the file the refusal would
 // then have to delete.

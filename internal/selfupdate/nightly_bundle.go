@@ -89,7 +89,7 @@ func (i *Installer) assembleNightlyEvidence(ctx context.Context, evidence []Prep
 		return "", err
 	}
 	for _, key := range metadata.PrimaryKeys {
-		if !safeName(key.PublicKey) {
+		if !releaseidentity.SafeName(key.PublicKey) {
 			return "", errors.New("unsafe primary public key locator")
 		}
 		if err := write("keys/"+key.PublicKey, material.PrimaryKeys[key.ID]); err != nil {

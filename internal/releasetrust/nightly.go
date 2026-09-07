@@ -139,7 +139,7 @@ func (p NightlyPolicy) Validate() error {
 		!strings.HasPrefix(p.RepositoryURI, "https://github.com/") || strings.Count(strings.TrimPrefix(p.RepositoryURI, "https://github.com/"), "/") != 1 ||
 		!decimalID(p.RepositoryID) || !decimalID(p.RepositoryOwnerID) ||
 		p.RepositoryOwnerURI != p.RepositoryURI[:strings.LastIndex(p.RepositoryURI, "/")] ||
-		!strings.HasPrefix(p.WorkflowPath, ".github/workflows/") || !safeName(strings.TrimPrefix(p.WorkflowPath, ".github/workflows/")) || !strings.HasSuffix(p.WorkflowPath, ".yml") ||
+		!strings.HasPrefix(p.WorkflowPath, ".github/workflows/") || !releaseidentity.SafeName(strings.TrimPrefix(p.WorkflowPath, ".github/workflows/")) || !strings.HasSuffix(p.WorkflowPath, ".yml") ||
 		p.ProtectedRef != "refs/heads/main" || (p.RunnerEnvironment != "github-hosted" && p.RunnerEnvironment != "self-hosted") {
 		return errors.New("invalid exact nightly issuer/repository/workflow/ref policy")
 	}

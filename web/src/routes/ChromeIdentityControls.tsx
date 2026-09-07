@@ -114,7 +114,7 @@ export function ChromeIdentityControls({
                 <button
                   key={choice}
                   type="button"
-                    className="identity-glyph"
+                  className="identity-glyph"
                   aria-label={`Use ${choice} glyph`}
                   aria-pressed={identity.glyph === choice}
                   onClick={() => updateIdentity({ ...identity, glyph: choice })}

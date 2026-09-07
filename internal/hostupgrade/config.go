@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/Hikyo-Org/hikyo/internal/filedurability"
 )
 
 const ConfigPath = "/etc/hikyo/upgrade.json"
@@ -151,7 +153,7 @@ func InitializeConfig(path string) (Config, error) {
 	if err = errors.Join(writeErr, syncErr, closeErr); err != nil {
 		return c, err
 	}
-	return c, syncDirectory(filepath.Dir(path))
+	return c, filedurability.SyncDirectory(filepath.Dir(path))
 }
 
 // ParseEnvironmentFile implements a deliberately bounded subset of systemd

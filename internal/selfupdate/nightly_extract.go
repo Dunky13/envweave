@@ -8,6 +8,8 @@ import (
 	"errors"
 	"io"
 	"strings"
+
+	"github.com/Hikyo-Org/hikyo/internal/releaseidentity"
 )
 
 // Extract only flat, regular archive members. Even signed archives cannot cause
@@ -36,7 +38,7 @@ func extractNightlyBinary(name string, raw []byte) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		if !safeName(header.Name) || seen[header.Name] || len(seen) >= 32 || (header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA) || header.Size < 0 || header.Size > maxBinaryBytes {
+		if !releaseidentity.SafeName(header.Name) || seen[header.Name] || len(seen) >= 32 || (header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA) || header.Size < 0 || header.Size > maxBinaryBytes {
 			return nil, errors.New("selfupdate: unsafe nightly archive member")
 		}
 		seen[header.Name] = true
@@ -72,7 +74,7 @@ func extractNightlyZip(raw []byte) ([]byte, error) {
 	var binary []byte
 	var total uint64
 	for _, file := range reader.File {
-		if !safeName(file.Name) || seen[file.Name] || !file.Mode().IsRegular() || file.UncompressedSize64 > maxBinaryBytes {
+		if !releaseidentity.SafeName(file.Name) || seen[file.Name] || !file.Mode().IsRegular() || file.UncompressedSize64 > maxBinaryBytes {
 			return nil, errors.New("selfupdate: unsafe nightly archive member")
 		}
 		seen[file.Name] = true

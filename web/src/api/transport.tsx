@@ -5,7 +5,7 @@ import { createContext, useContext, type ReactNode } from 'react';
  * The transport seam (#71, multi-instance ADR § What the workspace is, and is
  * not).
  *
- * Every generated SDK call resolves its client as `options.client ?? client` , 
+ * Every generated SDK call resolves its client as `options.client ?? client`, 
  * the shared same-origin singleton unless a call overrides it. That override is
  * the ONE mechanism by which the exact same product view operates a remote: the
  * api-wrapper hooks read the transport from this context and spread it into

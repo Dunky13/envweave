@@ -62,14 +62,6 @@ func (b Bundle) Release(identity releaseidentity.Identity) (releasetrust.Verifie
 	}
 	return release, nil
 }
-func (b Bundle) Manifest(identity releaseidentity.Identity, engine releaseidentity.Engine) (releaseidentity.MigrationManifest, error) {
-	for _, node := range b.nodes {
-		if node.Identity() == identity {
-			return node.Manifest(engine)
-		}
-	}
-	return releaseidentity.MigrationManifest{}, errors.New("source release absent from authenticated bundle")
-}
 
 // GenesisManifests exposes signed candidate declarations for inspection. The
 // caller must compare every candidate against the actual database catalog and

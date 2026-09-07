@@ -48,60 +48,53 @@ func (r *Resolver) PrivacyAccount(ctx context.Context, principal string) (Privac
 func (r *Resolver) PrivacyActivity(ctx context.Context, principal string) ([]PrivacyActivity, error) {
 	out := []PrivacyActivity{}
 	if r.sq != nil {
-		rows, err := r.sq.PrivacyAuditInstance(ctx, nullString(principal))
-		if err != nil {
+		instance, err := r.sq.PrivacyAuditInstance(ctx, nullString(principal))
+		if out, err = privacyActivities(out, instance, err, sqlitePrivacyActivity); err != nil {
 			return nil, err
 		}
-		if len(rows) > 10000 {
-			return nil, errors.New("privacy: activity exceeds 10000 rows per trail; use reviewed paged audit export")
-		}
-		for _, v := range rows {
-			at, err := decodeTime(v.OccurredAt)
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, PrivacyActivity{v.ID, v.Type, at, v.Outcome, v.SourceIp.String, v.UserAgent.String})
-		}
-	} else {
-		rows, err := r.pg.PrivacyAuditInstance(ctx, pgText(principal))
-		if err != nil {
-			return nil, err
-		}
-		if len(rows) > 10000 {
-			return nil, errors.New("privacy: activity exceeds 10000 rows per trail; use reviewed paged audit export")
-		}
-		for _, v := range rows {
-			out = append(out, PrivacyActivity{v.ID, v.Type, v.OccurredAt.Time, v.Outcome, v.SourceIp.String, v.UserAgent.String})
-		}
+		tenant, err := r.sq.PrivacyAuditTenant(ctx, nullString(principal))
+		return privacyActivities(out, tenant, err, func(v sqlitegen.PrivacyAuditTenantRow) (PrivacyActivity, error) {
+			return sqlitePrivacyActivity(sqlitegen.PrivacyAuditInstanceRow(v))
+		})
 	}
-	if r.sq != nil {
-		rows, err := r.sq.PrivacyAuditTenant(ctx, nullString(principal))
+	instance, err := r.pg.PrivacyAuditInstance(ctx, pgText(principal))
+	if out, err = privacyActivities(out, instance, err, pgPrivacyActivity); err != nil {
+		return nil, err
+	}
+	tenant, err := r.pg.PrivacyAuditTenant(ctx, pgText(principal))
+	return privacyActivities(out, tenant, err, func(v pggen.PrivacyAuditTenantRow) (PrivacyActivity, error) {
+		return pgPrivacyActivity(pggen.PrivacyAuditInstanceRow(v))
+	})
+}
+
+const privacyActivityCap = 10000
+
+// privacyActivities appends one trail's rows to out, refusing a trail above
+// the reviewed cap instead of returning a partial activity picture.
+func privacyActivities[R any](out []PrivacyActivity, rows []R, err error, from func(R) (PrivacyActivity, error)) ([]PrivacyActivity, error) {
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) > privacyActivityCap {
+		return nil, errors.New("privacy: activity exceeds 10000 rows per trail; use reviewed paged audit export")
+	}
+	for _, v := range rows {
+		activity, err := from(v)
 		if err != nil {
 			return nil, err
 		}
-		if len(rows) > 10000 {
-			return nil, errors.New("privacy: activity exceeds 10000 rows per trail; use reviewed paged audit export")
-		}
-		for _, v := range rows {
-			at, err := decodeTime(v.OccurredAt)
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, PrivacyActivity{v.ID, v.Type, at, v.Outcome, v.SourceIp.String, v.UserAgent.String})
-		}
-	} else {
-		rows, err := r.pg.PrivacyAuditTenant(ctx, pgText(principal))
-		if err != nil {
-			return nil, err
-		}
-		if len(rows) > 10000 {
-			return nil, errors.New("privacy: activity exceeds 10000 rows per trail; use reviewed paged audit export")
-		}
-		for _, v := range rows {
-			out = append(out, PrivacyActivity{v.ID, v.Type, v.OccurredAt.Time, v.Outcome, v.SourceIp.String, v.UserAgent.String})
-		}
+		out = append(out, activity)
 	}
 	return out, nil
+}
+
+func sqlitePrivacyActivity(v sqlitegen.PrivacyAuditInstanceRow) (PrivacyActivity, error) {
+	at, err := decodeTime(v.OccurredAt)
+	return PrivacyActivity{v.ID, v.Type, at, v.Outcome, v.SourceIp.String, v.UserAgent.String}, err
+}
+
+func pgPrivacyActivity(v pggen.PrivacyAuditInstanceRow) (PrivacyActivity, error) {
+	return PrivacyActivity{v.ID, v.Type, v.OccurredAt.Time, v.Outcome, v.SourceIp.String, v.UserAgent.String}, nil
 }
 
 // RestrictPrivacyPrincipal serializes on the same principal row as grant writers.
