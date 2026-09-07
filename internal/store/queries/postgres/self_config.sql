@@ -63,10 +63,6 @@ INSERT INTO self_config_retention(slot,snapshot_id) VALUES(sqlc.arg(slot),sqlc.a
 -- name: DeleteSelfConfigRetention :exec
 DELETE FROM self_config_retention WHERE slot=sqlc.arg(slot);
 -- hikyo:instance-scoped
--- name: GetSelfConfigRetentionSlot :one
-SELECT snapshot_id FROM self_config_retention WHERE slot=sqlc.arg(slot);
-
--- hikyo:instance-scoped
 -- name: ListSelfConfigParticipants :many
 SELECT node_id FROM ha_nodes WHERE heartbeat_at >= sqlc.arg(since_at) ORDER BY node_id;
 -- hikyo:instance-scoped

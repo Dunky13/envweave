@@ -328,18 +328,6 @@ func (q *Queries) GetSelfConfigPreviousRevision(ctx context.Context) (int64, err
 	return revision, err
 }
 
-const getSelfConfigRetentionSlot = `-- name: GetSelfConfigRetentionSlot :one
-SELECT snapshot_id FROM self_config_retention WHERE slot=?1
-`
-
-// hikyo:instance-scoped
-func (q *Queries) GetSelfConfigRetentionSlot(ctx context.Context, slot string) (string, error) {
-	row := q.db.QueryRowContext(ctx, getSelfConfigRetentionSlot, slot)
-	var snapshot_id string
-	err := row.Scan(&snapshot_id)
-	return snapshot_id, err
-}
-
 const getSelfConfigRollout = `-- name: GetSelfConfigRollout :one
 SELECT job_id, enrollment_id, incarnation, plan_digest, command_json, response_json, external_phase, sequence, row_version FROM self_config_rollouts WHERE job_id = ?1
 `

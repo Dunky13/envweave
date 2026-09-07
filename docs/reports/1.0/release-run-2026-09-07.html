@@ -10,7 +10,7 @@
 <table><tr><th>Issue</th><th>Subject</th><th>Decision</th><th>Why</th></tr>
 <tr><td>#79</td><td>1.0 gate: full acceptance run, API freeze, release</td><td class="status">1.0, this run</td><td>The gate itself. Everything an agent can do without keys or hardware is done in this run; the human steps are listed in the release plan.</td></tr>
 <tr><td>#41</td><td>Spec: Hikyo 1.0 umbrella</td><td class="status">1.0, closes with #79</td><td>Umbrella; no independent work.</td></tr>
-<tr><td>#710 (PR)</td><td>Self-config publish refusal names the key</td><td class="status">1.0, merged this run</td><td>Real operator-facing bug (bare 400 with nothing to fix). Only failure was gofmt; fixed, undrafted, auto-merge armed.</td></tr>
+<tr><td>#710 (PR)</td><td>Self-config publish refusal names the key</td><td class="status">1.0, auto-merge armed this run</td><td>Real operator-facing bug (bare 400 with nothing to fix). Only failure was gofmt; fixed, undrafted, auto-merge armed at 21:05 CEST. Merges when its race shards finish.</td></tr>
 <tr><td>#683</td><td>Design Kubernetes condition reporting for the web UI</td><td class="status">Post-1.0</td><td>Design ticket by owner choice in #680. The UI already renders Kubernetes status as unknown rather than claiming health, which is the honest 1.0 posture. Adding a controller-to-server reporting channel is a new trust boundary and cannot be designed and shipped safely pre-freeze.</td></tr>
 <tr><td>#651</td><td>MCP release acceptance: exact-image HTTPS and named-client proof</td><td class="status">Human evidence, not code; 1.0 release plan step</td><td>Every local and two-replica proof is recorded. What remains needs a public HTTPS deployment of the candidate image and real Codex CLI / Claude Code / Inspector executions with credentials. The operator support table already marks unverified profiles as not yet verified, so no false claim ships. Listed as a release-plan step for the owner.</td></tr>
 <tr><td>#631</td><td>MCP human delegation and authorization-server necessity</td><td class="status">Post-1.0</td><td>Explicitly a post-1.0 decision lane; becomes a blocker only if a human-delegation claim is added to 1.0. None is.</td></tr>
@@ -31,13 +31,16 @@
 </table>
 
 <h2>Work log</h2>
-<table><tr><th>Time (CEST)</th><th>Step</th><th>Result</th></tr>
-<tr><td>21:05</td><td>PR #710: gofmt fix pushed, undrafted, auto-merge armed</td><td>CI running</td></tr>
-<tr><td>21:15</td><td>Repository hygiene commit (Q1, Q2)</td><td>Committed on the release-run branch</td></tr>
-<tr><td>21:30</td><td>Status ledger: OBL-OPERATOR-PI-FIT and CAP-PRODUCTION-OPS flipped to implemented against the recorded native arm64 operator evidence; stale release/trust README rewritten</td><td>README regenerated with <code>check-doc-status.mjs --write</code></td></tr>
-<tr><td>21:20 to 22:30</td><td>Post-audit sweep: three reviewer agents over <code>549726d9..main</code> (web, upgrade lane, config/service/store) plus <code>deadcode -test</code>, <code>staticcheck</code>, <code>go vet</code></td><td>See the sweep section</td></tr>
-<tr><td>22:35</td><td>Goldens regenerated (no diff); extensible-enum audit (twelve declared, both flagged enums covered)</td><td>Release plan steps 4 and 5 closed</td></tr>
-<tr><td>22:40</td><td>Release plan written to <code>docs/release/release-plan-1.0.md</code>; PR #711 pushed</td><td>CI running</td></tr>
+<p>Times are CEST from the commit and pull-request metadata.</p>
+<table><tr><th>Time</th><th>Step</th><th>Result</th></tr>
+<tr><td>21:04</td><td>Signing preflight, PR #710 gofmt fix pushed, undrafted, auto-merge armed</td><td>CI running</td></tr>
+<tr><td>21:05</td><td>Repository hygiene commit (Q1, Q2); auto-merge enabled on the repository (Q3)</td><td><code>d7c06c98</code></td></tr>
+<tr><td>21:06</td><td>Decision log opened, branch pushed, PR #711 opened as draft</td><td><code>c9e2865a</code></td></tr>
+<tr><td>21:10</td><td>Status ledger: OBL-OPERATOR-PI-FIT and CAP-PRODUCTION-OPS flipped to implemented against the recorded native arm64 operator evidence; stale release/trust README rewritten; README regenerated</td><td><code>3d3f96c7</code></td></tr>
+<tr><td>21:07 to 21:19</td><td>Post-audit sweep: three reviewer agents over <code>549726d9..main</code> (web, upgrade lane, config/service/store) plus <code>deadcode -test</code>, <code>staticcheck</code>, <code>go vet</code>; fixes applied and tested</td><td><code>8ecf1b9c</code></td></tr>
+<tr><td>21:20</td><td>Sensitivity inventory pins refreshed; goldens regenerated (no diff); extensible-enum audit (twelve declared, both flagged enums covered)</td><td><code>486931ba</code>; release plan steps 4 and 5 closed</td></tr>
+<tr><td>21:22</td><td>Release plan and handoff written; PR #711 undrafted, auto-merge armed</td><td><code>docs/release/release-plan-1.0.md</code></td></tr>
+<tr><td>21:30</td><td>Reviewer pass: Windows-safe <code>filedurability.SyncDirectory</code> split (the Windows CLI would otherwise fail every secure write), dead <code>GetSelfConfigRetentionSlot</code> query dropped from both engines and regenerated, this log's times corrected</td><td>Pushed; CI re-running</td></tr>
 </table>
 
 <h2>Post-audit slop sweep</h2>
@@ -45,8 +48,8 @@
 <table><tr><th>Finding</th><th>Disposition</th></tr>
 <tr><td><code>securefile.WriteAtomic</code> renamed the temp file but never synced the directory, so a crash right after the rename could lose the publication (root-key and custody files use it).</td><td>Fixed: syncs the directory through <code>filedurability.SyncDirectory</code>, matching the compose and hostupgrade writers.</td></tr>
 <tr><td><code>safeName</code> existed three times with two strictness levels (selfupdate, releasetrust, upgradeassembly).</td><td>Fixed: one exported <code>releaseidentity.SafeName</code>, the strict variant, used by every archive, trust and bundle reader.</td></tr>
-<tr><td><code>hostupgrade.syncDirectory</code> duplicated <code>filedurability.SyncDirectory</code>.</td><td>Fixed: removed.</td></tr>
-<tr><td>Fourteen unreachable functions reported by <code>deadcode -test</code> across app, lint, crypto/backup, store, store/upgrade, upgradebundle, backupreceipt.</td><td>Fixed: removed. The three remaining reports are intentional seams (the <code>proof</code> marker, build-tagged <code>WithLeaderElection</code>, a build-tagged test fixture).</td></tr>
+<tr><td><code>hostupgrade.syncDirectory</code> duplicated <code>filedurability.SyncDirectory</code>.</td><td>Fixed: removed. <code>filedurability.SyncDirectory</code> is now a no-op on Windows (directory handles cannot be flushed there), mirroring <code>compose/fsio_windows.go</code>, because <code>securefile.WriteAtomic</code> serves the dev root key and TLS staging on every platform the CLI ships for.</td></tr>
+<tr><td>Fourteen unreachable functions reported by <code>deadcode -test</code> across app, lint, crypto/backup, store, store/upgrade, upgradebundle, backupreceipt.</td><td>Fixed: removed, together with the <code>GetSelfConfigRetentionSlot</code> sqlc query the storage seam was the only caller of (both engines regenerated, allowlist fixture updated). The three remaining reports are intentional seams (the <code>proof</code> marker, build-tagged <code>WithLeaderElection</code>, a build-tagged test fixture).</td></tr>
 <tr><td><code>authn.PrivacyActivity</code> carried the row loop and 10,000-row cap four times; the two historical recovery grant readers were identical apart from the query name.</td><td>Fixed: one generic mapper each.</td></tr>
 <tr><td><code>ErasePrivacyAccount</code> has thirteen sqlite/postgres dispatch pairs.</td><td>Left. A dispatch helper still needs two closures per call and saves nothing readable; it is the #619 store-architecture question, not a sweep item.</td></tr>
 <tr><td>Audit-retention silent fallback (Q6).</td><td>Left, recorded.</td></tr>

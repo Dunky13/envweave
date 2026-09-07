@@ -793,12 +793,6 @@
   },
   {
     "engine": "postgres",
-    "name": "GetSelfConfigRetentionSlot",
-    "annotation": "instance-scoped",
-    "hash": "b22d5d846e97822a2398ec07e374aa6b9213328332299d17a997a7bbb9a5035a"
-  },
-  {
-    "engine": "postgres",
     "name": "GetSelfConfigRollout",
     "annotation": "instance-scoped",
     "hash": "2e4a63f67e25b048d7f3adc53649a2d617e740d061142f35785b4660ca9e0f8a"
@@ -2746,12 +2740,6 @@
     "name": "GetSelfConfigPreviousRevision",
     "annotation": "instance-scoped",
     "hash": "b2b289dd578d0c0353c5bf4ad46a10d226c9132cad4cf68acac606f9a020dd6a"
-  },
-  {
-    "engine": "sqlite",
-    "name": "GetSelfConfigRetentionSlot",
-    "annotation": "instance-scoped",
-    "hash": "b22d5d846e97822a2398ec07e374aa6b9213328332299d17a997a7bbb9a5035a"
   },
   {
     "engine": "sqlite",
