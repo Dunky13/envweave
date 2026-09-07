@@ -3,11 +3,11 @@
   "source_genesis": "legacy/v1",
   "target": {
     "profile": "nightly/v1",
-    "version": "0.0.1-nightly.20260906.26.g52c8b012",
-    "sequence": 26,
-    "commit": "52c8b012f1fa45634572d7266c6ab7d3a9d5eed8",
-    "compatibility_sha256": "61a0216151eb90101433824dd18c095e34ed910a7cc24733e45dc38343380671",
-    "manifest_sha256": "e54e0bdb3b9298e234070d27ad75680ed0a6abf75c59aff3815a8c1c30e9d0ee"
+    "version": "0.0.1-nightly.20260907.27.gb2388a99",
+    "sequence": 27,
+    "commit": "b2388a992aa9a234dd6735592daf95e4b937f080",
+    "compatibility_sha256": "f684207d9946d19ecbdf6b40b083064fb691cc4f12b584ee89e14b3c36485516",
+    "manifest_sha256": "d7c9b1eb6abff6d1076c7d8cf66a9404583c9164832f8305758f83f6c0e974b3"
   },
   "target_policy_sha256": "afaeb19fc0299f700234a74aa0817f77ce0833853b327a9d9d9d126d25d5b04f",
   "source_migrations": {
@@ -381,10 +381,14 @@
       {
         "version": 49,
         "sha256": "2a112cc0a7cbcf1a0f691c23ddd51f71e12ba34b4a0829ddd9d2a32e2aae0188"
+      },
+      {
+        "version": 50,
+        "sha256": "99cd74d4a6d77fdfc479f877e8832b5823703622428757ede6cf4912ab0ebe8f"
       }
     ]
   },
   "source_schema_sha256": "6e68554a3faf93566d806781648ddf71d2310246e9644af51ee91c165ba5d2fa",
-  "target_schema_sha256": "dec6600ac942f234502d12173e9a56629acce798f267571c92bc5386c912a049",
+  "target_schema_sha256": "45b75a25648e7908714830abda7defd98507ccaec4c5f7fe85665bcbd2a5491d",
   "mode": "maintenance"
 }
