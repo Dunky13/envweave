@@ -262,6 +262,10 @@ export function MachineAccess() {
   const revoke = useRevokeCredential(project);
   const now = useMemo(() => new Date(), []);
 
+  // currentAccount re-reads a captured row from the live listing so dialogs
+  // reflect refetches that landed after they opened.
+  const currentAccount = (sa: ServiceAccount): ServiceAccount =>
+    accounts.find((candidate) => candidate.id === sa.id) ?? sa;
   const scopeFor = (sa: ServiceAccount): MachineEnvScope[] =>
     scopeOf(grants, sa.principal_id, environments);
   const credentialsFor = (sa: ServiceAccount): readonly MachineCredential[] =>
@@ -947,14 +951,17 @@ export function MachineAccess() {
       {dialog?.kind === 'grant' ? (
         <GrantDialog
           project={project}
-          account={dialog.account}
+          account={currentAccount(dialog.account)}
           scope={scopeFor(dialog.account)}
           machineReveal={machineReveal}
           // The SERVER's count, which applies the whole liveness predicate,
           // revocation, the credential epoch and expiry. Counting un-revoked
           // rows here would tell an operator that a grant re-scopes credentials
-          // that stopped authenticating weeks ago.
-          liveCredentials={dialog.account.live_credentials}
+          // that stopped authenticating weeks ago. Read it from the live
+          // listing, not the row captured at click time: a dialog opened a
+          // moment after a mint would otherwise report the pre-mint count for
+          // as long as it stays open.
+          liveCredentials={currentAccount(dialog.account).live_credentials}
           onClose={() => setDialog(null)}
           onGranted={(environment, result) => {
             setDialog(null);
@@ -1588,7 +1595,7 @@ function BindingCard({
   onRevoke: (credential: MachineCredential) => void;
 }) {
   return (
-    <div className="bindrow">
+    <div className="bindrow" data-credential={credential.id}>
       <p className="bindrow__head">
         <code className="mono">{account.name}</code>
         <span className="badge">federated</span>

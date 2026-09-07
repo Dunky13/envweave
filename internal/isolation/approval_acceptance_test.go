@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -270,6 +272,9 @@ func TestApprovalExpirySchedulerTakeover(t *testing.T) {
 		future := time.Now().UTC().Add(2 * time.Hour)
 		a.approvals.Now = func() time.Time { return future }
 		b.approvals.Now = func() time.Time { return future }
+		// Every node's log is retained so a takeover that never happens can be
+		// explained by the previous holder's shutdown, not only by the claimant.
+		logs := map[string]*bytes.Buffer{}
 		startNode := func(node approvalNode, name string) (context.Context, func()) {
 			t.Helper()
 			terms := make(chan context.Context, 1)
@@ -278,9 +283,14 @@ func TestApprovalExpirySchedulerTakeover(t *testing.T) {
 				lease = &uncertainClaimReply{LeaseManager: lease}
 			}
 			var logged bytes.Buffer
+			logs[name] = &logged
 			scheduler := &app.Scheduler{
 				Lease: lease, NodeID: name, LeaseTTL: time.Minute,
-				Heartbeat: 20 * time.Millisecond, Interval: time.Hour,
+				// The heartbeat doubles as the datastore call budget. 20 ms is
+				// below one round trip on a loaded CI Postgres and turns
+				// contention into repeated claim timeouts; 100 ms keeps the
+				// takeover fast while leaving room for a real query.
+				Heartbeat: 100 * time.Millisecond, Interval: time.Hour,
 				Log: slog.New(slog.NewTextHandler(&logged, nil)),
 				Jobs: []app.ScheduledJob{{Name: "approval_expiry_sweep", Run: func(ctx context.Context) error {
 					if uncertain, ok := lease.(*uncertainClaimReply); ok && !uncertain.confirmed.Load() {
@@ -306,13 +316,22 @@ func TestApprovalExpirySchedulerTakeover(t *testing.T) {
 				return term, stop
 			case <-time.After(5 * time.Second):
 				stop()
-				t.Fatalf("scheduler did not acquire leadership: %s", logged.String())
+				var all strings.Builder
+				for node, buffer := range logs {
+					fmt.Fprintf(&all, "\n[%s]\n%s", node, buffer.String())
+				}
+				t.Fatalf("scheduler %s did not acquire leadership: lease owner=%q%s", name, leaseOwner(t, db), all.String())
 				return nil, stop
 			}
 		}
 		oldTerm, stopA := startNode(a, "approval-node-a")
 		oldFence := queryInt(t, db, "SELECT fence_token FROM singleton_leases WHERE name = 'scheduler'")
 		stopA()
+		// The previous holder releases on shutdown; a lease still live here
+		// would make the takeover wait out the full TTL. Fail on it by name.
+		if released := queryInt(t, db, "SELECT CASE WHEN expires_at <= "+leaseNow(db)+" THEN 1 ELSE 0 END FROM singleton_leases WHERE name = 'scheduler'"); released != 1 {
+			t.Fatalf("approval-node-a did not release the scheduler lease on shutdown:\n%s", logs["approval-node-a"].String())
+		}
 		newTerm, _ := startNode(b, "approval-node-b")
 		if fence := queryInt(t, db, "SELECT fence_token FROM singleton_leases WHERE name = 'scheduler'"); fence <= oldFence {
 			t.Fatalf("takeover fence=%d, want > %d", fence, oldFence)
@@ -434,4 +453,31 @@ func TestApprovalExpiryRejectsExpiredAndReusedOwner(t *testing.T) {
 			t.Fatalf("new term did not expire exactly once: state=%s", state)
 		}
 	})
+}
+
+// leaseOwner reads the scheduler lease holder for takeover diagnostics.
+func leaseOwner(t *testing.T, db *store.DB) string {
+	t.Helper()
+	var owner string
+	var err error
+	const q = "SELECT owner FROM singleton_leases WHERE name = 'scheduler'"
+	if db.Engine() == store.EnginePostgres {
+		err = db.PG().QueryRow(t.Context(), q).Scan(&owner)
+	} else {
+		err = db.SQLiteRead().QueryRowContext(t.Context(), q).Scan(&owner)
+	}
+	if err != nil {
+		return "unreadable: " + err.Error()
+	}
+	return owner
+}
+
+// leaseNow is the datastore clock expression the lease table compares against.
+func leaseNow(db *store.DB) string {
+	if db.Engine() == store.EnginePostgres {
+		return "now()"
+	}
+	// Lease stamps use the store's fixed microsecond layout; a lexical
+	// comparison against the same shape is exact.
+	return "strftime('%Y-%m-%dT%H:%M:%f','now') || '000Z'"
 }

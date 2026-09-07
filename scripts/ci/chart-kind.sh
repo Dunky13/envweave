@@ -357,6 +357,30 @@ fi
 
 kubectl --namespace "$NAMESPACE" port-forward deployment/$RELEASE-hikyo \
 	18080:8080 18081:8081 >"$work/port-forward.log" 2>&1 &
+# forwarded_get performs one HTTP request through the port-forward and prints
+# the status code. kubectl port-forward drops its stream after an upstream
+# error and answers the next connection with nothing, which curl reports as
+# exit 7, 52 or 56. Those transport failures are retried a few times; an HTTP
+# status of any kind is returned at once, so product behaviour is never retried
+# away. On the final failure the forwarder's log is shown.
+forwarded_get() {
+	local url=$1 output=$2 attempt status code
+	shift 2
+	for attempt in 1 2 3 4 5; do
+		if status=$(curl --silent --show-error --output "$output" --write-out '%{http_code}' "$@" "$url"); then
+			printf '%s\n' "$status"
+			return 0
+		fi
+		code=$?
+		case "$code" in
+		7 | 52 | 56) sleep 1 ;;
+		*) break ;;
+		esac
+	done
+	echo "chart-kind: request to $url failed through the port-forward (curl exit $code) after $attempt attempts" >&2
+	cat "$work/port-forward.log" >&2
+	return 1
+}
 port_forward_pid=$!
 for _ in {1..30}; do
 	if curl --fail --silent http://127.0.0.1:18081/readyz >/dev/null; then
@@ -364,8 +388,13 @@ for _ in {1..30}; do
 	fi
 	sleep 1
 done
-curl --fail --silent http://127.0.0.1:18081/readyz >/dev/null
-curl --fail --silent http://127.0.0.1:18081/healthz >/dev/null
+for path in readyz healthz; do
+	status=$(forwarded_get "http://127.0.0.1:18081/$path" /dev/null) || exit 1
+	if [[ "$status" != 200 ]]; then
+		echo "chart-kind: /$path returned $status after rollout, want 200" >&2
+		exit 1
+	fi
+done
 
 # Bootstrap actual chart authority through the supported local-admin command.
 # Reuse the candidate image, datastore, and protected mounts in short-lived
@@ -421,12 +450,12 @@ if ! jq -e --arg engine postgres --arg volume_severity unknown -f scripts/ci/ass
 fi
 echo 'chart-kind: authenticated instance doctor reported all 12 operational finding families'
 
-if ! document=$(curl --fail --silent --show-error \
-	--header 'Accept: text/html' http://127.0.0.1:18080/); then
-	echo "chart-kind: UI document request failed" >&2
-	cat "$work/port-forward.log" >&2
+document_status=$(forwarded_get http://127.0.0.1:18080/ "$work/document.html" --header 'Accept: text/html') || exit 1
+if [[ "$document_status" != 200 ]]; then
+	echo "chart-kind: UI document request returned $document_status" >&2
 	exit 1
 fi
+document=$(<"$work/document.html")
 if [[ ! "$document" =~ \<\!doctype[[:space:]]+html|\<html ]]; then
 	echo "chart-kind: UI root did not return an HTML document" >&2
 	printf '%s\n' "$document" >&2
@@ -448,17 +477,16 @@ if [[ "$ready" != "False" ]]; then
 	echo "chart-kind: database outage did not remove pod readiness within 30 seconds" >&2
 	exit 1
 fi
-if ! ready_status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
-	http://127.0.0.1:18081/readyz); then
-	echo "chart-kind: /readyz during database outage failed before returning an HTTP status" >&2
-	cat "$work/port-forward.log" >&2
-	exit 1
-fi
+ready_status=$(forwarded_get http://127.0.0.1:18081/readyz /dev/null) || exit 1
 if [[ "$ready_status" != 503 ]]; then
 	echo "chart-kind: /readyz during database outage returned $ready_status, want 503" >&2
 	exit 1
 fi
-curl --fail --silent http://127.0.0.1:18081/healthz >/dev/null
+health_status=$(forwarded_get http://127.0.0.1:18081/healthz /dev/null) || exit 1
+if [[ "$health_status" != 200 ]]; then
+	echo "chart-kind: /healthz during database outage returned $health_status, want 200" >&2
+	exit 1
+fi
 restarts_during_outage=$(kubectl --namespace "$NAMESPACE" get pod "$pod" \
 	-o jsonpath='{.status.containerStatuses[?(@.name=="server")].restartCount}')
 if [[ "$restarts_during_outage" != "$restarts_before" ]]; then

@@ -30,6 +30,22 @@ import "testing"
 func FuzzAuto(f *testing.F) { f.Fuzz(func(*testing.T, []byte) {}) }
 EOF
 
+cat >"$fixture_dir/internal/app/app_test.go" <<'EOF'
+package app
+
+import "testing"
+
+func TestBoot(t *testing.T)           {}
+func TestRestore(t *testing.T)        {}
+func TestUpgrade(t *testing.T)        {}
+func TestMaintenance(t *testing.T)    {}
+func TestScheduler(t *testing.T)      {}
+func TestDiagnostics(t *testing.T)    {}
+func TestOwnerRuntime(t *testing.T)   {}
+func TestAutomaticDrill(t *testing.T) {}
+func helperNotATest(t *testing.T)     {}
+EOF
+
 cat >"$fixture_dir/internal/crypto/crypto_test.go" <<'EOF'
 package crypto
 
@@ -85,8 +101,31 @@ while [ "$shard" -lt 3 ]; do
 	shard=$((shard + 1))
 done
 
-if [ -n "$(cut -f2 "$race_actual" | sort | uniq -d)" ]; then
+# Whole packages are assigned once. internal/app is spread over every shard by
+# test name; each of its tests must be assigned exactly once and nothing else
+# may carry a filter.
+tab=$(printf '\t')
+if [ -n "$(grep -v "internal/app$tab" "$race_actual" | cut -f2 | sort | uniq -d)" ]; then
 	printf 'analysis shard fixture failed: race package assigned more than once\n' >&2
+	exit 1
+fi
+if grep -v "internal/app$tab" "$race_actual" | grep -q "$tab.*$tab"; then
+	printf 'analysis shard fixture failed: a package other than app carries a test filter\n' >&2
+	exit 1
+fi
+app_tests=$(grep "internal/app$tab" "$race_actual" | cut -f3 | sed 's/^\^(//; s/)\$$//' | tr '|' '\n' | sort)
+if [ -n "$(printf '%s\n' "$app_tests" | uniq -d)" ]; then
+	printf 'analysis shard fixture failed: app test assigned more than once\n' >&2
+	exit 1
+fi
+expected_app_tests=$(printf '%s\n' TestAutomaticDrill TestBoot TestDiagnostics TestMaintenance TestOwnerRuntime TestRestore TestScheduler TestUpgrade)
+if [ "$app_tests" != "$expected_app_tests" ]; then
+	printf 'analysis shard fixture failed: app tests not covered exactly once: %s\n' "$app_tests" >&2
+	exit 1
+fi
+app_shards=$(grep -c "internal/app$tab" "$race_actual" | tr -d ' ')
+if [ "$app_shards" -lt 2 ]; then
+	printf 'analysis shard fixture failed: app tests were not spread across shards\n' >&2
 	exit 1
 fi
 if [ -n "$(cut -f2- "$fuzz_actual" | sort | uniq -d)" ]; then
@@ -98,7 +137,7 @@ if [ -n "$(cut -f2 "$isolation_actual" | sort | uniq -d)" ]; then
 	exit 1
 fi
 
-cut -f2 "$race_actual" | sort >"$fixture_dir/race-packages"
+cut -f2 "$race_actual" | sort -u >"$fixture_dir/race-packages"
 cat >"$fixture_dir/race-expected" <<'EOF'
 example.com/shards/extra
 example.com/shards/internal/app
@@ -108,11 +147,12 @@ example.com/shards/internal/store
 EOF
 cmp "$fixture_dir/race-expected" "$fixture_dir/race-packages"
 
-# The cumulative app/service race timeout came from co-locating the largest
-# authenticated datastore fixtures. Keep all three on independent runners.
-heavy_shards=$(awk -F '\t' '$2 ~ /^example.com\/shards\/internal\/(app|service|store)$/ { print $1 }' \
+# The cumulative service/store race timeout came from co-locating the largest
+# authenticated datastore fixtures. Keep them on independent runners; app is
+# split by test name so its share on any runner stays bounded.
+heavy_shards=$(awk -F '\t' '$2 ~ /^example.com\/shards\/internal\/(service|store)$/ { print $1 }' \
 	"$race_actual" | sort -u | wc -l | tr -d ' ')
-[ "$heavy_shards" -eq 3 ] || {
+[ "$heavy_shards" -eq 2 ] || {
 	printf 'analysis shard fixture failed: heavy race packages share a runner\n' >&2
 	exit 1
 }

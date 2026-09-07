@@ -28,8 +28,9 @@ elif [[ "$1" == test ]]; then
   printf '%s\n' "$@" >>"$RACE_TEST_EXECUTED"
   printf 'call\n' >>"$RACE_TEST_CALLS"
   if [[ "$*" == *internal/app* ]]; then
-    if [[ "$#" != 1 || $(wc -l <"$RACE_TEST_CALLS") -ne "$RACE_TEST_APP_CALL" ]]; then
-      echo 'race fixture: app shares a package batch or runs before its peers finish' >&2
+    # The app subset runs alone, after its peers, as `-run FILTER PACKAGE`.
+    if [[ "$#" != 3 || "$1" != -run || "$2" != "$RACE_TEST_APP_FILTER" || $(wc -l <"$RACE_TEST_CALLS") -ne "$RACE_TEST_APP_CALL" ]]; then
+      echo 'race fixture: app shares a package batch, runs before its peers finish, or lost its test filter' >&2
       exit 93
     fi
     [[ "$RACE_TEST_FAIL" != app ]] || exit 94
@@ -48,17 +49,19 @@ export RACE_TEST_EXECUTED="$work/executed"
 export RACE_TEST_CALLS="$work/calls"
 export RACE_TEST_FAIL=''
 export RACE_TEST_APP_CALL=2
+export RACE_TEST_APP_FILTER='^(TestBoot|TestRestore_Drill)$'
+app_line=$(printf 'example/internal/app\t%s' "$RACE_TEST_APP_FILTER")
 printf '%s\n' example/internal/service example/internal/app example/internal/isolation example/cmd/hikyo >"$RACE_TEST_INVENTORY"
 for scope in mixed app-only no-app; do
   case "$scope" in
     mixed)
-      printf '%s\n' example/internal/app example/internal/service example/cmd/hikyo >"$work/shard"
-      printf '%s\n' example/internal/service example/cmd/hikyo example/internal/app >"$work/expected"
+      printf '%s\n' "$app_line" example/internal/service example/cmd/hikyo >"$work/shard"
+      printf '%s\n' example/internal/service example/cmd/hikyo -run "$RACE_TEST_APP_FILTER" example/internal/app >"$work/expected"
       export RACE_TEST_APP_CALL=2
       ;;
     app-only)
-      printf '%s\n' example/internal/app >"$work/shard"
-      cp "$work/shard" "$work/expected"
+      printf '%s\n' "$app_line" >"$work/shard"
+      printf '%s\n' -run "$RACE_TEST_APP_FILTER" example/internal/app >"$work/expected"
       export RACE_TEST_APP_CALL=1
       ;;
     no-app)
@@ -86,13 +89,17 @@ for scope in mixed app-only no-app; do
     cmp "$work/expected" "$RACE_TEST_EXECUTED"
   done
 done
-for invalid in empty duplicate isolation unknown option whitespace blank missing-file no-arg extra-arg inventory-duplicate inventory-missing-app inventory-missing-isolation; do
+for invalid in empty duplicate isolation unknown option whitespace blank missing-file no-arg extra-arg inventory-duplicate inventory-missing-app inventory-missing-isolation app-unfiltered app-unanchored app-injection peer-filter; do
   printf '%s\n' example/internal/service example/internal/app example/internal/isolation example/cmd/hikyo >"$RACE_TEST_INVENTORY"
-  printf '%s\n' example/internal/app example/internal/service >"$work/shard"
+  printf '%s\n' "$app_line" example/internal/service >"$work/shard"
   args=("$work/shard")
   case "$invalid" in
     empty) : >"$work/shard" ;;
-    duplicate) printf '%s\n' example/internal/app >>"$work/shard" ;;
+    duplicate) printf '%s\n' "$app_line" >>"$work/shard" ;;
+    app-unfiltered) printf '%s\n' example/internal/app example/internal/service >"$work/shard" ;;
+    app-unanchored) printf 'example/internal/app\tTestBoot|TestOther\nexample/internal/service\n' >"$work/shard" ;;
+    app-injection) printf 'example/internal/app\t^(TestBoot)$ -count=0\nexample/internal/service\n' >"$work/shard" ;;
+    peer-filter) printf 'example/internal/service\t^(TestOnly)$\n' >"$work/shard" ;;
     isolation) printf '%s\n' example/internal/isolation >>"$work/shard" ;;
     unknown) printf '%s\n' example/not-in-plan >>"$work/shard" ;;
     option) printf '%s\n' -run=Nothing >>"$work/shard" ;;

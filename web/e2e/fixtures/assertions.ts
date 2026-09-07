@@ -661,6 +661,13 @@ export async function expectPinnedAssertionSet(page: Page, surface: PinnedSurfac
   // product's existing zero-duration path, so use it for deterministic pixel
   // and accessibility assertions instead of sleeping past the transition.
   await page.emulateMedia({ reducedMotion: 'reduce' });
+  // Zeroing the duration does not stop a transition that already started
+  // when the theme flipped a moment ago; the spec leaves running transitions
+  // on their original timing. Wait for every running animation and
+  // transition to settle so axe samples steady-state colours.
+  await page.evaluate(() =>
+    Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => undefined))),
+  );
 
   await expectNoSeriousAxeViolations(page);
 

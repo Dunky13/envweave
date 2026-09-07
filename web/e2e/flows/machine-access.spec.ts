@@ -62,6 +62,11 @@ function accountRow(page: Page, name: string) {
 async function revokeMinted(page: Page) {
   const expansion = page.locator('.machine__sub');
   const buttons = expansion.getByRole('button', { name: /^Revoke hik_1_wl_/ });
+  // Every caller minted first, and the mint's listing refetch can still be in
+  // flight when this runs. A bare count() taken before the minted row renders
+  // returned zero, skipped the loop, and the final assertion then met the real
+  // row. Wait for the minted row before counting.
+  await expect(buttons.first()).toBeVisible();
   for (let remaining = await buttons.count(); remaining > 0; remaining--) {
     await buttons.first().click();
     await expect(expansion.locator('.cred')).toHaveCount(remaining - 1);
@@ -542,11 +547,20 @@ test.describe('machine access', () => {
     await dialog.getByLabel('Subject, matched byte-for-byte').fill(subject);
     await dialog.getByLabel(/ServiceAccount UID/).fill('e2e-replace-uid');
     await dialog.getByLabel('Audience').fill(seed.machine.audience);
+    const bound = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        response.url().includes('/bindings') &&
+        response.status() === 201,
+    );
     await dialog.getByRole('button', { name: 'Bind this identity' }).click();
     await expect(dialog).toBeHidden();
     await expect(page.locator('.notice').filter({ hasText: 'Bound' })).toBeVisible();
+    const predecessorId: string = z
+      .object({ credential: z.object({ id: z.string() }) })
+      .parse(await (await bound).json()).credential.id;
 
-    const card = page.locator('.bindrow', { hasText: subject });
+    const card = page.locator(`.bindrow[data-credential="${predecessorId}"]`);
     await expect(card).toBeVisible();
 
     // Replace: the dialog is retitled, the account is LOCKED to the
@@ -581,6 +595,15 @@ test.describe('machine access', () => {
         finishListing();
       }
     });
+    // The successor shares the predecessor's subject by design, so subject text
+    // cannot tell the two rows apart during the swap. Take the successor's id
+    // from the replacement response and target that row.
+    const replaced = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        response.url().includes('/bindings') &&
+        response.status() === 201,
+    );
     try {
       await replace.getByRole('button', { name: 'Replace this binding' }).click();
       await listingStarted;
@@ -595,10 +618,16 @@ test.describe('machine access', () => {
     await expect(page.locator('.notice').filter({ hasText: 'Replaced' })).toBeVisible();
 
     // Exactly one live binding carries the subject now, the predecessor was
-    // revoked, so it is gone from the list. Revoke the successor to leave the
-    // seed inventory as it was.
-    const successor = page.locator('.bindrow', { hasText: subject });
+    // revoked, so it is gone from the list. Wait for its row to leave before
+    // clicking anything: a click resolved against the old row a moment before
+    // React swaps in the successor revokes an already revoked credential.
+    const successorId: string = z
+      .object({ credential: z.object({ id: z.string() }) })
+      .parse(await (await replaced).json()).credential.id;
+    await expect(page.locator(`.bindrow[data-credential="${predecessorId}"]`)).toHaveCount(0);
+    const successor = page.locator(`.bindrow[data-credential="${successorId}"]`);
     await expect(successor).toHaveCount(1);
+    await expect(page.locator('.bindrow', { hasText: subject })).toHaveCount(1);
     await successor.getByRole('button', { name: `Revoke binding on ${account}` }).click();
     await expect(page.locator('.bindrow', { hasText: subject })).toHaveCount(0);
   });
