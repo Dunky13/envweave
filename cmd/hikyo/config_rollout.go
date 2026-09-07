@@ -24,6 +24,9 @@ func runConfigRollout(ctx context.Context, args []string, stderr io.Writer) int 
 	enrollmentPath := fs.String("enrollment-file", "/run/hikyo/rollout/enrollment/enrollment.json", "operator-installed rollout enrollment")
 	publicPath := fs.String("authority-public-key", "/run/hikyo/rollout/enrollment/authority.pub", "operator-installed Ed25519 deployment authority public key")
 	if err := fs.Parse(args); err != nil || fs.NArg() != 0 {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 2
 	}
 	enrollmentRaw, err := readRolloutInstalled(*enrollmentPath)

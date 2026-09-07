@@ -62,6 +62,15 @@ func BackupUsage(w io.Writer) {
   hikyo backup export [--out DIR] [--recipient AGE-RECIPIENT]...
                       [--passphrase-file PATH]
   hikyo backup keygen [--output-file PATH | --dangerously-print]
+  hikyo backup upgrade-export [--bundle DIR] [--out DIR] [--recipient AGE-RECIPIENT]... [--json]
+  hikyo backup upgrade-drill --from ARCHIVE --receipt PATH --identity-file PATH
+                      --root-key-file PATH (--target-sqlite PATH | --target-postgres-dsn-file PATH)
+                      [--principal ID] [--project ORG/PROJECT] [--bundle DIR] [--out DIR]
+                      [--cosign PATH] [--signing-key PATH] [--valid-for 24h]
+
+For a development datastore, put --dev immediately after the group:
+  hikyo backup --dev export
+The production trust domain remains the default.
 
 export writes ONE age-encrypted archive holding a consistent snapshot of the
 datastore. Every sensitive field inside it is already envelope ciphertext and
@@ -79,6 +88,11 @@ keygen mints a backup identity and prints it once. Store the PRIVATE half in a
 custody store SEPARATE from the root key's - two keys in one password manager
 is one failure domain wearing two names, and the escrow runbook requires two.
 Delivery follows the print triad, as with every other display-once value.
+
+upgrade-export and upgrade-drill are the pre-upgrade evidence pair that
+sudo hikyo upgrade runs against a verified release bundle: export writes the
+public ciphertext and its receipt, drill restores that archive into an empty
+scratch datastore and signs an attestation that the restore path works.
 `)
 }
 
@@ -95,6 +109,10 @@ func RestoreUsage(w io.Writer) {
                       --root-key-file PATH --principal ID --project ORG/PROJECT
                       (--target-sqlite PATH | --target-postgres-dsn-file PATH)
                       [--cleanup] [-o json]
+
+For a development datastore, put --dev immediately after the group:
+  hikyo restore --dev status
+The production trust domain remains the default.
 
 run refuses anything that is not a complete archive for THIS engine, and it
 refuses it BEFORE touching the target: the container is decrypted in full and
@@ -132,7 +150,7 @@ func RunBackup(ctx context.Context, cfg *config.Config, log *slog.Logger, args [
 ) error {
 	if len(args) == 0 {
 		BackupUsage(stderr)
-		return errors.New("usage: hikyo backup export | hikyo backup keygen")
+		return errors.New("usage: hikyo backup export | keygen | upgrade-export | upgrade-drill")
 	}
 	switch args[0] {
 	case "upgrade-export", "upgrade-drill":
@@ -278,7 +296,7 @@ func RunRestore(ctx context.Context, cfg *config.Config, log *slog.Logger, args 
 ) error {
 	if len(args) == 0 {
 		RestoreUsage(stderr)
-		return errors.New("usage: hikyo restore run --from ARCHIVE | hikyo restore status | hikyo restore reconcile --principal ID")
+		return errors.New("usage: hikyo restore run --from ARCHIVE | hikyo restore status | hikyo restore reconcile --principal ID | hikyo restore drill --from ARCHIVE")
 	}
 	switch args[0] {
 	case "run":

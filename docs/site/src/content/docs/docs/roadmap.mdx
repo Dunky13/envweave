@@ -9,8 +9,8 @@ secrets service with controlled human onboarding, workload delivery, and
 recoverable operations. New product surfaces follow after that boundary is
 verified.
 
-<Callout type="warn" title="Development snapshot, 5 September 2026">
-  This page describes main at `0d591366874ad525b60ca12938dfd0ef2efe12d4`
+<Callout type="warn" title="Development snapshot, 7 September 2026">
+  This page describes main at `98ccf489758f1043448aa3008b484d41a0ebb7f7`
   and the review queue at this assessment. Merged code is not a released 1.0
   build. The [release gate](https://github.com/Hikyo-Org/Hikyo/issues/79)
   and [implementation status](/implementation-status/) remain authoritative
@@ -47,10 +47,11 @@ That implementation does not establish every advertised client's live result.
 
 The release is not reduced to a signing ceremony or tag push. Supported
 workflows, compatibility safety and candidate evidence still need closure.
-The following changes were **open pull requests at this snapshot**; their links
-show the current review and merge state.
+The following changes have **merged since the previous snapshot**; their links
+record the review that admitted them. Merged code still awaits the exact
+candidate's acceptance run.
 
-| Work | Why it belongs in 1.0 | Delivery under review |
+| Work | Why it belongs in 1.0 | Delivery |
 | --- | --- | --- |
 | Browser bundle export/check/plan/apply and this instance's directory | Browser-only operators need the actual immutable bundle and directory workflows; catalogue editing is not equivalent. | [#644](https://github.com/Hikyo-Org/Hikyo/pull/644), issues [#575](https://github.com/Hikyo-Org/Hikyo/issues/575) and [#576](https://github.com/Hikyo-Org/Hikyo/issues/576) |
 | Safe upgrade boundary | Refuse legacy remote apply before effects, preserve discovery/manual operation, and record the compatibility governance. A refusal is not an implemented signed migration graph. | [#645](https://github.com/Hikyo-Org/Hikyo/pull/645), [#638](https://github.com/Hikyo-Org/Hikyo/issues/638) |
@@ -68,9 +69,17 @@ provider evidence, API/CLI freeze and bidirectional skew checks, self-hoster
 and disclosure-channel checks, and the real release-signing ceremony.
 Published trust material and a stable tag cannot stand in for those results.
 Signed compatibility metadata and release binding, the applied-release ledger,
-exact legacy genesis, and mandatory migration gates on both engines remain
-required implementation before 1.0. PR #645 records governance and disables
-unsafe apply; it does not complete those foundations.
+exact legacy genesis, and mandatory migration gates on both engines have since
+landed ([#664](https://github.com/Hikyo-Org/Hikyo/pull/664),
+[#666](https://github.com/Hikyo-Org/Hikyo/pull/666),
+[#687](https://github.com/Hikyo-Org/Hikyo/pull/687)), together with
+`sudo hikyo upgrade` for signed nightlies on systemd hosts
+([#693](https://github.com/Hikyo-Org/Hikyo/pull/693)) and the recovery-signed
+legacy bridges into the current nightly
+([#690](https://github.com/Hikyo-Org/Hikyo/pull/690),
+[#696](https://github.com/Hikyo-Org/Hikyo/pull/696)). Runtime settings and
+controlled bootstrap rollouts ([#686](https://github.com/Hikyo-Org/Hikyo/pull/686))
+replaced restart-only configuration. What remains is the acceptance act itself.
 
 ## MCP: deployment proof and human delegation are separate
 

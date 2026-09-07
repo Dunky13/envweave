@@ -82,6 +82,61 @@ func TestHelpOutputIsFrozen(t *testing.T) {
 	golden(t, "help.txt", buf.Bytes())
 }
 
+func TestEveryVerbHasHelp(t *testing.T) {
+	// A verb that dispatches but has no line in the frozen help is invisible
+	// to `hikyo <verb> --help`; this keeps the two tables in step.
+	for _, verb := range cli.Verbs {
+		var out bytes.Buffer
+		if !cli.Help(&out, []string{verb}) {
+			t.Errorf("no help for verb %q", verb)
+		}
+	}
+	var out bytes.Buffer
+	if cli.Help(&out, []string{"teleport"}) {
+		t.Errorf("help for an unknown verb rendered %q", out.String())
+	}
+}
+
+func TestHelpSlicesTheFrozenText(t *testing.T) {
+	var out bytes.Buffer
+	if !cli.Help(&out, []string{"account", "factor", "no-such-word"}) {
+		t.Fatal("no help for account factor")
+	}
+	// The unmatched trailing word is dropped, so this is `account factor`.
+	got := out.String()
+	for _, want := range []string{"accounts:\n", "hikyo account factor enrol-totp", "hikyo account factor step-up"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("account factor help lacks %q:\n%s", want, got)
+		}
+	}
+	for _, reject := range []string{"hikyo account passkey", "hikyo login"} {
+		if strings.Contains(got, reject) {
+			t.Errorf("account factor help leaks %q:\n%s", reject, got)
+		}
+	}
+	// Alternation entries answer for each alternative, and a verb spread over
+	// several sections renders each section it appears in.
+	out.Reset()
+	cli.Help(&out, []string{"project", "rename"})
+	if got := out.String(); !strings.Contains(got, "hikyo project list|show|create|rename|delete") || !strings.Contains(got, "hikyo project rename <project>") {
+		t.Errorf("project rename help:\n%s", got)
+	}
+	out.Reset()
+	cli.Help(&out, []string{"instance-config"})
+	if got := out.String(); strings.Count(got, "\ninstance configuration:\n") != 1 || !strings.Contains(got, "managed configuration:\n") || !strings.Contains(got, "oidc federation:\n") {
+		t.Errorf("instance-config help does not span its sections:\n%s", got)
+	}
+}
+
+func TestHelpRequestedStopsAtSeparator(t *testing.T) {
+	if !cli.HelpRequested([]string{"--local", "-h"}) || cli.HelpRequested([]string{"--", "--help"}) || cli.HelpRequested([]string{"--helpful"}) {
+		t.Error("HelpRequested misreads its arguments")
+	}
+	if got := cli.CommandPath([]string{"values", "set", "KEY", "--stdin", "--help"}); strings.Join(got, " ") != "values set KEY" {
+		t.Errorf("CommandPath = %q", got)
+	}
+}
+
 func TestExitCodeMatrix(t *testing.T) {
 	// The scenario matrix the ops spec calls for: a fixed set of invocations
 	// with their committed exit codes. Scripts branch on codes, so a code
@@ -227,6 +282,17 @@ func TestExitCodeMatrix(t *testing.T) {
 		{"values import file and from-dotenv", []string{"values", "import", "--from-dotenv", "a.env", "--file", "v.json", "--instance", "unknown-ref"}, cli.ExitUsage},
 		// run --use-human-session with no terminal is refused (testIO injects none).
 		{"run --use-human-session without a terminal", []string{"run", "--use-human-session", "--instance", "unknown-ref", "--", "true"}, cli.ExitRefused},
+		// Help is answered on stdout with success at every depth, before any
+		// flag parsing or resolution; an unknown command stays usage even with
+		// --help; and nothing after "--" is ever read as a request for help.
+		{"top-level help", []string{"--help"}, cli.ExitOK},
+		{"help word", []string{"help"}, cli.ExitOK},
+		{"verb help", []string{"login", "--help"}, cli.ExitOK},
+		{"subverb help", []string{"account", "factor", "--help"}, cli.ExitOK},
+		{"help word at depth", []string{"help", "adapter", "target"}, cli.ExitOK},
+		{"help after flags", []string{"values", "set", "KEY", "--stdin", "-h"}, cli.ExitOK},
+		{"help for an unknown verb", []string{"teleport", "--help"}, cli.ExitUsage},
+		{"help after the separator is the child's", []string{"run", "--instance", "unknown-ref", "--", "true", "--help"}, cli.ExitRefused},
 	}
 	var report strings.Builder
 	for _, tc := range cases {

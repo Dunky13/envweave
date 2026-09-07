@@ -4,17 +4,41 @@ description: Find Hikyo command families, target rules, output contracts, and ex
 editUrl: https://github.com/Hikyo-Org/Hikyo/edit/main/docs/site/src/content/docs/docs/cli-reference.mdx
 ---
 
-Run `hikyo` for the exact help shipped by your binary. This page is a map, not a
-replacement for version-matched help.
+Run `hikyo --help` for the exact help shipped by your binary. This page is a
+map, not a replacement for version-matched help.
+
+## Getting help
+
+Every command answers `--help` (or `-h`) at any depth with exit `0`, before
+it touches configuration, the datastore, the network, or the terminal.
+`hikyo help <command...>` is the same request spelled as a word. Help goes to
+stdout, except that `server`, `migrate`, and `config-rollout` print their flag
+parser's usage on stderr.
+
+```text
+hikyo --help                     every role of the binary, and the client verb list
+hikyo help client                the full client reference
+hikyo values --help              one verb family
+hikyo adapter target --help      one sub-family, at any depth
+hikyo backup export --help       a host operator group
+hikyo server --help              every server flag, from the flag parser
+```
+
+Anything after `--` belongs to the command `hikyo run` executes and is never
+read as a request for help.
 
 ## Server and host operator
 
 | Command family | Purpose |
 | --- | --- |
 | `server`, `migrate` | Serve Hikyo and manage schema state. |
-| `admin` | Bootstrap and break-glass account authority on the server host. |
-| `backup`, `restore` | Export, reconstruct, inspect, and reconcile an instance. |
-| `version` | Print readable build identity interactively; retain legacy one-line output when redirected. |
+| `upgrade` | `sudo hikyo upgrade` performs the verified in-place upgrade on a systemd host; `upgrade operator rotate` rotates the deployment authority. |
+| `admin` | Bootstrap, break-glass account authority, privacy actions, and configuration recovery on the server host. |
+| `backup`, `restore` | Export, reconstruct, inspect, drill, and reconcile an instance. |
+| `escrow` | Prove the separately held root escrow matches this instance. |
+| `operator`, `config-rollout` | The Kubernetes operator deployable and its in-cluster rollout authority stage. |
+| `updater` | The legacy privileged update helper; remote apply is disabled and it points at `hikyo upgrade`. |
+| `version`, `--version` | `version` prints the readable build summary; `--version` prints the version alone for scripts. |
 | `about`, `welcome` | Show Hikyo's full terminal artwork and product information. |
 
 ## Authentication and local state
@@ -38,7 +62,12 @@ stored locally and are never printed as a login receipt.
 | `folder`, `key` | Manage the catalogue and declarations. |
 | `values` | List, get, set, clear, diff, copy, and bulk declare. |
 | `access`, `project-settings` | Manage grants, members, and protected environments. |
-| `adapter` | Configure Forgejo deployment adapters, targets, plans, adoption, and converge jobs. |
+| `adapter` | Configure Forgejo and GitHub Actions deployment adapters, targets, plans, adoption, and converge jobs. |
+| `dynamic-provider`, `lease` | Register dynamic-secret providers and mint, renew, revoke, and settle short-lived leases. |
+| `revision`, `pin`, `approval` | Inspect lineage, pin workloads to a revision, and run change-approval policies and requests. |
+| `definitions`, `import` | Author and apply the reviewable catalogue, and stage values from other systems. |
+| `remote`, `remote-credential` | Peer instances and the credentials they present. |
+| `rotate-*`, `reencrypt` | Key rotation ceremonies and the re-encryption that completes a project rotation. |
 
 Most list and show commands accept `-o table|json`. JSON shapes may gain fields;
 automation must ignore unknown fields.
@@ -164,10 +193,9 @@ live Kubernetes and Vault/OpenBao sources. Use explicit flag mode or replay a
 recorded mapping; run `hikyo import --help` for the current source-specific
 flags.
 
-The interactive, multi-environment wizard is not implemented yet. Running
-`hikyo import` without `--from` or `--mapping` refuses explicitly and directs
-you to the available modes. Completion is tracked by
-[#112](https://github.com/Hikyo-Org/Hikyo/issues/112).
+Running `hikyo import` without `--from` or `--mapping` on a terminal enters the
+interactive, multi-environment wizard. Off a terminal the same invocation
+refuses explicitly and directs you to the flag and mapping modes.
 
 For a plaintext `.env`, use `definitions scaffold --from .env` to author a
 declaration offline, then `values import --from-dotenv .env` for the values. See
@@ -189,15 +217,11 @@ hikyo definitions apply --plan ID [--file PATH] [--allow-delete]
 no server, and emits an additive bundle every key of which is `config` with a
 `TODO: classify` marker. `check` exits `0` equal, `1` different, `2` on error.
 
-## Commands not yet implemented
-
-`render`, `sync`, and `adopt` remain reserved top-level stubs. Compose delivery
-uses `compose render` and `compose sync`; `adopt` is not implemented in the
-current 0.x build.
-
 ## Managed Hikyo configuration
 
-For owner-local mail and release-notification settings, use
-[Manage Hikyo with Hikyo](/docs/managed-configuration/): edit the protected project,
-publish an exact revision, reauthenticate and apply. That guide covers adoption,
-per-node convergence, independent remote projects and rollback.
+Owner runtime settings and per-node settings are managed through Hikyo itself:
+edit the protected project, publish an exact revision, reauthenticate and apply
+with `instance-config apply`. [Manage Hikyo with Hikyo](/docs/managed-configuration/)
+covers adoption, per-node convergence, independent remote projects and rollback,
+and [configuration rollouts](/docs/configuration-rollouts/) covers the controlled
+bootstrap rollouts for settings that need a restart.

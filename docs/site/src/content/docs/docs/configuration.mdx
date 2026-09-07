@@ -31,17 +31,19 @@ Do not use `--dev` for real secret material or any non-loopback deployment.
 | `HIKYO_TLS_CERT_FILE`, `HIKYO_TLS_KEY_FILE` | Native TLS pair; both or neither. |
 | `HIKYO_OPERATIONAL_LISTEN` | Separate operational bind; default `127.0.0.1:8081`. |
 | `HIKYO_TRUSTED_PROXY_CIDRS` | Alternative proxy mode for a non-loopback plaintext public listener. |
-| `HIKYO_ADAPTER_EGRESS_POLICY_FILE` | Optional startup-only Forgejo origin-to-CIDR exception policy. |
+| `HIKYO_ADAPTER_EGRESS_POLICY_FILE` | Optional startup-only adapter origin-to-CIDR exception policy, for any provider. |
 
 When origin is unset, Hikyo derives `https://<listen>` with native TLS and
 `http://<listen>` otherwise. Proxy mode should set the public HTTPS origin
 explicitly because the private listener cannot infer it.
 
 Native TLS is the default direct-deployment posture. Hikyo validates the pair at
-startup, rejects expired or mismatched files, warns within 14 days of expiry,
-polls for replacements every 10 seconds, and also reloads on `SIGHUP`. A bad
-replacement leaves the last known-good certificate live and increments
-`hikyo_tls_reload_failures_total`.
+startup and rejects expired, not-yet-valid, or mismatched files. The bootstrap
+pair is imported once into the managed node configuration and never watched:
+`SIGHUP` refuses to reload it, and a replacement is published and applied as
+the node certificate through [managed configuration](/docs/managed-configuration/).
+A failed candidate is reported by the apply job and never replaces the live
+certificate; `hikyo_tls_reload_failures_total` stays `0` by construction.
 
 Proxy mode requires trusted CIDRs when the plaintext public listener is not
 loopback. The list names proxies, not browser client networks. Operational
@@ -127,11 +129,11 @@ deliberately does not send because they commit hostnames it does not serve.
 `/metrics` on the operational listener serves Prometheus text exposition
 (`text/plain; version=0.0.4`) using the official Prometheus Go client. Scraping
 requires no sidecar, external service, or egress. It is plaintext and
-unauthenticated by design — keep the operational bind private and scrape it from
+unauthenticated by design. Keep the operational bind private and scrape it from
 the host or a trusted network.
 
 Alongside the retention and TLS gauges it exposes RED-style request metrics
-keyed by a closed **surface class** — `auth`, `hierarchy`, `values`,
+keyed by a closed **surface class**: `auth`, `hierarchy`, `values`,
 `revisions`, `delivery`, `scim`, `admin`, and a fail-closed `other`. There are
 no raw paths and no identifiers in any label, so cardinality is bounded no
 matter the traffic.
@@ -140,16 +142,16 @@ matter the traffic.
 | --- | --- | --- | --- |
 | `hikyo_http_requests_total` | counter | `class`, `status` (`2xx`/`3xx`/`4xx`/`5xx`/`other`) | Requests per surface class and status bucket. A recovered panic counts as `5xx`. |
 | `hikyo_http_request_errors_total` | counter | `class`, `status` (`4xx`/`5xx`) | Client and server errors per surface class. |
-| `hikyo_http_requests_in_flight` | gauge | — | Requests currently executing in the API stack. |
+| `hikyo_http_requests_in_flight` | gauge | none | Requests currently executing in the API stack. |
 | `hikyo_http_request_duration_seconds` | histogram | `class` | Request latency; fixed buckets `0.005, 0.025, 0.1, 0.5, 1, 5` seconds plus `+Inf`. |
 | `hikyo_mcp_requests_total` | counter | `method`, `tool`, `status` | MCP requests by closed protocol method, registered tool name, and status bucket. |
 | `hikyo_mcp_requests_in_flight` | gauge | none | MCP requests currently executing. |
 | `hikyo_mcp_request_duration_seconds` | histogram | `method`, `tool` | MCP request latency using the fixed HTTP bucket grid. |
-| `hikyo_admission_concurrency_limit` | gauge | — | Derived Argon2id verification slots. |
-| `hikyo_admission_in_flight` | gauge | — | Verification slots currently held. |
-| `hikyo_admission_queue_depth_limit` | gauge | — | Bound on simultaneous pre-auth waiters. |
-| `hikyo_admission_queue_waiting` | gauge | — | Waiters currently queued for a slot. |
-| `hikyo_admission_active_backoffs` | gauge | — | Accounts currently past the failure-backoff threshold. |
+| `hikyo_admission_concurrency_limit` | gauge | none | Derived Argon2id verification slots. |
+| `hikyo_admission_in_flight` | gauge | none | Verification slots currently held. |
+| `hikyo_admission_queue_depth_limit` | gauge | none | Bound on simultaneous pre-auth waiters. |
+| `hikyo_admission_queue_waiting` | gauge | none | Waiters currently queued for a slot. |
+| `hikyo_admission_active_backoffs` | gauge | none | Accounts currently past the failure-backoff threshold. |
 
 Counters cover all `/api/v1/*` traffic. Unmatched paths, unsupported methods,
 and CORS preflights use the closed `other` class.
@@ -158,8 +160,8 @@ Under `--dev` the server also emits a per-request access log (method, surface
 class, status, duration) at debug level. The production handler starts at Info,
 so these Debug request lines are absent unless debug logging is enabled.
 
-Adapter egress is public-address-only by default. To approve a private Forgejo
-origin, point `HIKYO_ADAPTER_EGRESS_POLICY_FILE` at a JSON object whose keys are
+Adapter egress is public-address-only by default. To approve a private adapter
+origin (Forgejo or GitHub Enterprise Server), point `HIKYO_ADAPTER_EGRESS_POLICY_FILE` at a JSON object whose keys are
 exact canonical bare HTTPS origins and whose values are CIDR lists:
 
 ```json

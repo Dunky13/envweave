@@ -94,3 +94,11 @@ hikyo definitions scaffold -> 2 usage
 hikyo definitions scaffold --from x.env stray -> 2 usage
 hikyo values import --from-dotenv a.env --file v.json --instance unknown-ref -> 2 usage
 hikyo run --use-human-session --instance unknown-ref -- true -> 4 refused
+hikyo --help -> 0 ok
+hikyo help -> 0 ok
+hikyo login --help -> 0 ok
+hikyo account factor --help -> 0 ok
+hikyo help adapter target -> 0 ok
+hikyo values set KEY --stdin -h -> 0 ok
+hikyo teleport --help -> 2 usage
+hikyo run --instance unknown-ref -- true --help -> 4 refused

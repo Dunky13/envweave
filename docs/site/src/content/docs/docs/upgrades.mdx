@@ -54,10 +54,9 @@ before the current schema under `/var/lib/hikyo-upgrade`; earlier `backup-*`,
 want to keep elsewhere.
 No operator private key enters the service configuration or release workflow.
 
-If an upgrade is interrupted, rerun the same command. During the first upgrade,
-an intermediate older binary can still lack `hikyo upgrade`; in that case rerun
-the bootstrap command above. Its durable journal and
-systemd startup fence survive reboot. Proven pre-write attempts and known healthy
+If an upgrade is interrupted, rerun the same command; if the installed binary
+still lacks `hikyo upgrade`, rerun the bootstrap command above. Its durable
+journal and systemd startup fence survive reboot. Proven pre-write attempts and known healthy
 or schema-applied targets can continue. An uncertain or failed schema change
 leaves the service stopped and requires explicit operator recovery; the command
 never automatically rolls back the database or starts an older binary.

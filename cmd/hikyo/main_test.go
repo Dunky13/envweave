@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/Hikyo-Org/hikyo/internal/app"
+	"github.com/Hikyo-Org/hikyo/internal/cli"
 	"github.com/Hikyo-Org/hikyo/internal/config"
 	"github.com/Hikyo-Org/hikyo/internal/console"
 	"github.com/Hikyo-Org/hikyo/internal/crypto"
@@ -181,5 +182,68 @@ func TestEscrowDispatchPreservesServerRootIdentity(t *testing.T) {
 		if !called || code == 0 {
 			t.Fatal("actual dispatch accepted same-file custody")
 		}
+	}
+}
+
+func TestUsageCoversEveryMode(t *testing.T) {
+	// The mode switch in run() and the multicall help must not drift apart:
+	// every dispatched mode has a synopsis line, and no line names a mode
+	// that does not dispatch. Client verbs are appended from cli.Verbs.
+	modes := []string{"server", "migrate", "upgrade", "operator", "config-rollout", "updater",
+		"version", "about", "welcome", "admin", "backup", "escrow", "restore"}
+	var out bytes.Buffer
+	usage(&out)
+	text := out.String()
+	if strings.Contains(text, "—") {
+		t.Error("usage contains an em-dash")
+	}
+	for _, mode := range modes {
+		if !strings.Contains(text, "  hikyo "+mode) && !strings.Contains(text, "  sudo hikyo "+mode) {
+			t.Errorf("usage has no synopsis for mode %q", mode)
+		}
+		if !cli.HelpFromText(io.Discard, usageText, []string{mode}) {
+			t.Errorf("hikyo %s --help would find no section", mode)
+		}
+	}
+	for _, verb := range cli.Verbs {
+		if !strings.Contains(text, verb) {
+			t.Errorf("usage does not list client verb %q", verb)
+		}
+	}
+	if cli.HelpFromText(io.Discard, usageText, []string{"teleport"}) {
+		t.Error("usage answers help for an unknown mode")
+	}
+}
+
+func TestRunHelpRewritesTheHelpWord(t *testing.T) {
+	// `hikyo help values set` is `hikyo values set --help`, handed on to the
+	// client dispatcher untouched otherwise; host groups answer in place.
+	invocation, handled, code := runHelp([]string{"help", "values", "set"}, io.Discard, io.Discard)
+	if handled || code != 0 || strings.Join(invocation, " ") != "values set --help" {
+		t.Errorf("runHelp(help values set) = %q, %v, %d", invocation, handled, code)
+	}
+	invocation, handled, _ = runHelp([]string{"login", "--local"}, io.Discard, io.Discard)
+	if handled || strings.Join(invocation, " ") != "login --local" {
+		t.Errorf("runHelp(login --local) = %q, %v", invocation, handled)
+	}
+	for _, args := range [][]string{{"help"}, {"-h"}, {"help", "backup", "export"}, {"admin", "create", "--help"}, {"escrow", "--help"}, {"help", "client"}, {"updater", "--help"}, {"upgrade", "operator", "--help"}, {"upgrade", "operator", "rotate", "-h"}} {
+		if _, handled, code := runHelp(args, io.Discard, io.Discard); !handled || code != 0 {
+			t.Errorf("runHelp(%q) = %v, %d, want handled with success", args, handled, code)
+		}
+	}
+	// Modes with their own flag sets answer --help through the flag package.
+	for _, args := range [][]string{{"server", "--help"}, {"migrate", "-h"}, {"upgrade", "--help"}, {"config-rollout", "--help"}} {
+		if _, handled, _ := runHelp(args, io.Discard, io.Discard); handled {
+			t.Errorf("runHelp(%q) handled, want the mode's own flag usage", args)
+		}
+	}
+	if _, handled, code := runHelp([]string{"help", "teleport"}, io.Discard, io.Discard); !handled || code != 2 {
+		t.Errorf("runHelp(help teleport) = %v, %d, want usage exit", handled, code)
+	}
+}
+
+func TestConfigRolloutHelpExitsZero(t *testing.T) {
+	if code := runConfigRollout(context.Background(), []string{"--help"}, io.Discard); code != 0 {
+		t.Errorf("config-rollout --help exited %d, want 0", code)
 	}
 }

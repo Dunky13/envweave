@@ -143,6 +143,7 @@ hikyo migrate [--dev]
 hikyo admin [--dev] create --username admin
 hikyo backup [--dev] export
 hikyo restore [--dev] run --from <archive> --identity-file <path>
+sudo hikyo upgrade [--target VERSION]
 hikyo update channel stable|nightly|off
 hikyo update check
 
@@ -165,7 +166,9 @@ hikyo values copy --context <ctx> --from staging --to production --keys NAME
 ```
 
 Secret values never belong in command-line arguments. Use `--value-file` or
-`--stdin`. See the complete [CLI reference](https://hikyo.app/docs/cli-reference/).
+`--stdin`. Every command answers `--help` at any depth (`hikyo values set --help`,
+`hikyo help adapter target`). See the complete
+[CLI reference](https://hikyo.app/docs/cli-reference/).
 
 ## Run in production
 

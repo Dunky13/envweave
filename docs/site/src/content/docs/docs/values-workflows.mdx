@@ -85,9 +85,9 @@ normal secure-file procedure.
 
 A disclosure needs a reauthentication window over the environment. When none is
 live the CLI opens one: where the environment's effective window is above `0`
-it prompts for an authenticator code at the terminal; where it is `0` — a
+it prompts for an authenticator code at the terminal; where it is `0` (a
 protected environment, or an instance that keeps the production default
-`HIKYO_REAUTH_WINDOW_SECONDS=0` — a code cannot bind the decision, so the CLI
+`HIKYO_REAUTH_WINDOW_SECONDS=0`) a code cannot bind the decision, so the CLI
 opens the browser to the same purpose-bound passkey ceremony the Values page
 runs, naming exactly the secret keys the command will open, and continues once
 you approve. Either way the session token rotates and is stored. `--dev`
@@ -106,7 +106,7 @@ hikyo definitions scaffold --from .env > definitions-bundle.json
 
 `scaffold` is offline. It contacts no server, reads only the file you give it,
 and emits an additive bundle in which every key is `config` with a
-`TODO: classify` marker — it cannot know which keys are secret, so it does not
+`TODO: classify` marker. It cannot know which keys are secret, so it does not
 guess. Open the bundle, change each secret key's classification, then apply it:
 
 ```bash
@@ -120,7 +120,7 @@ With the keys declared, import the values through the same strict path:
 hikyo values import --context production --from-dotenv .env
 ```
 
-Any key still not declared is refused by name — that surfaced typo is the point.
+Any key still not declared is refused by name. That surfaced typo is the point.
 After a successful import the source `.env` is still plaintext on disk; delete
 it once the values have landed.
 
