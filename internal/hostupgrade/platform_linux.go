@@ -39,6 +39,9 @@ func runCommand(ctx context.Context, request command) ([]byte, error) {
 	var output boundedOutput
 	cmd.Stdout = &output
 	cmd.Stderr = io.Discard
+	if request.stderr != nil {
+		cmd.Stderr = request.stderr
+	}
 	if err := cmd.Run(); err != nil {
 		return nil, err
 	}
@@ -85,3 +88,9 @@ func runtimeCredential(path string, uid, gid uint32) (*os.File, error) {
 	}
 	return f, nil
 }
+
+// resetUmask makes every mode this package requests effective. The first-use
+// bootstrap runs the coordinator under umask 077, which turned the public
+// bundle's 0755/0644 entries into 0700/0600 and hid them from the runtime user.
+// Root-only material still uses explicit 0700/0600 modes.
+func resetUmask() { syscall.Umask(0o022) }
