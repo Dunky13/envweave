@@ -27,12 +27,13 @@ type Derating struct {
 	Interpretation string               `json:"interpretation"`
 }
 type Publish struct {
-	ElapsedMS        float64 `json:"elapsed_ms"`
-	Cells            int     `json:"cells"`
-	Environments     int     `json:"environments"`
-	Keys             int     `json:"keys"`
-	Operation        string  `json:"operation"`
-	ReadbackVerified bool    `json:"readback_verified"`
+	ElapsedMS        float64   `json:"elapsed_ms"`
+	SamplesMS        []float64 `json:"samples_ms"`
+	Cells            int       `json:"cells"`
+	Environments     int       `json:"environments"`
+	Keys             int       `json:"keys"`
+	Operation        string    `json:"operation"`
+	ReadbackVerified bool      `json:"readback_verified"`
 }
 type Reencrypt struct {
 	ElapsedMS            float64 `json:"elapsed_ms"`

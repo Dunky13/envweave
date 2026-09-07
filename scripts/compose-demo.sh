@@ -169,9 +169,12 @@ ops_origin="http://127.0.0.1:$ops_port"
 )
 server_pid=$(<"$work_dir/server.pid")
 
+# /readyz, not /healthz: readiness includes the datastore probe and the
+# runtime-configuration capture. Probing right after liveness raced the
+# self-configuration reconciliation and got a 503 from instance doctor (#694).
 healthy=false
 for _ in {1..200}; do
-	if curl -fsS "$ops_origin/healthz" >/dev/null 2>&1; then
+	if curl -fsS "$ops_origin/readyz" >/dev/null 2>&1; then
 		healthy=true
 		break
 	fi

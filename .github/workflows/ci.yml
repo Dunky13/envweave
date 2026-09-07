@@ -1198,7 +1198,10 @@ jobs:
             echo "isolation: shard $ISOLATION_SHARD has no tests" >&2
             exit 1
           fi
-          go test -count=1 ./internal/isolation/ -run "^(${tests})$"
+          # Explicit package timeout inside the 20-minute job budget. The default
+          # 10 minutes gave a 5-minute shard only 2x headroom and a loaded runner
+          # hit it mid-test without any hang (#694). Race shards already run 20m.
+          go test -count=1 -timeout=18m ./internal/isolation/ -run "^(${tests})$"
 
   test:
     needs:
