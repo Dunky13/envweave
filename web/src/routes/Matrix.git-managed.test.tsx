@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderForm } from '../testkit/renderForm.tsx';
 import { Matrix } from './Matrix.tsx';
 
-const mocks = vi.hoisted(() => ({ source: 'db' as 'db' | 'git', groupId: '' }));
+const mocks = vi.hoisted(() => ({ source: 'db' as 'db' | 'git', groupId: '', folder: 'app' }));
 
 vi.mock('@tanstack/react-virtual', () => ({
   useVirtualizer: ({ count }: { readonly count: number }) => ({
@@ -51,7 +51,7 @@ vi.mock('../api/matrix.ts', async (importActual) => {
             org_id: 'org_a',
             project_id: 'project_a',
             name: 'LOG_LEVEL',
-            folder_path: 'app',
+            folder_path: mocks.folder,
             classification: 'config',
             description: '',
             deprecated: false,
@@ -104,6 +104,7 @@ vi.mock('./useProtectedPublishCeremony.ts', () => ({
 afterEach(() => {
   mocks.source = 'db';
   mocks.groupId = '';
+  mocks.folder = 'app';
 });
 
 function render() {
@@ -128,6 +129,23 @@ describe('Matrix declaration availability by definitions source', () => {
     expect(hasButton(view.container, '+ Key')).toBe(true);
     expect(view.container.textContent ?? '').not.toContain('managed in Git');
     await view.unmount();
+  });
+
+  it('offers Cleanup only when a key sits at the root and definitions live in the database', async () => {
+    mocks.source = 'db';
+    const foldered = await render();
+    expect(hasButton(foldered.container, 'Cleanup')).toBe(false);
+    await foldered.unmount();
+
+    mocks.folder = '';
+    const root = await render();
+    expect(hasButton(root.container, 'Cleanup')).toBe(true);
+    await root.unmount();
+
+    mocks.source = 'git';
+    const locked = await render();
+    expect(hasButton(locked.container, 'Cleanup')).toBe(false);
+    await locked.unmount();
   });
 
   it('withdraws every declare action and explains why when git-managed', async () => {

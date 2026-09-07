@@ -162,6 +162,10 @@
           "ownership": "metadata mutation cache"
         },
         {
+          "name": "useMoveKeysToFolders",
+          "ownership": "metadata mutation cache"
+        },
+        {
           "name": "useCreateFolder",
           "ownership": "metadata mutation cache"
         },

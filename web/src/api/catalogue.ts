@@ -10,6 +10,7 @@ import {
   renameKeyGroupOp,
   setKeyGroupOp,
   updateKeyDeclarationOp,
+  updateKeyMetadataOp,
 } from '@hikyo/operations';
 import { zFolderList, zKeyGroupList } from '@hikyo/zod';
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
@@ -24,6 +25,7 @@ import {
   matrixKeysKey,
   type MatrixRef,
 } from './keys.ts';
+import { keyMetadataRefusalText } from './matrix.ts';
 import { useTransport } from './transport.tsx';
 
 /**
@@ -134,6 +136,100 @@ export function useUpdateKeyDeclaration(ref: MatrixRef, key: string) {
       }),
     onSuccess: () => invalidateKey(queries, ref, key),
   });
+}
+
+/** `id` is the key's immutable id (the PATCH target); `name` is for messages. */
+export type FolderMove = { readonly id: string; readonly name: string; readonly folder: string };
+export type FolderMoveOutcome = { readonly id: string; readonly error: string | null };
+
+/**
+ * useMoveKeysToFolders is the write behind the matrix "Cleanup" dry run: it
+ * moves each key to its chosen folder with one metadata PATCH per key,
+ * creating any folder row the project does not have yet so the folder list in
+ * the lifecycle dialog matches what the matrix shows.
+ *
+ * The moves run SEQUENTIALLY, deliberately. Each move is a schema revision
+ * charged against the project's per-hour revision budget (§151), so the loop
+ * stops at the first 429 and reports the rest as not attempted rather than
+ * burning the budget on requests that will fail the same way. Any other
+ * refusal is recorded for that key and the loop goes on: a folder move is
+ * metadata, reversible, and one bad key must not block the others.
+ *
+ * ponytail: one revision per key caps a cleanup at the hourly budget (60);
+ * a server-side bulk move (one revision for N keys) is the upgrade path.
+ */
+export function useMoveKeysToFolders(ref: MatrixRef) {
+  const queries = useQueryClient();
+  const transport = useTransport();
+  return useMutation({
+    mutationFn: async (input: {
+      readonly moves: readonly FolderMove[];
+      readonly existingFolders: readonly string[];
+    }): Promise<readonly FolderMoveOutcome[]> => {
+      const known = new Set(input.existingFolders);
+      const outcomes: FolderMoveOutcome[] = [];
+      let exhausted: string | null = null;
+      for (const move of input.moves) {
+        if (exhausted !== null) {
+          outcomes.push({ id: move.id, error: exhausted });
+          continue;
+        }
+        try {
+          if (move.folder !== '' && !known.has(move.folder)) {
+            await createFolderTolerant(transport, ref, move.folder);
+            known.add(move.folder);
+          }
+        } catch (error) {
+          outcomes.push({ id: move.id, error: catalogueRefusalText(error, 'create the folder') });
+          continue;
+        }
+        try {
+          await parsed(updateKeyMetadataOp, {
+            path: { ...ref, key: move.id },
+            body: { folder_path: move.folder },
+            ...transport,
+          });
+          outcomes.push({ id: move.id, error: null });
+        } catch (error) {
+          // Only the PATCH is a schema revision, so only its 429 is the
+          // budget; a throttled folder create is reported as that.
+          if (error instanceof ApiError && error.status === 429) {
+            exhausted = REVISION_BUDGET_REFUSAL;
+            outcomes.push({ id: move.id, error: exhausted });
+            continue;
+          }
+          outcomes.push({
+            id: move.id,
+            error: error instanceof Error ? keyMetadataRefusalText(error) : 'The server could not save this key.',
+          });
+        }
+      }
+      return outcomes;
+    },
+    onSettled: () =>
+      Promise.all([
+        queries.invalidateQueries({ queryKey: matrixKeysKey(ref) }),
+        queries.invalidateQueries({ queryKey: matrixGroupsKey(ref) }),
+        invalidateFolders(queries, ref),
+      ]),
+  });
+}
+
+const REVISION_BUDGET_REFUSAL =
+  'Not moved: the project\'s hourly schema-revision budget is used up. Run Cleanup again later for the remaining keys.';
+
+/** Create a folder row, treating "already exists" (409) as done. */
+async function createFolderTolerant(
+  transport: ReturnType<typeof useTransport>,
+  ref: MatrixRef,
+  path: string,
+): Promise<void> {
+  try {
+    await parsed(createFolderOp, { path: ref, body: { path }, ...transport });
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 409) return;
+    throw error;
+  }
 }
 
 export function useSetKeyGroup(ref: MatrixRef, key: string) {

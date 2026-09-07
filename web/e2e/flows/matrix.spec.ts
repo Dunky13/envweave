@@ -864,6 +864,62 @@ test.describe('catalogue declaration detail', () => {
     await expect(dialog).toBeVisible();
   });
 
+  test('proposes folders for root-level keys and moves the ticked ones', async ({ page }, testInfo) => {
+    // Two root keys sharing a prefix get a folder proposed; the lone one stays
+    // at the root unless typed. Names are unique per project leg.
+    const suffix = testInfo.project.name.toUpperCase();
+    const token = await fixtureBearer('folder cleanup');
+    const keysPath = `/api/v1/orgs/${seed.org}/projects/${seed.project}/keys`;
+    const declare = (name: string) =>
+      fixtureApiCall(token, 'POST', keysPath, zCreatedKey, {
+        name,
+        classification: 'config',
+        folder_path: '',
+        description: '',
+        declaration: { rule: { type: 'string' } },
+      });
+    const a = await declare(`TIDY_${suffix}_HOST`);
+    const b = await declare(`TIDY_${suffix}_PORT`);
+    const lone = await declare(`LONE_${suffix}_ORIGIN`);
+    try {
+      await page.goto(MATRIX_PATH);
+      await page.getByRole('button', { name: 'Cleanup', exact: true }).click();
+      const dialog = page.locator('dialog.catalogue-manage');
+      await expect(dialog.getByRole('heading', { name: 'Cleanup: group keys into folders' })).toBeVisible();
+      await expect(dialog.getByLabel(`Folder for TIDY_${suffix}_HOST`)).toHaveValue('Tidy');
+      await expect(dialog.getByLabel(`Folder for TIDY_${suffix}_PORT`)).toHaveValue('Tidy');
+      await expect(dialog.getByLabel(`Folder for LONE_${suffix}_ORIGIN`)).toHaveValue('');
+      await expect(dialog.getByLabel(`Move LONE_${suffix}_ORIGIN`)).not.toBeChecked();
+      // Untick one proposal so the dry run is honoured, not just the heuristic.
+      await dialog.getByLabel(`Move TIDY_${suffix}_PORT`).uncheck();
+      await dialog.getByRole('button', { name: /^Move \d+ key/ }).click();
+      await expect(dialog).toHaveCount(0);
+
+      expect((await fixtureApiCall(token, 'GET', `${keysPath}/${a.id}`, zKeyRead)).folder_path).toBe('Tidy');
+      expect((await fixtureApiCall(token, 'GET', `${keysPath}/${b.id}`, zKeyRead)).folder_path).toBe('');
+      expect((await fixtureApiCall(token, 'GET', `${keysPath}/${lone.id}`, zKeyRead)).folder_path).toBe('');
+      await expect(page.locator('.matrix__group-toggle').filter({ hasText: 'Tidy' })).toBeVisible();
+    } finally {
+      for (const key of [a, b, lone]) {
+        await fixtureApiCall(token, 'DELETE', `${keysPath}/${key.id}`, z.object({}));
+      }
+      const folders = await fixtureApiCall(
+        token,
+        'GET',
+        `/api/v1/orgs/${seed.org}/projects/${seed.project}/folders`,
+        z.object({ items: z.array(z.object({ id: z.string(), path: z.string() })) }),
+      );
+      for (const folder of folders.items.filter((item) => item.path === 'Tidy')) {
+        await fixtureApiCall(
+          token,
+          'DELETE',
+          `/api/v1/orgs/${seed.org}/projects/${seed.project}/folders/${folder.id}`,
+          z.object({}),
+        );
+      }
+    }
+  });
+
   test('keeps a stale or missing key recoverable', async ({ page }) => {
     // A well-formed key id that does not exist, a link that outlived its key.
     const missing = 'key_01890000-0000-7000-8000-000000000000';

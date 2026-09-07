@@ -34,6 +34,9 @@ import {
 } from '../api/values.ts';
 import { HistoryDrawer } from './HistoryDrawer.tsx';
 import { CatalogueManageDialog } from './CatalogueManageDialog.tsx';
+import { FolderCleanupDialog } from './FolderCleanupDialog.tsx';
+import { proposeFolders } from './folder-cleanup.ts';
+import { useFolders, useMoveKeysToFolders } from '../api/catalogue.ts';
 import { KeyDeclarationDetail } from './KeyDeclarationDetail.tsx';
 import type { HistoryCurrentCell } from './history-state.ts';
 import {
@@ -181,6 +184,12 @@ export function Matrix({
   const [importOpen, setImportOpen] = useState(false);
   // #493: the folder & key-group lifecycle dialog.
   const [manageOpen, setManageOpen] = useState(false);
+  // Cleanup: the dry run that proposes folders for root-level keys from their
+  // names. Imports never set a folder, so this is how a flat import gets its
+  // structure back. Metadata-only, so it follows the declaration lock.
+  const [cleanupOpen, setCleanupOpen] = useState(false);
+  const folderRows = useFolders(ref);
+  const moveKeys = useMoveKeysToFolders(ref);
   // Surface-2 scanner block (#183): the redacted findings a refused write
   // carried, plus the override that retries it with their acknowledgements.
   const [scanBlock, setScanBlock] = useState<{
@@ -929,6 +938,11 @@ export function Matrix({
         {systemManaged ? null : <button type="button" className="btn matrix__manage" onClick={() => setManageOpen(true)}>
           Folders &amp; linked keys
         </button>}
+        {declarationsLocked || keys.every((key) => key.folder_path !== '') ? null : (
+          <button type="button" className="btn matrix__cleanup" onClick={() => setCleanupOpen(true)}>
+            Cleanup
+          </button>
+        )}
         {/* env-matrix 31 / #492: the header's primary declare action. Git-managed
             projects disable it and say why, value actions still work. */}
         {environments.length > 0 && !declarationsLocked ? (
@@ -1479,6 +1493,26 @@ export function Matrix({
 
       {!manageOpen ? null : (
         <CatalogueManageDialog refData={ref} onClose={() => setManageOpen(false)} />
+      )}
+
+      {!cleanupOpen || declarationsLocked ? null : (
+        <FolderCleanupDialog
+          proposals={proposeFolders(keys)}
+          existingFolders={[
+            ...new Set([
+              ...keys.map((key) => key.folder_path),
+              ...(folderRows.data?.items ?? []).map((folder) => folder.path),
+            ]),
+          ].filter((path) => path !== '')}
+          busy={moveKeys.isPending}
+          onApply={(moves) =>
+            moveKeys.mutateAsync({
+              moves,
+              existingFolders: (folderRows.data?.items ?? []).map((folder) => folder.path),
+            })
+          }
+          onClose={() => setCleanupOpen(false)}
+        />
       )}
 
       {scanBlock === null ? null : (
