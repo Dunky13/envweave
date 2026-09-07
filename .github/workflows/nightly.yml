@@ -163,14 +163,27 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ALLOW_MISSING_PREDECESSOR: ${{ inputs.allow_missing_predecessor == true }}
+          PREDECESSOR_EDGES: 3
         run: |
           set -o pipefail
-          previous_tag=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" | jq '
+          # Up to PREDECESSOR_EDGES signed predecessors, newest first, each
+          # becomes an exact-schema upgrade source of this nightly (#700), so a
+          # route can skip one revoked or missing release without a bridge.
+          # Directory 1 is the newest predecessor; the highest number the oldest.
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" | jq '
             map(map(select(any(.assets[]; .name == "release-manifest.sigstore.json"))))
-          ' | ./scripts/release/latest-nightly-tag.sh)
-          if [ -n "$previous_tag" ]; then
-            gh release download "$previous_tag" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/previous-nightly"
-            go run ./scripts/release/nightly sources --directory "$RUNNER_TEMP/previous-nightly" --out "$RUNNER_TEMP/nightly-sources.json"
+          ' | ./scripts/release/latest-nightly-tag.sh --limit "$PREDECESSOR_EDGES" >"$RUNNER_TEMP/predecessor-tags"
+          set --
+          index=0
+          while IFS= read -r previous_tag; do
+            [ -n "$previous_tag" ] || continue
+            index=$((index + 1))
+            gh release download "$previous_tag" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/previous-nightly/$index"
+            set -- "$@" --directory "$RUNNER_TEMP/previous-nightly/$index"
+          done <"$RUNNER_TEMP/predecessor-tags"
+          if [ "$index" -gt 0 ]; then
+            printf '%s\n' "$index" >"$RUNNER_TEMP/previous-nightly/count"
+            go run ./scripts/release/nightly sources "$@" --out "$RUNNER_TEMP/nightly-sources.json"
           elif [ "$ALLOW_MISSING_PREDECESSOR" = true ]; then
             echo '::warning::Building without a signed predecessor by explicit request; installations below this release need a recovery bridge.'
             go run ./scripts/release/nightly sources --out "$RUNNER_TEMP/nightly-sources.json"
@@ -292,7 +305,7 @@ jobs:
           go run ./scripts/release/nightly verify --directory nightly-payloads
           if [ -d "$RUNNER_TEMP/previous-nightly" ]; then
             ./scripts/release/assemble-nightly.sh release/trust "$RUNNER_TEMP/nightly-bundle" \
-              "$RUNNER_TEMP/previous-nightly" nightly-payloads
+              "$RUNNER_TEMP"/previous-nightly/[0-9]* nightly-payloads
           elif [ "$ALLOW_MISSING_PREDECESSOR" = true ]; then
             ./scripts/release/assemble-nightly.sh release/trust "$RUNNER_TEMP/nightly-bundle" nightly-payloads
           else
@@ -318,17 +331,25 @@ jobs:
             exit 1
           fi
           if [ -d "$RUNNER_TEMP/previous-nightly" ]; then
-            previous_version=$(jq -r '.version' "$RUNNER_TEMP/previous-nightly/release-manifest.json")
-            mkdir "$RUNNER_TEMP/previous-binary"
-            tar -xzf "$RUNNER_TEMP/previous-nightly/hikyo_${previous_version}_Linux_x86_64.tar.gz" \
-              -C "$RUNNER_TEMP/previous-binary" hikyo
-            export HIKYO_NIGHTLY_PREVIOUS_BINARY="$RUNNER_TEMP/previous-binary/hikyo"
+            # Prove the newest predecessor (the ordinary hop) and the oldest
+            # declared one (the route that skips everything in between).
+            count=$(cat "$RUNNER_TEMP/previous-nightly/count")
             export HIKYO_NIGHTLY_TARGET_BINARY="$GITHUB_WORKSPACE/image-root/amd64/hikyo"
             export HIKYO_NIGHTLY_TRUST="$GITHUB_WORKSPACE/release/trust"
             export HIKYO_NIGHTLY_BUNDLE="$RUNNER_TEMP/nightly-bundle"
-            export HIKYO_NIGHTLY_PREVIOUS_COMPATIBILITY="$RUNNER_TEMP/previous-nightly/upgrade-compatibility.json"
             export HIKYO_NIGHTLY_TARGET_COMPATIBILITY="$GITHUB_WORKSPACE/nightly-payloads/upgrade-compatibility.json"
-            go test ./internal/upgradegate -run '^TestPackagedNightlyReleaseUpgrade$' -count=1 -v
+            for index in $(printf '%s\n' 1 "$count" | sort -un); do
+              previous="$RUNNER_TEMP/previous-nightly/$index"
+              previous_version=$(jq -r '.version' "$previous/release-manifest.json")
+              rm -rf "$RUNNER_TEMP/previous-binary"
+              mkdir "$RUNNER_TEMP/previous-binary"
+              tar -xzf "$previous/hikyo_${previous_version}_Linux_x86_64.tar.gz" \
+                -C "$RUNNER_TEMP/previous-binary" hikyo
+              export HIKYO_NIGHTLY_PREVIOUS_BINARY="$RUNNER_TEMP/previous-binary/hikyo"
+              export HIKYO_NIGHTLY_PREVIOUS_COMPATIBILITY="$previous/upgrade-compatibility.json"
+              printf 'Populated upgrade proof from predecessor %s (%s)\n' "$index" "$previous_version"
+              go test ./internal/upgradegate -run '^TestPackagedNightlyReleaseUpgrade$' -count=1 -v
+            done
           else
             printf 'First signed nightly: no authenticated predecessor exists; fresh boot gates passed.\n'
           fi

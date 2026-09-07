@@ -111,6 +111,46 @@ func TestNightlyPreparationRequiresRecoveryAuthorization(t *testing.T) {
 			t.Fatal("source edge did not bind authenticated previous release")
 		}
 	}
+	// A second, older predecessor adds its own exact edge; repeating one is refused.
+	older := declaration
+	older.Version, older.Sequence = "1.1.0-nightly.0", 1
+	olderMaterial := f.SignNightly(testfixture.JSON(t, older), older.Version, older.Sequence)
+	olderDownload := t.TempDir()
+	for name, reader := range olderMaterial.Artifacts {
+		raw, err := io.ReadAll(reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		put(filepath.Join(olderDownload, name), raw)
+	}
+	put(filepath.Join(olderDownload, "release-manifest.json"), olderMaterial.Manifest)
+	put(filepath.Join(olderDownload, "release-manifest.sigstore.json"), olderMaterial.Bundle)
+	for name, raw := range map[string][]byte{"nightly-policy.json": olderMaterial.Policy, "sigstore-trusted-root.json": olderMaterial.TrustedRoot} {
+		put(filepath.Join(olderDownload, name), raw)
+	}
+	multi := filepath.Join(t.TempDir(), "multi.json")
+	if err := run(t.Context(), []string{"sources", "--trust", trust, "--directory", download, "--directory", olderDownload, "--sources", sources, "--out", multi}, &output); err != nil {
+		t.Fatal(err)
+	}
+	raw, err = os.ReadFile(multi)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result.Engines = nil
+	if err := json.Unmarshal(raw, &result); err != nil {
+		t.Fatal(err)
+	}
+	for engine, edges := range result.Engines {
+		if len(edges) != len(engines[engine])+2 || edges[len(edges)-1].Source.Release.ManifestSHA256 != releaseidentity.Hash(olderMaterial.Manifest) || edges[len(edges)-2].Source.Release.ManifestSHA256 != releaseidentity.Hash(material.Manifest) {
+			t.Fatalf("%s: predecessor edges missing or misordered", engine)
+		}
+	}
+	if err := run(t.Context(), []string{"sources", "--trust", trust, "--directory", download, "--directory", download, "--sources", sources, "--out", filepath.Join(t.TempDir(), "dup.json")}, &output); err == nil || !strings.Contains(err.Error(), "duplicate predecessor") {
+		t.Fatalf("duplicate predecessor accepted: %v", err)
+	}
+	if err := run(t.Context(), []string{"verify", "--trust", trust, "--directory", download, "--directory", olderDownload}, &output); err == nil {
+		t.Fatal("verify accepted several directories")
+	}
 	bridgeDir := filepath.Join(t.TempDir(), "bridges")
 	if err := run(t.Context(), []string{"legacy-bridges", "--trust", trust, "--directory", download, "--out", bridgeDir}, &output); err != nil {
 		t.Fatal(err)

@@ -19,6 +19,10 @@ mixed='[[
 ]]'
 [ "$(printf '%s\n' "$mixed" | "$script")" = 'v0.0.1-nightly.20260824.3.gcf4bb563' ]
 
+[ "$(printf '%s\n' "$pages" | "$script" --limit 2)" = 'v0.0.1-nightly.20260824.3.gcf4bb563
+v0.0.1-nightly.20260823.2.g12345678' ]
+[ "$(printf '%s\n' "$pages" | "$script" --limit 5 | wc -l | tr -d ' ')" = 2 ]
+
 expect_reject() {
 	label=$1
 	payload=$2
@@ -30,5 +34,9 @@ expect_reject() {
 
 expect_reject malformed-json '{'
 expect_reject wrong-shape '{}'
+if printf '%s\n' "$pages" | "$script" --limit 0 >/dev/null 2>&1; then
+	printf 'latest nightly tag fixture failed: zero limit accepted\n' >&2
+	exit 1
+fi
 
 printf 'latest nightly tag fixture: published prerelease selection is deterministic\n'
