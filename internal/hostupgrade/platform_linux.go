@@ -33,6 +33,14 @@ func runCommand(ctx context.Context, request command) ([]byte, error) {
 		}
 		defer key.Close()
 		cmd.ExtraFiles = []*os.File{key}
+		if request.credential != "" {
+			extra, err := runtimeCredential(request.credential, request.uid, request.gid)
+			if err != nil {
+				return nil, err
+			}
+			defer extra.Close()
+			cmd.ExtraFiles = append(cmd.ExtraFiles, extra)
+		}
 	}
 	// Error output can contain operational configuration. The adapter returns
 	// stdout only; callers get the bounded operation and exit status on failure.
@@ -42,8 +50,15 @@ func runCommand(ctx context.Context, request command) ([]byte, error) {
 	if request.stderr != nil {
 		cmd.Stderr = request.stderr
 	}
+	if request.stdout != nil {
+		cmd.Stdout = request.stdout
+	}
+	cmd.Stdin = request.stdin
 	if err := cmd.Run(); err != nil {
 		return nil, err
+	}
+	if request.stdout != nil {
+		return nil, nil
 	}
 	return output.bytes, nil
 }

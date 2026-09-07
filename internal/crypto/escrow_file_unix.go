@@ -27,8 +27,10 @@ func ReadEscrowRootKey(path, serverRootPath string) ([]byte, error) {
 	if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
 		return nil, errors.New("escrow root must be a private regular file")
 	}
-	if st, ok := info.Sys().(*syscall.Stat_t); !ok || st.Uid != uint32(os.Geteuid()) {
-		return nil, errors.New("escrow root must be owned by the current operator")
+	// Root may hand a custody copy to the runtime user on a descriptor; a
+	// root-owned private file is at least as trustworthy as an owned one.
+	if st, ok := info.Sys().(*syscall.Stat_t); !ok || (st.Uid != uint32(os.Geteuid()) && st.Uid != 0) {
+		return nil, errors.New("escrow root must be owned by the current operator or root")
 	}
 	if serverRootPath != "" {
 		primary, err := os.Stat(serverRootPath)

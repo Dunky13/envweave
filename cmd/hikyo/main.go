@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime"
 	"slices"
 	"syscall"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/Hikyo-Org/hikyo/internal/config"
 	"github.com/Hikyo-Org/hikyo/internal/console"
 	"github.com/Hikyo-Org/hikyo/internal/disclose"
+	"github.com/Hikyo-Org/hikyo/internal/hostupgrade"
 	"github.com/Hikyo-Org/hikyo/internal/importer"
 	"github.com/Hikyo-Org/hikyo/internal/operator"
 	binaryupdate "github.com/Hikyo-Org/hikyo/internal/selfupdate"
@@ -304,6 +306,11 @@ func runOperator(ctx context.Context, name string, args []string,
 	if len(args) > 0 && args[0] == "--dev" {
 		configurationArgs, args = args[:1], args[1:]
 	}
+	if len(configurationArgs) == 0 && os.Getenv("HIKYO_DB") == "" {
+		if code, handled := runOperatorThroughDeployment(ctx, name, args); handled {
+			return code
+		}
+	}
 	cfg, warnings, err := config.LoadBootstrap(name, configurationArgs, os.Getenv, os.Environ())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "hikyo %s: %v\n", name, err)
@@ -327,6 +334,40 @@ func runOperator(ctx context.Context, name string, args []string,
 		return 1
 	}
 	return 0
+}
+
+// runOperatorThroughDeployment lets a root shell on a systemd host run an
+// operator verb without hand-feeding the service's configuration. When the
+// root-owned deployment file that `hikyo upgrade` maintains exists, the verb
+// runs as the runtime user with the unit's exact environment and root key.
+// Without that file nothing is assumed; the ordinary environment path follows.
+func runOperatorThroughDeployment(ctx context.Context, name string, args []string) (int, bool) {
+	if runtime.GOOS != "linux" || os.Geteuid() != 0 {
+		return 0, false
+	}
+	if _, err := os.Lstat(hostupgrade.ConfigPath); err != nil {
+		return 0, false
+	}
+	c, err := hostupgrade.LoadConfig(hostupgrade.ConfigPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "hikyo %s: %s: %v\n", name, hostupgrade.ConfigPath, err)
+		return 2, true
+	}
+	host, err := hostupgrade.New(c)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "hikyo %s: %v\n", name, err)
+		return 2, true
+	}
+	err = host.RunOperator(ctx, append([]string{name}, args...), os.Stdin, os.Stdout, os.Stderr)
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		return exit.ExitCode(), true
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "hikyo %s: %v\n", name, err)
+		return 2, true
+	}
+	return 0, true
 }
 
 func workdir() string {
