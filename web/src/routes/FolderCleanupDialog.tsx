@@ -1,7 +1,7 @@
 import { useId, useState } from 'react';
 
 import type { FolderMove, FolderMoveOutcome } from '../api/catalogue.ts';
-import type { FolderProposal } from './folder-cleanup.ts';
+import { proposeFolders, type FolderProposal } from './folder-cleanup.ts';
 import { useModalDialog } from './useModalDialog.ts';
 
 type Row = FolderProposal & { readonly include: boolean; readonly error: string | null };
@@ -13,19 +13,24 @@ type Row = FolderProposal & { readonly include: boolean; readonly error: string 
  * retype its folder (the datalist offers every proposed and existing folder),
  * or blank it to keep the key at the root. Nothing moves until "Move".
  *
+ * When every root key shares a first segment, whether that segment is a
+ * namespace to strip or the folder itself is not decidable from names, so
+ * the dialog shows the heuristic's pick as a checkbox the operator can flip.
+ * Flipping recomputes every row, discarding row edits, and says so.
+ *
  * After a run, moved keys leave the list and refused keys stay with their
  * refusal beside them, so a partial run (a revision budget that ran out, a
  * folder the scanner blocked) is retried from where it stopped, not from
  * scratch.
  */
 export function FolderCleanupDialog({
-  proposals,
+  keys,
   existingFolders,
   busy,
   onApply,
   onClose,
 }: {
-  proposals: readonly FolderProposal[];
+  keys: readonly { readonly id: string; readonly name: string; readonly folder_path: string }[];
   existingFolders: readonly string[];
   busy: boolean;
   onApply: (moves: readonly FolderMove[]) => Promise<readonly FolderMoveOutcome[]>;
@@ -34,9 +39,16 @@ export function FolderCleanupDialog({
   const dialog = useModalDialog();
   const titleId = useId();
   const listId = useId();
-  const [rows, setRows] = useState<readonly Row[]>(() =>
-    proposals.map((proposal) => ({ ...proposal, include: proposal.folder !== '', error: null })),
-  );
+  const [strip, setStrip] = useState<boolean | undefined>(undefined);
+  const plan = proposeFolders(keys, { strip });
+  const fresh = (proposals: readonly FolderProposal[]): readonly Row[] =>
+    proposals.map((proposal) => ({ ...proposal, include: proposal.folder !== '', error: null }));
+  const [rows, setRows] = useState<readonly Row[]>(() => fresh(plan.proposals));
+  const stripId = useId();
+  const toggleStrip = (next: boolean): void => {
+    setStrip(next);
+    setRows(fresh(proposeFolders(keys, { strip: next }).proposals));
+  };
   const [moved, setMoved] = useState(0);
   const [failure, setFailure] = useState<string | null>(null);
 
@@ -84,6 +96,22 @@ export function FolderCleanupDialog({
           ✕
         </button>
       </div>
+
+      {plan.prefix === null || rows.length === 0 ? null : (
+        <p className="catalogue-manage__row-main">
+          <input
+            id={stripId}
+            type="checkbox"
+            checked={plan.stripped}
+            disabled={busy}
+            onChange={(event) => toggleStrip(event.target.checked)}
+          />
+          <label htmlFor={stripId}>
+            {`Every key starts with ${plan.prefix}_. Treat it as a namespace and fold by the next segment`}
+          </label>
+          <span className="catalogue-manage__meta">Flipping this recomputes every row.</span>
+        </p>
+      )}
 
       {rows.length === 0 ? (
         <p className="catalogue-manage__empty">

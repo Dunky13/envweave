@@ -8,13 +8,17 @@ then moves the ticked keys.
 
 ## What was built
 
-- `web/src/routes/folder-cleanup.ts`: pure heuristic, `proposeFolders(keys)`.
-  Only root-level keys are candidates. When every candidate shares its first
-  `_` segment and has three or more segments, that segment is a project
-  namespace and is stripped. The folder is the next segment, title-cased, and
-  only proposed when at least two candidates share it; a key with no segment
-  left after the folder segment, or with a unique prefix, is proposed at the
-  root. Tests in `folder-cleanup.test.ts`.
+- `web/src/routes/folder-cleanup.ts`: pure heuristic, `proposeFolders(keys,
+  { strip? })` returning `{ prefix, stripped, proposals }`. Only root-level
+  keys are candidates. When every candidate shares its first `_` segment and
+  has three or more segments, that segment may be a project namespace. Names
+  alone cannot tell a namespace (`HIKYO_ARGON2_TIME`) from a domain
+  (`DB_HOST_PRIMARY`), so left undecided it is stripped only when stripping
+  pays off (the next segment forms two or more multi-member folders), and the
+  dialog exposes the decision as a checkbox. The folder is the next segment,
+  title-cased, and only proposed when at least two candidates share it; a key
+  with no segment left after the folder segment, or with a unique prefix, is
+  proposed at the root. Tests in `folder-cleanup.test.ts`.
 - `web/src/api/catalogue.ts`: `useMoveKeysToFolders(ref)`. Sequential loop:
   create each missing folder row once (409 tolerated), then one
   `updateKeyMetadata` PATCH per key by id. Stops at the first 429 and reports
@@ -22,7 +26,9 @@ then moves the ticked keys.
   loop continues. Tests in `catalogue-move.test.tsx`.
 - `web/src/routes/FolderCleanupDialog.tsx`: the dry run. Checkbox per row,
   folder text input with a datalist of proposed and existing folders, blank
-  means root. After a run, moved keys leave the list; refused keys stay with
+  means root. When the keys share a prefix, a checkbox "treat it as a
+  namespace" shows the heuristic's pick; flipping it recomputes every row and
+  discards row edits, and the dialog says so. After a run, moved keys leave the list; refused keys stay with
   their refusal. Tests in `FolderCleanupDialog.test.tsx`.
 - `web/src/routes/Matrix.tsx`: "Cleanup" button beside "Folders & linked
   keys", hidden when declarations are locked (git-managed or system project)

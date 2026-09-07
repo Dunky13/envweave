@@ -35,7 +35,6 @@ import {
 import { HistoryDrawer } from './HistoryDrawer.tsx';
 import { CatalogueManageDialog } from './CatalogueManageDialog.tsx';
 import { FolderCleanupDialog } from './FolderCleanupDialog.tsx';
-import { proposeFolders } from './folder-cleanup.ts';
 import { useFolders, useMoveKeysToFolders } from '../api/catalogue.ts';
 import { KeyDeclarationDetail } from './KeyDeclarationDetail.tsx';
 import type { HistoryCurrentCell } from './history-state.ts';
@@ -1497,7 +1496,7 @@ export function Matrix({
 
       {!cleanupOpen || declarationsLocked ? null : (
         <FolderCleanupDialog
-          proposals={proposeFolders(keys)}
+          keys={keys}
           existingFolders={[
             ...new Set([
               ...keys.map((key) => key.folder_path),
