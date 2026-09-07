@@ -1,18 +1,18 @@
 {
   "review": "See docs/handoff/security-2026-09/client-lifetime.html for input/result categories, uncached operations and local state ownership. Every changed mutation-capable module requires renewed sensitivity review. Self-configuration preparation and rollout review retain only revision, generation, request ID and plan digest metadata; factor codes remain in sensitive local state and factor responses bypass mutation caches.",
   "sources": {
-    "api/access.ts": "09c2ca1331bf28e5ff831c05b5aeac48692887d470ac9c97956e7b3cc5992f0e",
+    "api/access.ts": "5dde75b530e6f3db9a2271ba5dfdd7e4ca02da2a5ffd00ea729bd1334444ef97",
     "api/account.ts": "c8d8673aa12cfad4182ece141e67856a1057b7642ed4c674c705527884c86a84",
     "api/adapters.ts": "6777d375554728142dd73cac83cf8f9f4bc26d476040b4255d429c61464c74ce",
     "api/approvals.ts": "28db4234c0e8fe1770895c66c500c1d349b86c50bc17566bbaf6d549090777b4",
-    "api/catalogue.ts": "a3fd7ccfa641f7180108cebabbcd5cdd867eea90ea44f338d0625cf85194a899",
+    "api/catalogue.ts": "ae7f316c963d72e7db43c02b5fdffe82e31470bdb37f55d77f2037fcce796209",
     "api/definitions.ts": "f5fee0f5cb7f07228a9b72eccc03f4087400ed3b77843879019f78d332f7567e",
     "api/dynamic.ts": "7afe5219dfb5e34d8766c290964572873ad4aa1a6b2d5923052b6158a6226fff",
-    "api/federationIssuers.ts": "b2a03b9a4e336aef11fe9f49aaf5c6dbe619d2321ace8943fbd772f5c7091d96",
+    "api/federationIssuers.ts": "7a95a9c2656f58cb11994772d23d83f9762a4b03ff49babc935a90a8d28685c2",
     "api/history.ts": "b20422db5c22b2fd0ff2e7d54b311490cddb769873d1ace20c529c72ecd2f0c4",
     "api/identities.ts": "8fbde3bfc55af1c3f09ecd8995e35d94940bdae70de991f06cb3bde56822ca3a",
     "api/machineReveal.ts": "59f35502216fefebe071e019f06b7720ab8bbbe43853d4468070d04ed046e36c",
-    "api/matrix.ts": "44f62c2a873fd671b45539e96e9bd1ba8a5687e074c7217972ea1deb8f610871",
+    "api/matrix.ts": "d9aa3c9fd4b78a42286a163fa1a033358428eba7514bbc86c8a6408074baf5b9",
     "api/oidcProviders.ts": "7e23456f32c0c8571d47ab8bca07a2c98a68c3c86ec07e374ed858fafbe20606",
     "api/remotes.ts": "7d5d47212d595dffd2a4526e593e4a29beaf6112165c8e0e1a7d79bd906df92b",
     "api/revisionDiff.ts": "5dca7d0ddb63c8832d7507eb62ecc1ea7b49080a72a329ad38043e342017d21f",
@@ -24,12 +24,12 @@
     "api/settings.ts": "8db8611b316f062b29a4fe61103ec25ce703455bc966079a9e78db8fa96fa61e",
     "api/stepup.ts": "1252b83784fccbc138dfa3bb08b1f073c768fd3581ae345c6812dfb5d8613be3",
     "api/updates.ts": "170c5f62a46a23aef03dc088f478f4126b2950b950fda7854ea351221b56d0e5",
-    "api/values.ts": "90360adc1dcd66dcc4a88c3321e2ee80927c37a4b53d889e78962bf076225f3f",
+    "api/values.ts": "3db171557bb4afc147eae2e597cc8f225c9fa104033b53f267265c9d586b7c84",
     "routes/CLIReauth.tsx": "3609e90a15f1a686447a30e68d61822e243cdbf0f0dab62e4b49ab2d78fdaaa7",
     "routes/EstablishCredential.tsx": "9552a6feb4bbfffa7ec510de9cca6d2d483838ed1a0317a21513c9628fb0ad08",
     "routes/HistoryDrawer.tsx": "fc39b7ae0b0f60352a8eab879cace6ceb739dd90fce5d6cf3f6f1284320d4858",
     "routes/InstanceAdmin.tsx": "db87df4b5255a112fc4aae15ffa21c78b9e77aae628ed3d771fbe9e5ea644751",
     "routes/Login.tsx": "aa8ffa9f6fb1f5a01f8e5e90673cc065ccb8807df8d0752de08f91778870f10c",
-    "routes/WorkspaceApprove.tsx": "8e91e8afa4d9f2823674c17c28eb95222dcb8997f829b44ca25f490d279f955f"
+    "routes/WorkspaceApprove.tsx": "4f6ea36846de3fb108ba13f09aec62eaaabd7db91e8e142653ce6142ea5a4cb1"
   }
 }
