@@ -365,8 +365,9 @@ kubectl --namespace "$NAMESPACE" port-forward deployment/$RELEASE-hikyo \
 # away. On the final failure the forwarder's log is shown.
 forwarded_get() {
 	local url=$1 output=$2 attempt status code
+	shift 2
 	for attempt in 1 2 3 4 5; do
-		if status=$(curl --silent --show-error --output "$output" --write-out '%{http_code}' "$url"); then
+		if status=$(curl --silent --show-error --output "$output" --write-out '%{http_code}' "$@" "$url"); then
 			printf '%s\n' "$status"
 			return 0
 		fi
@@ -449,7 +450,7 @@ if ! jq -e --arg engine postgres --arg volume_severity unknown -f scripts/ci/ass
 fi
 echo 'chart-kind: authenticated instance doctor reported all 12 operational finding families'
 
-document_status=$(forwarded_get http://127.0.0.1:18080/ "$work/document.html") || exit 1
+document_status=$(forwarded_get http://127.0.0.1:18080/ "$work/document.html" --header 'Accept: text/html') || exit 1
 if [[ "$document_status" != 200 ]]; then
 	echo "chart-kind: UI document request returned $document_status" >&2
 	exit 1
