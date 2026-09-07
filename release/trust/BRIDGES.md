@@ -1,4 +1,37 @@
-# First signed nightly legacy bridges
+# Legacy bridges
+
+## Catalog sequence 3: legacy schema into nightly 27 (2026-09-07)
+
+The GitHub release object for nightly 26 was deleted after publication, so
+its two bridges (`afb19f55...`, `e0a26277...`) point at an unavailable target
+and the runtime refuses any route through them. Catalog sequence 3 withdraws
+them and authorizes one maintenance bridge per engine from the same reviewed
+`legacy/v1` schema through migration 44 directly into
+[`v0.0.1-nightly.20260907.27.gb2388a99`](https://github.com/Hikyo-Org/Hikyo/releases/tag/v0.0.1-nightly.20260907.27.gb2388a99),
+whose target migrations run through 50.
+
+| Engine | Recovery-signed statement SHA-256 |
+| --- | --- |
+| SQLite | `0094b5d9ec5bbae50905f4bcf8a4ae6ef23320457c02c4efebdb241d641ab5a1` |
+| PostgreSQL | `bc6e5f79252864e2ffb73c0335f17d29f2cdd7cf8b1e57e87f0f5f0cf0c41bfd` |
+
+Both statements pin target manifest
+`d7c9b1eb6abff6d1076c7d8cf66a9404583c9164832f8305758f83f6c0e974b3`,
+compatibility declaration
+`f684207d9946d19ecbdf6b40b083064fb691cc4f12b584ee89e14b3c36485516`,
+commit `b2388a992aa9a234dd6735592daf95e4b937f080` and the unchanged nightly
+policy. The source genesis, migration inventory and schema digest of each
+statement are byte-identical to the catalog 2 statements for the same engine.
+The complete 22-asset release was downloaded and verified independently with
+`scripts/release/nightly verify` before the proposals were generated.
+
+The same encrypted local recovery key signed both statements and catalog 3
+under the approved online/local nightly exception. A bundle assembled from this
+trust tree and the verified release planned the SQLite and PostgreSQL routes
+as one maintenance bridge each with operator attestation required; a missing
+bridge, a different source schema, and rollback to catalog 2 were refused.
+
+## Catalog sequence 2: first signed nightly (2026-09-06, withdrawn)
 
 Catalog sequence 2 authorizes one maintenance bridge per engine from the reviewed
 `legacy/v1` schema through migration 44 into
