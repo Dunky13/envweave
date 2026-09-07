@@ -122,7 +122,10 @@ func TestExportPostgresManifestUsesCopySnapshotDuringMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		// DROP DATABASE forces an immediate checkpoint; under a loaded CI
+		// runner its fsync alone took about 5 s (#694). Bound the drop far
+		// above that so cleanup fails only when the server is truly stuck.
+		cleanup, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
 		if _, err := admin.Exec(cleanup, "DROP DATABASE "+ident+" WITH (FORCE)"); err != nil {
 			t.Error(err)
