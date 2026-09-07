@@ -61,3 +61,9 @@ web/e2e/.auth/
 web/e2e/.runs/
 internal/webui/dist/
 .specs/
+
+# Accidental local build outputs (go build ./scripts/ci/analysis-shards-go, ./cmd/nightly)
+/analysis-shards-go
+/nightly
+/hikyo
+/bin/

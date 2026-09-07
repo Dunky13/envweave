@@ -1,5 +1,5 @@
 {
-  "review": "See private-client-lifetime.html for input/result categories, uncached operations and local state ownership. Every changed mutation-capable module requires renewed sensitivity review. Self-configuration preparation and rollout review retain only revision, generation, request ID and plan digest metadata; factor codes remain in sensitive local state and factor responses bypass mutation caches.",
+  "review": "See docs/handoff/security-2026-09/client-lifetime.html for input/result categories, uncached operations and local state ownership. Every changed mutation-capable module requires renewed sensitivity review. Self-configuration preparation and rollout review retain only revision, generation, request ID and plan digest metadata; factor codes remain in sensitive local state and factor responses bypass mutation caches.",
   "sources": {
     "api/access.ts": "09c2ca1331bf28e5ff831c05b5aeac48692887d470ac9c97956e7b3cc5992f0e",
     "api/account.ts": "c8d8673aa12cfad4182ece141e67856a1057b7642ed4c674c705527884c86a84",

@@ -30,7 +30,7 @@ then moves the ticked keys.
 - `web/e2e/flows/matrix.spec.ts`: one flow, "proposes folders for root-level
   keys and moves the ticked ones".
 - Sensitivity inventory refreshed (`sensitiveInventory.json`,
-  `private-client-inventory.json`, `private-client-lifetime.html`): the new
+  `docs/handoff/security-2026-09/client-inventory.json`, `docs/handoff/security-2026-09/client-lifetime.html`): the new
   hook carries key ids, names and folder paths only.
 
 ## Decisions
