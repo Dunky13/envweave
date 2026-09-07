@@ -82,8 +82,13 @@ bundle and boots/restarts the packaged Linux binary in production mode on both
 engines. After the first signed nightly, it also runs the previous published
 binary, populates an encrypted secret, exports and drills a backup, signs local
 operator evidence, upgrades with the candidate binary, and checks readiness,
-secret readability and restart. The first signed release has no authenticated
-predecessor, so only its fresh-install route is automatically exercised.
+secret readability and restart. A run with no signed predecessor release fails
+before building: every nightly declares its predecessor as an upgrade source,
+so a missing one means the chain was cut and every installation below the gap
+would be stranded. Revoke a bad nightly through the policy instead of deleting
+its release. To restart the chain deliberately, dispatch the workflow with
+`allow_missing_predecessor=true` and publish a recovery bridge for the
+installations below the gap, as catalog 3 did after nightly 26 was deleted.
 
 ## Revoke one published nightly
 
