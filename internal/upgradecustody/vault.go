@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"github.com/Hikyo-Org/hikyo/internal/backupreceipt"
+	hikyocrypto "github.com/Hikyo-Org/hikyo/internal/crypto"
 	"github.com/Hikyo-Org/hikyo/internal/crypto/backup"
 	"github.com/Hikyo-Org/hikyo/internal/definitions"
 	"github.com/Hikyo-Org/hikyo/internal/releasetrust"
@@ -99,13 +101,26 @@ func create(directory string, passphrase, rootKey []byte, instance string, owner
 			vault.Close()
 		}
 	}()
+	ciphertext, err := seal(r, passphrase)
+	if err != nil {
+		return nil, err
+	}
+	if err := publish(dir, ciphertext, false); err != nil {
+		return nil, err
+	}
+	ok = true
+	return vault, nil
+}
+
+// seal encrypts one custody record. The container is the same age scrypt
+// profile the backup package uses for exports; age's default work factor
+// applies.
+func seal(r record, passphrase []byte) ([]byte, error) {
 	plain, err := json.Marshal(r)
 	if err != nil {
 		return nil, errors.New("encode operator custody")
 	}
 	defer clear(plain)
-	// The passphrase container is the same age scrypt profile the backup
-	// package uses for exports; age's default work factor applies.
 	var ciphertext bytes.Buffer
 	w, err := backup.Encrypt(&ciphertext, backup.Options{Passphrase: string(passphrase)})
 	if err != nil {
@@ -117,11 +132,51 @@ func create(directory string, passphrase, rootKey []byte, instance string, owner
 	if err = w.Close(); err != nil {
 		return nil, errors.New("finish encrypted operator custody")
 	}
-	if err := publish(dir, ciphertext.Bytes()); err != nil {
+	return ciphertext.Bytes(), nil
+}
+
+// RootKeySecret derives the custody wrapping secret from the installation's
+// root key. Everything the vault protects is already reachable by whoever can
+// read that key, so wrapping with it keeps the file encrypted at rest without
+// asking a human for a second secret, which lets upgrades run unattended.
+func RootKeySecret(rootKey []byte) ([]byte, error) {
+	secret, err := hikyocrypto.CustodyWrapKey(rootKey)
+	if err != nil {
 		return nil, err
 	}
-	ok = true
-	return vault, nil
+	out := make([]byte, hex.EncodedLen(len(secret)))
+	hex.Encode(out, secret)
+	clear(secret)
+	return out, nil
+}
+
+// Rewrap re-encrypts existing custody under a new secret, replacing the file
+// atomically. The record itself, including the backup identity that decrypts
+// earlier upgrade backups, is unchanged. Used once to move a passphrase vault
+// to root-key wrapping.
+func Rewrap(directory string, current, next []byte, instance string) error {
+	return rewrap(directory, current, next, instance, 0)
+}
+
+func rewrap(directory string, current, next []byte, instance string, owner int) error {
+	if len(next) == 0 || len(next) > 1024 {
+		return errors.New("invalid replacement custody secret")
+	}
+	r, err := unseal(directory, current, instance, owner)
+	if err != nil {
+		return err
+	}
+	defer r.clear()
+	ciphertext, err := seal(r, next)
+	if err != nil {
+		return err
+	}
+	dir, err := custodyDirectory(directory, false, owner)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return publish(dir, ciphertext, true)
 }
 
 // Open decrypts custody only after checking directory/file ownership and modes.
@@ -131,30 +186,44 @@ func Open(directory string, passphrase []byte, instance string) (*Vault, error) 
 }
 
 func open(directory string, passphrase []byte, instance string, owner int) (*Vault, error) {
+	r, err := unseal(directory, passphrase, instance, owner)
+	if err != nil {
+		return nil, err
+	}
+	defer r.clear()
+	return decodeRecord(r, instance)
+}
+
+// ErrUnlock reports a custody file that did not open under the given secret.
+var ErrUnlock = errors.New("operator custody unlock failed")
+
+func unseal(directory string, passphrase []byte, instance string, owner int) (record, error) {
 	if len(passphrase) == 0 || len(passphrase) > 1024 {
-		return nil, errors.New("invalid operator passphrase")
+		return record{}, errors.New("invalid operator passphrase")
 	}
 	dir, err := custodyDirectory(directory, false, owner)
 	if err != nil {
-		return nil, err
+		return record{}, err
 	}
 	defer dir.Close()
 	ciphertext, err := read(dir, owner)
 	if err != nil {
-		return nil, err
+		return record{}, err
 	}
 	var plaintext boundedBuffer
 	defer clear(plaintext.buf)
 	if err := backup.ExtractTo(&plaintext, bytes.NewReader(ciphertext), backup.Unlock{Passphrase: string(passphrase)}); err != nil {
-		return nil, errors.New("operator custody unlock failed")
+		return record{}, ErrUnlock
 	}
-	plain := plaintext.buf
 	var r record
-	defer r.clear()
-	if definitions.DecodeStrict(plain, &r) != nil {
-		return nil, errors.New("invalid encrypted operator custody")
+	if definitions.DecodeStrict(plaintext.buf, &r) != nil {
+		return record{}, errors.New("invalid encrypted operator custody")
 	}
-	return decodeRecord(r, instance)
+	if r.Format != vaultFormat || r.Instance != instance {
+		r.clear()
+		return record{}, errors.New("operator custody does not match installation")
+	}
+	return r, nil
 }
 
 func decodeRecord(r record, instance string) (*Vault, error) {

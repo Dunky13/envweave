@@ -176,13 +176,23 @@ The operator explicitly approved running a single `sudo hikyo upgrade` command
 on the server, with encrypted operator-only recovery keys stored locally. For
 this nightly CLI flow, the operator process may hold an encrypted age identity,
 an independent attestation key and root-key escrow in a root-owned directory
-outside the runtime user's writable paths. Unlocking requires an interactive
-operator passphrase. Private material is decrypted only in operator-process
-memory and is never placed in server environment variables, command arguments,
-public evidence directories or the database. The unprivileged server and host
-adapter receive public evidence only. This explicit exception supersedes the
-off-host custody requirement below for this flow; it does not establish an
-off-host disaster-recovery copy or authorize unattended key unlocking.
+outside the runtime user's writable paths. Private material is decrypted only
+in operator-process memory and is never placed in server environment
+variables, command arguments, public evidence directories or the database.
+The unprivileged server and host adapter receive public evidence only. This
+explicit exception supersedes the off-host custody requirement below for this
+flow; it does not establish an off-host disaster-recovery copy.
+
+Amended 2026-09-07, operator decision: the vault is wrapped with a secret
+derived from the installation's root key file instead of an interactive
+passphrase. Everything the vault protects is already reachable by whoever can
+read that root-owned file, so a second human-held secret added a prompt without
+adding a boundary, and it prevented unattended upgrades. The vault stays
+encrypted at rest and unlocks only for a process that can read the root key.
+A vault created under the passphrase design is rewrapped once, asking for the
+passphrase a last time, so the backup identity that decrypts earlier upgrade
+backups is preserved. The attestation key therefore attests root-level
+authority on the host, which is what the earlier passphrase also amounted to.
 
 The CLI automates authenticated release discovery, complete bundle assembly,
 encrypted export, real scratch restore and credential proof, installation,
