@@ -145,7 +145,7 @@ func applyManagedOwnerValues(base *Config, values map[string]string, validateNod
 	}
 	parsed, _, err := Load("server", args, func(key string) string { return inputs[key] }, nil)
 	if err != nil {
-		return nil, errors.New("managed owner configuration is invalid for this node")
+		return nil, managedOwnerRefusal(err, keys)
 	}
 	result := *base
 	result.ManagedInputs = maps.Clone(base.ManagedInputs)
@@ -175,4 +175,25 @@ func clonePrefixPolicy(policy map[string][]netip.Prefix) map[string][]netip.Pref
 		result[key] = slices.Clone(values)
 	}
 	return result
+}
+
+// managedOwnerRefusal turns a startup-parser failure into the refusal a
+// self-config publish may quote to its caller. The parser names the offending
+// variable first ("HIKYO_X: reason"), so a message that opens with a managed
+// owner key is about the caller's own draft: it is returned as is for a
+// non-secret key, and as the key alone for a secret one, because the parser
+// echoes the raw value and a secret may not travel back on the wire. Anything
+// else (a parser-only input, a cross-variable rule) keeps the fixed wording.
+func managedOwnerRefusal(err error, keys []string) error {
+	message := err.Error()
+	for _, descriptor := range VariableInventory() {
+		if !slices.Contains(keys, descriptor.Key) || !strings.HasPrefix(message, descriptor.Key) {
+			continue
+		}
+		if descriptor.Secret {
+			return errors.New(descriptor.Key + " is invalid for this node")
+		}
+		return errors.New(message)
+	}
+	return errors.New("managed owner configuration is invalid for this node")
 }

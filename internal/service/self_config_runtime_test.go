@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -600,5 +601,88 @@ func TestSelfConfigExpiredApplyRetryDoesNotRestartPreparation(t *testing.T) {
 				t.Fatalf("expired retry changed target: %+v", retried)
 			}
 		})
+	}
+}
+
+// A self-config publish that the runtime parser refuses must say WHICH key it
+// refused, in the caller-safe detail the matrix quotes verbatim. A bare
+// ErrInvalid renders as "error 400" with nothing to fix (the report that
+// motivated this: CIDRs typed into HIKYO_MCP_ALLOWED_ORIGINS).
+func TestSelfConfigInvalidOwnerValuePublishNamesTheKey(t *testing.T) {
+	t.Parallel()
+	s, local := selfConfigFixture(t)
+	if err := s.LoadRuntime(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	status, err := s.Status(t.Context(), local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := domain.Scope{Org: domain.OrgID(status.Binding.OrgID), Project: domain.ProjectID(status.Binding.ProjectID), Env: domain.EnvID(status.Binding.EnvironmentID)}
+	values := &Values{DB: s.DB, Keyring: s.Keyring, Auth: s.Auth}
+	revisions := &Revisions{DB: s.DB, Keyring: s.Keyring, Auth: s.Auth}
+	enabled, err := values.Set(t.Context(), local, scope, "HIKYO_MCP_ENABLED", "true", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	origins, err := values.Set(t.Context(), local, scope, "HIKYO_MCP_ALLOWED_ORIGINS", "192.168.0.0/24,95.99.20.1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = revisions.PublishPlanned(t.Context(), local, scope, PublishRequest{VersionIDs: []string{enabled.VersionID, origins.VersionID}})
+	if !errors.Is(err, domain.ErrInvalid) {
+		t.Fatalf("CIDR origins published: %v", err)
+	}
+	carrier, ok := err.(interface{ SafeDetail() string })
+	if !ok {
+		t.Fatalf("refusal carries no caller-safe detail: %v", err)
+	}
+	if detail := carrier.SafeDetail(); !strings.Contains(detail, "HIKYO_MCP_ALLOWED_ORIGINS") || !strings.Contains(detail, "192.168.0.0/24") {
+		t.Fatalf("detail does not name the key and the offending value: %q", detail)
+	}
+
+	// The corrected value publishes: the fixture's loopback origin admits MCP.
+	origins, err = values.Set(t.Context(), local, scope, "HIKYO_MCP_ALLOWED_ORIGINS", "https://example.com", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := revisions.PublishPlanned(t.Context(), local, scope, PublishRequest{VersionIDs: []string{enabled.VersionID, origins.VersionID}}); err != nil {
+		t.Fatalf("valid origins refused: %v", err)
+	}
+}
+
+// A secret owner key never echoes its value: the refusal names the key only.
+func TestSelfConfigInvalidSecretOwnerValuePublishNamesKeyOnly(t *testing.T) {
+	t.Parallel()
+	s, local := selfConfigFixture(t)
+	if err := s.LoadRuntime(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	status, err := s.Status(t.Context(), local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := domain.Scope{Org: domain.OrgID(status.Binding.OrgID), Project: domain.ProjectID(status.Binding.ProjectID), Env: domain.EnvID(status.Binding.EnvironmentID)}
+	values := &Values{DB: s.DB, Keyring: s.Keyring, Auth: s.Auth}
+	revisions := &Revisions{DB: s.DB, Keyring: s.Keyring, Auth: s.Auth}
+	const secret = "http://user:hunter2@proxy.internal"
+	proxy, err := values.Set(t.Context(), local, scope, "HIKYO_DIRECTORY_PROXY", secret, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = revisions.PublishPlanned(t.Context(), local, scope, PublishRequest{VersionIDs: []string{proxy.VersionID}})
+	if !errors.Is(err, domain.ErrInvalid) {
+		t.Fatalf("plaintext directory proxy published: %v", err)
+	}
+	carrier, ok := err.(interface{ SafeDetail() string })
+	if !ok {
+		t.Fatalf("refusal carries no caller-safe detail: %v", err)
+	}
+	detail := carrier.SafeDetail()
+	if !strings.Contains(detail, "HIKYO_DIRECTORY_PROXY") {
+		t.Fatalf("detail does not name the key: %q", detail)
+	}
+	if strings.Contains(detail, "hunter2") || strings.Contains(err.Error(), "hunter2") {
+		t.Fatalf("secret value echoed: %q / %v", detail, err)
 	}
 }

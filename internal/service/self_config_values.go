@@ -1,10 +1,7 @@
 package service
 
 import (
-	"fmt"
-
 	"github.com/Hikyo-Org/hikyo/internal/authz"
-	"github.com/Hikyo-Org/hikyo/internal/domain"
 	"github.com/Hikyo-Org/hikyo/internal/runtimeconfig"
 	"github.com/Hikyo-Org/hikyo/internal/schema"
 	"github.com/Hikyo-Org/hikyo/internal/store"
@@ -30,8 +27,12 @@ func validateSelfConfigCells(p authz.Proof, cells []resolvedCell) error {
 			values[cell.key.Name] = cell.value
 		}
 	}
+	// Every Prepare refusal names the key it is about and never a secret value
+	// (config.managedOwnerRefusal, mail.invalid), so it travels as the
+	// caller-safe detail: a self-config publish is post-authorization and the
+	// values are the caller's own drafts, and a bare 400 leaves nothing to fix.
 	if _, err := runtimeconfig.Prepare(values); err != nil {
-		return fmt.Errorf("%w: %s", domain.ErrInvalid, err)
+		return invalidDetail("%s", err)
 	}
 	return nil
 }

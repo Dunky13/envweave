@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"maps"
 	"net/netip"
 	"reflect"
@@ -128,5 +129,23 @@ func TestBootstrapOwnerInputsAreDeferredAndSeedImportsOriginalValues(t *testing.
 	}
 	if _, err := cfg.ManagedSeed(); err == nil || strings.Contains(err.Error(), "do-not-disclose") {
 		t.Fatalf("new adoption did not validate original inputs safely: %v", err)
+	}
+}
+
+func TestManagedOwnerRefusalNamesKeyAndHidesSecretValues(t *testing.T) {
+	for _, tc := range []struct {
+		name, err, want string
+	}{
+		{"non-secret key echoes the parser message", `HIKYO_MCP_ALLOWED_ORIGINS: "192.168.0.0/24" is not an exact HTTP(S) origin`, `HIKYO_MCP_ALLOWED_ORIGINS: "192.168.0.0/24" is not an exact HTTP(S) origin`},
+		{"secret key names itself only", `HIKYO_DIRECTORY_PROXY: "http://u:hunter2@proxy" must be https`, "HIKYO_DIRECTORY_PROXY is invalid for this node"},
+		{"parser-only input keeps the fixed wording", "HIKYO_DB: invalid postgres DSN", "managed owner configuration is invalid for this node"},
+		{"cross-variable rule keeps the fixed wording", "MCP requires an https HIKYO_EXTERNAL_ORIGIN", "managed owner configuration is invalid for this node"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := managedOwnerRefusal(errors.New(tc.err), ManagedOwnerKeys()).Error()
+			if got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
