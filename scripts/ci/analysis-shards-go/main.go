@@ -166,9 +166,33 @@ func listPackages(root string) ([]packageInfo, error) {
 	return packages, nil
 }
 
+// writeRaceShard lists this shard's packages. internal/app is the largest
+// race suite: whole, it took up to 16 minutes under the detector and a loaded
+// runner pushed it past the 20-minute package limit. Its top-level tests are
+// therefore spread over every shard by name, emitted as
+// "<import path>\t^(TestA|TestB)$"; the scheduler runs that subset with -run.
 func writeRaceShard(output io.Writer, packages []packageInfo, opts options) error {
 	for _, pkg := range packages {
 		if pkg.relativePath == "internal/isolation" {
+			continue
+		}
+		if pkg.relativePath == "internal/app" {
+			tests, err := discoverPackageTests(pkg)
+			if err != nil {
+				return err
+			}
+			names := make([]string, 0, len(tests))
+			for _, test := range tests {
+				if shardFor("race-app", test.name, opts.shardCount) == opts.shard {
+					names = append(names, test.name)
+				}
+			}
+			if len(names) == 0 {
+				continue
+			}
+			if _, err := fmt.Fprintf(output, "%s\t^(%s)$\n", pkg.ImportPath, strings.Join(names, "|")); err != nil {
+				return fmt.Errorf("write race shard: %w", err)
+			}
 			continue
 		}
 		if shardFor("race", pkg.relativePath, opts.shardCount) != opts.shard {
@@ -220,23 +244,23 @@ func writeIsolationShard(output io.Writer, packages []packageInfo, opts options)
 }
 
 func discoverIsolationTests(packages []packageInfo) ([]isolationTest, error) {
-	var isolationPackage *packageInfo
 	for index := range packages {
 		if packages[index].relativePath == "internal/isolation" {
-			isolationPackage = &packages[index]
-			break
+			return discoverPackageTests(packages[index])
 		}
 	}
-	if isolationPackage == nil {
-		return nil, errors.New("internal/isolation package was not found")
-	}
+	return nil, errors.New("internal/isolation package was not found")
+}
 
+// discoverPackageTests lists one package's top-level Test functions from its
+// source, so a shard plan never depends on running the package first.
+func discoverPackageTests(pkg packageInfo) ([]isolationTest, error) {
 	tests := make([]isolationTest, 0)
 	seen := make(map[string]string)
-	files := append(append([]string(nil), isolationPackage.TestGoFiles...), isolationPackage.XTestGoFiles...)
+	files := append(append([]string(nil), pkg.TestGoFiles...), pkg.XTestGoFiles...)
 	sort.Strings(files)
 	for _, name := range files {
-		path := filepath.Join(isolationPackage.Dir, name)
+		path := filepath.Join(pkg.Dir, name)
 		parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.SkipObjectResolution)
 		if err != nil {
 			return nil, fmt.Errorf("parse %s: %w", path, err)
@@ -247,7 +271,7 @@ func discoverIsolationTests(packages []packageInfo) ([]isolationTest, error) {
 				continue
 			}
 			if previous, exists := seen[function.Name.Name]; exists {
-				return nil, fmt.Errorf("duplicate isolation test %s in %s and %s", function.Name.Name, previous, path)
+				return nil, fmt.Errorf("duplicate test %s in %s and %s", function.Name.Name, previous, path)
 			}
 			seen[function.Name.Name] = path
 			tests = append(tests, isolationTest{name: function.Name.Name})
