@@ -51,7 +51,7 @@ export type { Level };
  *     single "create" call to get wrong.
  *  2. **A capability may only be granted at or above its DEEPEST level.**
  *     `manage-projects` on one environment is a row nothing can evaluate, so
- *     the checklist offers, per scope, exactly the atoms that scope admits , 
+ *     the checklist offers, per scope, exactly the atoms that scope admits, 
  *     the same table `internal/domain`'s `capabilityLevels` holds, transcribed
  *     with the ADR's own "Covers" wording as the explanation each `(?)` shows.
  *  3. **Each checked capability becomes its own revocable line.** The modal

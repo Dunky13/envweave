@@ -35,22 +35,6 @@ import (
 // state, before anything is published or committed.
 type RestoreFn func(ctx context.Context, az *authz.TxAuthorizer) error
 
-// RestoreSQLite reconstructs a sqlite datastore at path from archive, runs fn
-// against the staged file, and only then publishes it under its final name.
-func RestoreSQLite(ctx context.Context, archive io.Reader, path string, fn RestoreFn) (store.Manifest, error) {
-	return store.RestoreSQLite(ctx, archive, path, func(ctx context.Context, sqltx *sql.Tx) error {
-		tok := authz.NewTxToken()
-		defer tok.Invalidate()
-		if fn == nil {
-			return errors.New("restore requires credential invalidation")
-		}
-		if err := fn(ctx, authz.NewTxAuthorizer(authn.NewSQLite(sqltx), tok)); err != nil {
-			return err
-		}
-		return upgrade.ReconcileSQLiteRestoreIfPresent(ctx, sqltx)
-	})
-}
-
 // RestoreUpgradeSQLite verifies the exact source before credential and ledger
 // invalidation run in the staging transaction, before atomic publication.
 func RestoreUpgradeSQLite(ctx context.Context, archive io.Reader, path string, plan upgradecompat.Plan, fn RestoreFn) (store.Manifest, error) {

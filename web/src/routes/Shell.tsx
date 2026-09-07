@@ -1030,7 +1030,7 @@ function ThemeToggle() {
       type="button"
       className="btn btn--icon"
       onClick={() => setChoice(next)}
-      // The label states the ACTION, and the icon the current theme by shape , 
+      // The label states the ACTION, and the icon the current theme by shape, 
       // so the state survives forced-colors, where the fills are repainted.
       aria-label={`Switch to ${next} theme`}
     >
@@ -1080,7 +1080,7 @@ function ThemeIcon({ dark }: { dark: boolean }) {
 }
 
 /**
- * matchedSurface resolves the current path against the CLOSED surface list , 
+ * matchedSurface resolves the current path against the CLOSED surface list, 
  * the same table the router is generated from, so the breadcrumb and the
  * organisation the chrome believes it is in can never drift from the route
  * that is actually rendered.

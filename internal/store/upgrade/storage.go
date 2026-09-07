@@ -53,11 +53,6 @@ func ReadSQLiteSnapshot(ctx context.Context, q SQLSnapshot) (State, error) {
 	return scanState(q.QueryRowContext(ctx, snapshotSQL))
 }
 
-// ReadPostgresSnapshot is the equivalent seam for the native pgx export tx.
-func ReadPostgresSnapshot(ctx context.Context, q PGSnapshot) (State, error) {
-	return scanState(q.QueryRow(ctx, snapshotSQL))
-}
-
 func scanState(row scanner) (State, error) {
 	var s State
 	var format, maintenance int

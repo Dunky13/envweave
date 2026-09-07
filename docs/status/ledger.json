@@ -195,13 +195,14 @@
       "id": "CAP-PRODUCTION-OPS",
       "kind": "capability",
       "title": "Production operations",
-      "status": "partial",
-      "implemented": "All registered operational bounds, doctor, upgrade path, no-egress posture, and pinned operator resource limits",
-      "remaining": "Record an arm64 cgroup run proving operator reconciliation within the 128 MiB limit under load",
+      "status": "implemented",
+      "implemented": "All registered operational bounds, doctor, upgrade path, no-egress posture, pinned operator resource limits, and native arm64 operator and floor acceptance",
       "evidence": [
         { "label": "operations contract", "path": "docs/adr/ops-spec.md" },
         { "label": "bound registry", "path": "internal/conformance/boundregistry_test.go" },
-        { "label": "#76 handoff", "path": "docs/handoff/76-backup-restore-drill.md" }
+        { "label": "#76 handoff", "path": "docs/handoff/76-backup-restore-drill.md" },
+        { "label": "operator floor report", "path": "docs/reports/1.0/operator-floor.html" },
+        { "label": "1.0 acceptance ledger", "path": "docs/release/acceptance-1.0.md" }
       ]
     },
     {
@@ -267,13 +268,14 @@
       "id": "OBL-OPERATOR-PI-FIT",
       "kind": "obligation",
       "title": "Record operator fit on Pi-class cgroups",
-      "status": "open",
-      "summary": "Arm64 cgroup evidence for reconciliation within the 128 MiB operator limit is still required.",
+      "status": "implemented",
+      "summary": "Native arm64 operator acceptance records the operator process peak RSS at 98,889,728 bytes under the 128 MiB limit, with PID, start-time, container identity and executable hash verification.",
       "source": "docs/spec/open-items.md",
-      "blocks": "CAP-PRODUCTION-OPS",
       "evidence": [
-        { "label": "operator limits", "path": "chart/hikyo/values.yaml" },
-        { "label": "#64 handoff", "path": "docs/handoff/64-k8s-operator.md" }
+        { "label": "operator floor workflow", "path": ".github/workflows/operator-floor.yml" },
+        { "label": "operator floor report", "path": "docs/reports/1.0/operator-floor.html" },
+        { "label": "RSS correction report", "path": "docs/reports/1.0/operator-rss-correction.html" },
+        { "label": "operator limits", "path": "chart/hikyo/values.yaml" }
       ]
     },
     {

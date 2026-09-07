@@ -25,61 +25,44 @@ func NewHistoricalRecoveryPG(db pggen.DBTX, version uint64) *Resolver {
 	return r
 }
 func (r *Resolver) recoveryGrantsBeforePrivacy(ctx context.Context, p domain.PrincipalID) ([]domain.Grant, error) {
-	out := []domain.Grant{}
 	if r.sq != nil {
 		rows, err := r.sq.RecoveryListGrantsBeforePrivacy(ctx, string(p))
-		if err != nil {
-			return nil, err
-		}
-		for _, row := range rows {
-			g, err := grantFrom(row.Capability, row.OrgID.String, row.ProjectID.String, row.EnvID.String)
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, g)
-		}
-	} else {
-		rows, err := r.pg.RecoveryListGrantsBeforePrivacy(ctx, string(p))
-		if err != nil {
-			return nil, err
-		}
-		for _, row := range rows {
-			g, err := grantFrom(row.Capability, row.OrgID.String, row.ProjectID.String, row.EnvID.String)
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, g)
-		}
+		return grantsFromRows(rows, err, func(row sqlitegen.RecoveryListGrantsBeforePrivacyRow) (string, string, string, string) {
+			return row.Capability, row.OrgID.String, row.ProjectID.String, row.EnvID.String
+		})
 	}
-	return out, nil
+	rows, err := r.pg.RecoveryListGrantsBeforePrivacy(ctx, string(p))
+	return grantsFromRows(rows, err, func(row pggen.RecoveryListGrantsBeforePrivacyRow) (string, string, string, string) {
+		return row.Capability, row.OrgID.String, row.ProjectID.String, row.EnvID.String
+	})
 }
 
 func (r *Resolver) recoveryGrantsBeforeSelfConfig(ctx context.Context, p domain.PrincipalID) ([]domain.Grant, error) {
-	out := []domain.Grant{}
 	if r.sq != nil {
 		rows, err := r.sq.RecoveryListGrantsBeforeSelfConfig(ctx, string(p))
+		return grantsFromRows(rows, err, func(row sqlitegen.RecoveryListGrantsBeforeSelfConfigRow) (string, string, string, string) {
+			return row.Capability, row.OrgID.String, row.ProjectID.String, row.EnvID.String
+		})
+	}
+	rows, err := r.pg.RecoveryListGrantsBeforeSelfConfig(ctx, string(p))
+	return grantsFromRows(rows, err, func(row pggen.RecoveryListGrantsBeforeSelfConfigRow) (string, string, string, string) {
+		return row.Capability, row.OrgID.String, row.ProjectID.String, row.EnvID.String
+	})
+}
+
+// grantsFromRows maps one engine's historical grant projection through
+// grantFrom; columns names the row's capability, org, project and env.
+func grantsFromRows[R any](rows []R, err error, columns func(R) (string, string, string, string)) ([]domain.Grant, error) {
+	if err != nil {
+		return nil, err
+	}
+	out := make([]domain.Grant, 0, len(rows))
+	for _, row := range rows {
+		g, err := grantFrom(columns(row))
 		if err != nil {
 			return nil, err
 		}
-		for _, row := range rows {
-			g, err := grantFrom(row.Capability, row.OrgID.String, row.ProjectID.String, row.EnvID.String)
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, g)
-		}
-	} else {
-		rows, err := r.pg.RecoveryListGrantsBeforeSelfConfig(ctx, string(p))
-		if err != nil {
-			return nil, err
-		}
-		for _, row := range rows {
-			g, err := grantFrom(row.Capability, row.OrgID.String, row.ProjectID.String, row.EnvID.String)
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, g)
-		}
+		out = append(out, g)
 	}
 	return out, nil
 }

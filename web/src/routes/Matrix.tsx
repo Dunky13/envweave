@@ -1282,7 +1282,7 @@ export function Matrix({
                         </th>
                         {visibleEnvironments.map((environment) => {
                           const id = cellID(key.id, environment.id);
-                          // #451: a degraded column has no trustworthy cell data , 
+                          // #451: a degraded column has no trustworthy cell data, 
                           // render a non-interactive placeholder, not an editable
                           // cell that would open the row editor on a column the
                           // caller cannot read.
@@ -1800,7 +1800,7 @@ function requiredLabel(key: MatrixKey, environments: readonly Environment[]): st
   const required = environments.filter((environment) =>
     requiredInEnvironment(matrixPresence(key), environment.id),
   );
-  // env-matrix 31 keeps the required marker terse and inline beside the key , 
+  // env-matrix 31 keeps the required marker terse and inline beside the key, 
   // `req` when it is required everywhere, `req · <envs>` when only in some.
   if (required.length === 0) return '';
   if (required.length === environments.length) return 'req';

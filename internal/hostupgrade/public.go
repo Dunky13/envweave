@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/Hikyo-Org/hikyo/internal/filedurability"
 )
 
 var publicName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$`)
@@ -93,11 +95,11 @@ func (h *Host) StagePublicBundle(source string) (string, error) {
 		return "", err
 	}
 	for i := len(directories) - 1; i >= 0; i-- {
-		if err = syncDirectory(directories[i]); err != nil {
+		if err = filedurability.SyncDirectory(directories[i]); err != nil {
 			return "", err
 		}
 	}
-	if err = syncDirectory(h.config.PublicDirectory); err != nil {
+	if err = filedurability.SyncDirectory(h.config.PublicDirectory); err != nil {
 		return "", err
 	}
 	complete = true
@@ -128,7 +130,7 @@ func (h *Host) PreparePublicOutput(name string) (string, error) {
 	if err := os.Chown(path, int(h.uid), int(h.gid)); err != nil {
 		return "", err
 	}
-	return path, syncDirectory(h.config.PublicDirectory)
+	return path, filedurability.SyncDirectory(h.config.PublicDirectory)
 }
 
 // PrunePublic removes the bundle-*, evidence-* and backup-* directories that
@@ -165,5 +167,5 @@ func (h *Host) PrunePublic(keep RuntimeEvidence) error {
 			return err
 		}
 	}
-	return syncDirectory(h.config.PublicDirectory)
+	return filedurability.SyncDirectory(h.config.PublicDirectory)
 }

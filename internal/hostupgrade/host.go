@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Hikyo-Org/hikyo/internal/filedurability"
 )
 
 type command struct {
@@ -288,7 +290,7 @@ func (h *Host) PrepareDirectories() error {
 		if err = os.Chmod(p, mode); err != nil {
 			return err
 		}
-		if err = syncDirectory(filepath.Dir(p)); err != nil {
+		if err = filedurability.SyncDirectory(filepath.Dir(p)); err != nil {
 			return err
 		}
 	}
@@ -710,7 +712,7 @@ func (h *Host) Complete(ctx context.Context) error {
 	if err := os.Remove(h.maintenanceFile()); err != nil {
 		return err
 	}
-	if err := syncDirectory(h.config.StateDirectory); err != nil {
+	if err := filedurability.SyncDirectory(h.config.StateDirectory); err != nil {
 		return err
 	}
 	if err := os.Remove(h.startPermission()); err != nil && !errors.Is(err, os.ErrNotExist) {

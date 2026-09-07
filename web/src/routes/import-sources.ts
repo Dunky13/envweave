@@ -766,7 +766,7 @@ function readVault(text: string, budget: Budget): { records: SourceRecord[]; ski
       refuse(`the ${where} secret path exceeds the ${MAX_DEPTH}-level depth bound`);
     }
     // Charge every record now (Go charges in this first pass): a deleted/
-    // destroyed record costs one slot, a live one costs a slot per data field , 
+    // destroyed record costs one slot, a live one costs a slot per data field, 
     // so a capture of 50 000 deleted records cannot walk past the record cap.
     if (capture.deleted || capture.destroyed) {
       budget.record();

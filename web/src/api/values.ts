@@ -44,7 +44,7 @@ import { useTransport } from './transport.tsx';
  * One rule is carried here rather than in the components, because it is the
  * one that is easy to get subtly wrong: **the window gates the prompt, never
  * the check**. So a refusal from a disclosure route is NOT read as "the window
- * lapsed, prompt again". A 403 there means the server refused the disclosure , 
+ * lapsed, prompt again". A 403 there means the server refused the disclosure, 
  * most often a grant revoked under an open window, and the honest response is
  * to remask and say so, not to loop the human through a ceremony that will
  * refuse again.
@@ -137,7 +137,7 @@ export function useRevealWindow(
 
 /**
  * base64url helpers. WebAuthn's JSON shapes carry binary as base64url and the
- * browser's credential API wants ArrayBuffers, so exactly one place converts , 
+ * browser's credential API wants ArrayBuffers, so exactly one place converts, 
  * exported so the account-security enrolment ceremonies (#60) share it rather
  * than growing a second, subtly different copy.
  */

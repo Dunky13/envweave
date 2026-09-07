@@ -102,15 +102,6 @@ var ErrTargetNotEmpty = errors.New("store: restore target is not an empty datast
 // preflight) branch on this by name; every other failure stays an error.
 var ErrNoSchema = errors.New("store: datastore has no schema (goose version table missing)")
 
-// SchemaVersion reports the highest applied goose migration.
-func SchemaVersion(ctx context.Context, db *DB) (int64, error) {
-	return dbReadResult(ctx, db, func(q adapterDB) (int64, error) {
-		var v int64
-		err := q.QueryRow(ctx, schemaVersionQuery).Scan(&v)
-		return schemaVersionResult(v, err)
-	})
-}
-
 const schemaVersionQuery = "SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version"
 
 func schemaVersionResult(v int64, err error) (int64, error) {

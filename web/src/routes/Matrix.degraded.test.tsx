@@ -241,7 +241,7 @@ describe('Matrix per-environment degradation (#451)', () => {
 
   it('does not offer a degraded column for publish even when its signals still carry a pending draft', async () => {
     // Mixed-family degradation: settings failed (→ readiness forbidden) while
-    // signals still hold a pending draft. The column must not be publishable , 
+    // signals still hold a pending draft. The column must not be publishable, 
     // it would lose its protected marker and confirmation ceremony (#451).
     const mixedForbiddenRow = {
       ...forbiddenRow,

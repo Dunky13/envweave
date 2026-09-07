@@ -137,7 +137,6 @@ type KeyTransition struct {
 
 func (t KeyTransition) Valid() bool                    { return t.valid }
 func (t KeyTransition) RequiresLocalRecovery() bool    { return t.statement.Mode == LocalBreakGlass }
-func (t KeyTransition) Statement() Rotation            { return t.statement }
 func (t KeyTransition) Digest() releaseidentity.Digest { return t.digest }
 func (t KeyTransition) NextOperator() PinnedOperator   { return t.next }
 

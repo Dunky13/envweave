@@ -479,7 +479,7 @@ export function MatrixRowEditor({
             </Link>
             {/*
               The per-key history entry point. Per-key history is a FILTER over
-              the same lineage, so it is the history surface with `key` set , 
+              the same lineage, so it is the history surface with `key` set, 
               never a second surface, and never a second fetch.
             */}
             <Link

@@ -19,7 +19,7 @@ import { ApiError, ok, parsed } from './client.ts';
  *
  * Two rules the ADRs put here rather than in the component:
  *
- *  - **`static_jwks` never round-trips.** The read shape has no such member , 
+ *  - **`static_jwks` never round-trips.** The read shape has no such member, 
  *    the document is configuration an operator supplied and can re-supply, so
  *    the editor field is always blank and, under `static` mode, always
  *    re-entered. There is no keep-the-old-document path, and there cannot be

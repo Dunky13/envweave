@@ -114,7 +114,7 @@ func (i *Installer) prepareNightly(ctx context.Context, status updatecheck.Statu
 	}
 	var total int64
 	for _, candidate := range status.Assets {
-		if !safeName(candidate.Name) {
+		if !releaseidentity.SafeName(candidate.Name) {
 			return errors.New("selfupdate: unsafe nightly payload name")
 		}
 		asset, err := exactAsset(status.LatestVersion, candidate.Name, status.Assets)
@@ -253,7 +253,7 @@ func (i *Installer) nightlySnapshot(ctx context.Context, pinned releasetrust.Pin
 		return releasetrust.SnapshotMaterial{}, releasetrust.Snapshot{}, errors.New("selfupdate: primary inventory exceeds bound")
 	}
 	for _, key := range metadata.PrimaryKeys {
-		if !safeName(key.PublicKey) {
+		if !releaseidentity.SafeName(key.PublicKey) {
 			return releasetrust.SnapshotMaterial{}, releasetrust.Snapshot{}, errors.New("selfupdate: unsafe public key locator")
 		}
 		material.PrimaryKeys[key.ID], err = i.downloadURL(ctx, trustURL(key.PublicKey), maxTrustBytes)

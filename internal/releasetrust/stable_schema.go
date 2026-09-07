@@ -2,9 +2,7 @@ package releasetrust
 
 import (
 	"errors"
-	"path/filepath"
 	"regexp"
-	"strings"
 
 	"github.com/Hikyo-Org/hikyo/internal/releaseidentity"
 	"github.com/Masterminds/semver/v3"
@@ -109,7 +107,7 @@ func ValidateRoot(root Root, recoveryKey []byte) error {
 }
 
 func validRootKey(key RootKey) bool {
-	return key.ID != "" && safeName(key.PublicKey) && sha256Pattern.MatchString(key.SHA256)
+	return key.ID != "" && releaseidentity.SafeName(key.PublicKey) && sha256Pattern.MatchString(key.SHA256)
 }
 
 func ValidateMetadata(root Root, metadata Metadata) error {
@@ -123,7 +121,7 @@ func ValidateMetadata(root Root, metadata Metadata) error {
 	ids, names := map[string]bool{}, map[string]bool{}
 	bootstrapMatches := 0
 	for _, primary := range metadata.PrimaryKeys {
-		if primary.ID == "" || !safeName(primary.PublicKey) || !sha256Pattern.MatchString(primary.SHA256) ||
+		if primary.ID == "" || !releaseidentity.SafeName(primary.PublicKey) || !sha256Pattern.MatchString(primary.SHA256) ||
 			primary.ValidFromReleaseSequence < 1 ||
 			(primary.ValidThroughReleaseSequence != nil && *primary.ValidThroughReleaseSequence < primary.ValidFromReleaseSequence) ||
 			ids[primary.ID] || names[primary.PublicKey] {
@@ -158,7 +156,4 @@ func ValidateMetadata(root Root, metadata Metadata) error {
 	return nil
 }
 
-func safeName(name string) bool {
-	return name != "" && name != "." && name != ".." && filepath.Base(name) == name && !strings.Contains(name, "..") && !strings.ContainsAny(name, `/\`)
-}
 func digestHex(raw []byte) string { return string(releaseidentity.Hash(raw)) }

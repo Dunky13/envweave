@@ -134,7 +134,7 @@ const shellSurfaces = SURFACES.filter((surface) => surface.chrome === 'shell');
  * The approve page is here deliberately and it is the non-obvious one: a first
  * establishment lands in a popup carrying no cookies for this instance at all,
  * so bouncing it to `/login` would throw away the `state` the whole transaction
- * is addressed by. It renders the sign-in form itself instead, and the URL , 
+ * is addressed by. It renders the sign-in form itself instead, and the URL, 
  * with its state, survives.
  *
  * The callback page is here for a duller reason: it only reads two query

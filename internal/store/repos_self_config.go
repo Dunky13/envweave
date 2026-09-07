@@ -41,7 +41,6 @@ type selfConfigStorage interface {
 	putNode(context.Context, SelfConfigNode) error
 	deleteNodes(context.Context) error
 	retained(context.Context) ([]string, error)
-	retentionSlot(context.Context, string) (string, error)
 	retain(context.Context, string, string) error
 	release(context.Context, string) error
 	participants(context.Context, time.Time) ([]string, error)

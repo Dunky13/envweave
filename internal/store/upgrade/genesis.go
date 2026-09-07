@@ -232,6 +232,3 @@ func PinnedLegacySchemaDigest(engine releaseidentity.Engine) (releaseidentity.Di
 	}
 	return d.Catalog.Digest(), nil
 }
-
-// MarshalInspection emits only public structural prerequisites, never raw rows.
-func MarshalInspection(report Inspection) ([]byte, error) { return json.Marshal(report) }

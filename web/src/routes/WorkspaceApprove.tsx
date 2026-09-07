@@ -71,7 +71,7 @@ function sameHandoffSummary(
  *  - **step-up**, an ELEVATION of a workspace already open. A disclosure over
  *    there needs a fresh reauthentication over here first, so the human runs
  *    THIS instance's own #58 ceremony over the bound environment, which opens
- *    the reauth window the approval's server-side freshness gate then requires , 
+ *    the reauth window the approval's server-side freshness gate then requires, 
  *    and only then approves. The page reads purpose, environment and key set
  *    from the server-owned transaction by opaque state; the server validates
  *    the fresh window against that same bound environment.

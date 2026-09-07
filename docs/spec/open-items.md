@@ -11,7 +11,7 @@ handoffs remain evidence.
 | ID | Immutable obligation | Contract |
 | --- | --- | --- |
 | `OBL-SCAN-PERFORMANCE` | Preserve required native ARM64 floor-bench evidence: derated scan p99 ≤ 5 ms and boot compile ≤ 2 s, measured boot memory ≤ 32 MiB. Physical Pi calibration is optional under the declared #77 amendment. | [ops-spec.md](../adr/ops-spec.md), [secret-scanning.md](../adr/secret-scanning.md) |
-| `OBL-OPERATOR-PI-FIT` | Record an arm64 cgroup run showing the operator reconciles within its 128 MiB limit under load. | [ops-spec.md](../adr/ops-spec.md) |
+| `OBL-OPERATOR-PI-FIT` | Record an arm64 cgroup run showing the operator reconciles within its 128 MiB limit under load. Recorded: native arm64 operator acceptance measured 98,889,728 bytes peak RSS (docs/reports/1.0/operator-floor.html). | [ops-spec.md](../adr/ops-spec.md) |
 | `OBL-IMPORT-FIXTURES` | Pin adversarial import fixtures, sanitized hostile-provider errors, the Infisical exporter floor, and canonical JSON conversion. | [import-paths.md](../adr/import-paths.md) |
 | `OBL-ADAPTER-FIXTURES` | Pin minimal-scope credential spellings, expiry behavior, conflict/sealed-box fixtures, and non-UTF-8 disposition. | [deployment-adapter.md](../adr/deployment-adapter.md), [github-adapter.md](../adr/github-adapter.md) |
 | `OBL-CI-ACTION-PINS` | Pin exact CI action SHAs and release pipeline steps under the supply-chain rules. | [oss-mechanics.md](../adr/oss-mechanics.md), [system-architecture.md](../adr/system-architecture.md) |

@@ -15,7 +15,7 @@ import { assertSessionEpoch, captureSessionEpoch } from './sessionEpoch.ts';
  * therefore load-bearing, not tidiness.
  *
  * The structural rule everything below obeys: THE BROWSER TALKS TO THE REMOTE
- * DIRECTLY. This module never asks its own server about another instance , 
+ * DIRECTLY. This module never asks its own server about another instance, 
  * there is no endpoint that would answer, and `api/noproxy_test.go` is what
  * keeps it that way.
  *
@@ -174,7 +174,7 @@ export function useWorkspaces(): readonly WorkspaceBearer[] {
 /**
  * How often the shell asks the remote whether the workspace is still alive.
  *
- * This is the ADR's "expiry surfaces in the shell as session expired , 
+ * This is the ADR's "expiry surfaces in the shell as session expired, 
  * reconnect", and it is also how the two server-side kill switches become
  * visible over here: de-allowlisting this origin and revoking the session in
  * the remote's own active-session list both take effect at the remote's next
@@ -223,7 +223,7 @@ export async function probeWorkspace(bearer: WorkspaceBearer): Promise<boolean> 
     // card must not do.
     return strike(session);
   }
-  // Only a 401 is the session dying (revoked, expired, origin-binding mismatch , 
+  // Only a 401 is the session dying (revoked, expired, origin-binding mismatch, 
   // all ErrUnauthenticated).
   if (response.status === 401) {
     dropWorkspaceSession(session);
@@ -241,7 +241,7 @@ export async function probeWorkspace(bearer: WorkspaceBearer): Promise<boolean> 
   }
   // ONLY A WELL-FORMED SUCCESS CLEARS THE STRIKE COUNT. Anything else is a
   // strike: a 404 or a 500 is not this endpoint answering, and a 200 carrying
-  // HTML is something in the path, a captive portal, a proxy error page , 
+  // HTML is something in the path, a captive portal, a proxy error page, 
   // that is not the remote at all. Treating those as "alive" is how the card
   // ends up claiming a workspace nobody can use, which is the exact failure the
   // strike counter exists to prevent.
@@ -323,7 +323,7 @@ export async function assertCompatible(origin: string): Promise<void> {
   // The live protection is right here in `remoteJSON`: a remote that is
   // unreachable, refuses this origin, or serves a meta that does not PARSE as
   // this protocol throws, and the caller refuses the workspace. The numeric
-  // check below is the second half, the per-operation minimum-revision gate , 
+  // check below is the second half, the per-operation minimum-revision gate, 
   // and it is dormant while this shell's floor equals the meta contract's own
   // (`zMeta` already rejects a revision below 1). It becomes live the day a
   // future operation raises `WORKSPACE_MIN_API_REVISION` above that floor.

@@ -535,7 +535,7 @@ describe('AuthProvider', () => {
     const buttons = container.querySelectorAll('button');
     await act(async () => buttons[2]?.click());
     // The login result carries no capabilities, so the session binds with the
-    // fail-closed default and then a whoami hydrates the authoritative value , 
+    // fail-closed default and then a whoami hydrates the authoritative value, 
     // without a second login.
     await act(async () => mutationResult.resolve(loginIdentity('01', '11')));
     await settle();
