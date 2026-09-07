@@ -5,12 +5,14 @@ package hostupgrade
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -306,5 +308,89 @@ func TestLinuxPrunePublicKeepsOnlyReferencedEvidence(t *testing.T) {
 	}
 	if err := h.PrunePublic(RuntimeEvidence{BundleDirectory: filepath.Join(h.config.StateDirectory, "bundle-x")}); err == nil {
 		t.Fatal("accepted retained evidence outside the public directory")
+	}
+}
+
+func TestLinuxPublicBundleIgnoresCallerUmask(t *testing.T) {
+	h := rootTestHost(t)
+	previous := syscall.Umask(0o077)
+	t.Cleanup(func() { syscall.Umask(previous) })
+	resetUmask()
+	source := filepath.Join(h.config.StateDirectory, "source")
+	if err := os.MkdirAll(filepath.Join(source, "releases"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "releases", "index.json"), []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	staged, err := h.StagePublicBundle(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]os.FileMode{staged: 0755, filepath.Join(staged, "releases"): 0755, filepath.Join(staged, "releases", "index.json"): 0644} {
+		info, err := os.Lstat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != want {
+			t.Fatalf("%s mode %o, want %o: runtime user could not read the bundle", path, info.Mode().Perm(), want)
+		}
+	}
+	output, err := h.PreparePublicOutput("backup-umask")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Lstat(output); err != nil || info.Mode().Perm() != 0700 {
+		t.Fatal("runtime-owned backup output must stay private", err)
+	}
+	evidence, err := h.PublishPublicEvidence("operator.pub", []byte("public key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Lstat(evidence); err != nil || info.Mode().Perm() != 0644 {
+		t.Fatal("public evidence must be world-readable", err)
+	}
+}
+
+func TestLinuxRuntimeFailureSavesErrorOutputForTheOperator(t *testing.T) {
+	h := rootTestHost(t)
+	h.run = func(_ context.Context, c command) ([]byte, error) {
+		if c.path == "/usr/bin/systemctl" {
+			if c.args[2] == "show" {
+				return []byte("ActiveState=inactive\nMainPID=0\nControlGroup=\n"), nil
+			}
+			return nil, nil
+		}
+		if c.stderr == nil {
+			t.Fatal("runtime child ran without an error sink")
+		}
+		if _, err := c.stderr.Write([]byte("hikyo backup: offline bundle member unavailable\n")); err != nil {
+			t.Fatal(err)
+		}
+		return nil, errors.New("exit status 1")
+	}
+	if err := h.FenceAndStop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	candidate := filepath.Join(h.config.CandidateDirectory, "hikyo-candidate")
+	if err := os.WriteFile(candidate, []byte("#!/bin/sh\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	evidence := RuntimeEvidence{BundleDirectory: filepath.Join(h.config.PublicDirectory, "bundle"), OperatorPublicKey: filepath.Join(h.config.PublicDirectory, "operator.pub")}
+	_, err := h.Migrate(context.Background(), candidate, evidence)
+	if err == nil || !strings.Contains(err.Error(), "runtime migrate failed") || !strings.Contains(err.Error(), "error output is in ") {
+		t.Fatalf("runtime failure hid its cause: %v", err)
+	}
+	logPath := err.Error()[strings.LastIndex(err.Error(), " ")+1:]
+	info, err := os.Lstat(logPath)
+	if err != nil || info.Mode().Perm() != 0600 || fileOwner(info) != 0 {
+		t.Fatal("runtime error log must be a root-only file", err)
+	}
+	raw, err := os.ReadFile(logPath)
+	if err != nil || !strings.Contains(string(raw), "offline bundle member unavailable") {
+		t.Fatal("runtime error log lost the child's message", err)
+	}
+	if strings.Contains(fmt.Sprint(err), "offline bundle member unavailable") {
+		t.Fatal("child error output must not reach the operator error string")
 	}
 }

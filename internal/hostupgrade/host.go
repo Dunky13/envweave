@@ -24,6 +24,9 @@ type command struct {
 	runtime   bool
 	uid, gid  uint32
 	rootKey   string
+	// stderr receives the child's error output when set; otherwise it is
+	// discarded because it can contain operational configuration.
+	stderr io.Writer
 }
 
 type boundedOutput struct{ bytes []byte }
@@ -62,6 +65,7 @@ func New(c Config) (*Host, error) {
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}
+	resetUmask()
 	u, err := user.Lookup(c.User)
 	if err != nil {
 		return nil, err
@@ -512,7 +516,18 @@ func (h *Host) runRuntime(ctx context.Context, candidate string, args []string, 
 	if err != nil {
 		return nil, err
 	}
-	return h.run(ctx, command{path: candidate, args: args, env: environmentList(values), directory: h.config.WorkingDirectory, runtime: true, uid: h.uid, gid: h.gid, rootKey: h.config.RootKeyFile})
+	var stderr boundedOutput
+	output, err := h.run(ctx, command{path: candidate, args: args, env: environmentList(values), directory: h.config.WorkingDirectory, runtime: true, uid: h.uid, gid: h.gid, rootKey: h.config.RootKeyFile, stderr: &stderr})
+	if err == nil {
+		return output, nil
+	}
+	// The operator must see why the runtime refused. Its stderr can name
+	// configuration, so it goes to a root-only file, never to the terminal.
+	log := filepath.Join(h.config.StateDirectory, "runtime-"+args[0]+"-"+time.Now().UTC().Format("20060102T150405Z")+".log")
+	if writeErr := atomicWrite(log, stderr.bytes, 0600); writeErr != nil {
+		return nil, fmt.Errorf("runtime %s failed: %w (its error output could not be saved: %v)", args[0], err, writeErr)
+	}
+	return nil, fmt.Errorf("runtime %s failed: %w; its error output is in %s", args[0], err, log)
 }
 
 func environmentList(values map[string]string) []string {
