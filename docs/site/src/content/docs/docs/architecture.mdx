@@ -23,16 +23,21 @@ hikyo server --- datastore
 
 Only the server and local admin role unwrap the data-encryption key. The
 browser, network CLI, reverse proxy, datastore, backup exporter, and restore
-command never receive the operator root key.
+command never receive the operator root key. The one exception is `restore
+drill`, which boots the restored scratch copy with an explicitly supplied root
+key file to prove recovery.
 
-## One binary, four roles
+## One binary, several roles
 
 | Role | Commands | Boundary |
 | --- | --- | --- |
 | Server | `hikyo server` | Serves UI, API, health, and readiness. |
-| Migration | `hikyo migrate` | Applies datastore schema changes. |
-| Host operator | `hikyo admin`, `backup`, `restore` | Runs only beside the datastore. |
+| Migration | `hikyo migrate`, `sudo hikyo upgrade` | Applies datastore schema changes; the upgrade coordinator drives the verified in-place upgrade. |
+| Host operator | `hikyo admin`, `backup`, `restore`, `escrow` | Runs only beside the datastore. |
+| Kubernetes operator | `hikyo operator`, `config-rollout` | Separate deployable; reconciles `HikyoSecret` and the in-cluster rollout authority. |
 | Network client | login, hierarchy, values, access, identities | Uses the versioned HTTP API. |
+
+Every role answers `--help`; see [CLI reference](/docs/cli-reference/#getting-help).
 
 Host-operator commands do not have network routes. Host access is the authority
 for bootstrap and recovery, so these commands must run on the server host.

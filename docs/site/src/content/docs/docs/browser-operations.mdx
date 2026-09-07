@@ -5,9 +5,7 @@ editUrl: https://github.com/Hikyo-Org/Hikyo/edit/main/docs/site/src/content/docs
 ---
 
 Hikyo's server-mediated capabilities are reachable from both the CLI and the
-embedded web UI, with one tracked exception listed at the end of this page
-(dynamic-secret provider and lease management). Neither surface is the
-"advanced" one. This page follows the browser path end to end, from a fresh
+embedded web UI. Neither surface is the "advanced" one. This page follows the browser path end to end, from a fresh
 organisation on an installation whose only human is the bootstrap
 administrator to a workload receiving secrets in Kubernetes, and then lists
 exactly what stays outside the browser and why.
@@ -91,15 +89,10 @@ without a disposition or an issue is closed without its surface.
 
 | Class | Examples | Why |
 | --- | --- | --- |
-| Host-local authority | `hikyo admin create`, `migrate`, restore reconcile, break-glass | No HTTP endpoint exists; the act needs the host and the root key |
+| Host-local authority | `hikyo admin create`, `migrate`, `sudo hikyo upgrade`, `escrow verify`, restore reconcile, `config-rollout`, break-glass | No HTTP endpoint exists; the act needs the host and the root key |
 | Client-local delivery | `hikyo run`, `render`, the Compose and Kubernetes delivery fetch | Acts on the box the credential lives on and admits no human session |
 | Kubernetes reconciliation | `HikyoSecret` converge | The operator speaks only the delivery wire |
 | Identity-protocol endpoints | OIDC callback, SAML ACS, the SCIM wire, the CLI's own reauthentication legs | Protocol-shaped and client-specific by nature |
-
-One domain capability is tracked as open browser work and remains CLI/API
-only until its issue closes:
-[dynamic-secret provider and lease management](https://github.com/Hikyo-Org/Hikyo/issues/595).
-The Leases tab on Machine access is read-only until then.
 
 ## Parity is by outcome, not by form
 
@@ -112,7 +105,9 @@ redaction and audit rules.
 
 ## Managed Hikyo configuration
 
-For owner-local mail and release-notification settings, use
-[Manage Hikyo with Hikyo](/docs/managed-configuration/): edit the protected project,
-publish an exact revision, reauthenticate and apply. That guide covers adoption,
-per-node convergence, independent remote projects and rollback.
+Owner runtime settings and per-node settings are edited in the protected
+project like any other values, published as an exact revision, then applied
+after reauthentication. [Manage Hikyo with Hikyo](/docs/managed-configuration/)
+covers adoption, per-node convergence, independent remote projects and
+rollback; settings that need a restart go through
+[configuration rollouts](/docs/configuration-rollouts/).

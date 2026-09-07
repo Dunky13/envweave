@@ -38,8 +38,10 @@ func AdminUsage(w io.Writer) {
                     [--output-file PATH | --dangerously-print]
   hikyo admin reset-credential --principal ID
                     [--output-file PATH | --dangerously-print]
-  hikyo admin privacy export|restrict|erase|release --principal ID --output-file PATH
-  hikyo admin privacy correct --principal ID --username USER --display-name NAME --output-file PATH --confirm
+  hikyo admin privacy export --principal ID --output-file PATH
+  hikyo admin privacy restrict|erase|release --principal ID --output-file PATH --confirm
+  hikyo admin privacy correct --principal ID [--username USER] [--display-name NAME]
+                    --output-file PATH --confirm
   hikyo admin privacy reapply --receipt PATH --output-file PATH --confirm
   hikyo admin grant --principal ID --capability CAP
                     [--org ID [--project ID [--env ID]]]
@@ -82,7 +84,7 @@ func RunAdmin(ctx context.Context, cfg *config.Config, log *slog.Logger, args []
 ) error {
 	if len(args) == 0 {
 		AdminUsage(stderr)
-		return errors.New("usage: hikyo admin create --username USER | hikyo admin reset-credential --principal ID | hikyo admin grant --principal ID --capability CAP")
+		return errors.New("usage: hikyo admin create | reset-credential | grant | privacy | config (hikyo admin --help)")
 	}
 	switch args[0] {
 	case "create":
@@ -97,7 +99,7 @@ func RunAdmin(ctx context.Context, cfg *config.Config, log *slog.Logger, args []
 		return runAdminGrant(ctx, cfg, log, args, stderr)
 	default:
 		AdminUsage(stderr)
-		return errors.New("usage: hikyo admin create --username USER | hikyo admin reset-credential --principal ID | hikyo admin grant --principal ID --capability CAP")
+		return errors.New("usage: hikyo admin create | reset-credential | grant | privacy | config (hikyo admin --help)")
 	}
 }
 

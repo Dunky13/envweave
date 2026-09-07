@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"runtime"
 	"slices"
+	"strings"
 	"syscall"
 
 	"golang.org/x/term"
@@ -64,10 +65,14 @@ func run() int {
 		return code
 	}
 	if len(os.Args) < 2 {
-		usage()
+		usage(os.Stderr)
 		return 2
 	}
-	cmd, args := os.Args[1], os.Args[2:]
+	invocation, handled, code := runHelp(os.Args[1:], os.Stdout, os.Stderr)
+	if handled {
+		return code
+	}
+	cmd, args := invocation[0], invocation[1:]
 	// Datastore and custody commands must reach their gate before any optional
 	// executable housekeeping. Only remote client verbs own CLI update cleanup.
 	if slices.Contains(cli.Verbs, cmd) {
@@ -128,13 +133,66 @@ func run() int {
 	case cmd == "restore":
 		return runOperator(ctx, "restore", args, app.RunRestore)
 	case slices.Contains(cli.Verbs, cmd):
+		if cli.HelpRequested(args) {
+			// Help never opens the controlling terminal.
+			return cli.Run(ctx, updateIO(nil, nil, builtChannel), invocation)
+		}
 		terminalSession, terminalError := disclose.OpenTerminalSession()
-		return cli.Run(ctx, updateIO(terminalSession, terminalError, builtChannel), os.Args[1:])
+		return cli.Run(ctx, updateIO(terminalSession, terminalError, builtChannel), invocation)
 	default:
 		fmt.Fprintf(os.Stderr, "hikyo: unknown command %q\n\n", cmd)
-		usage()
+		usage(os.Stderr)
 		return 2
 	}
+}
+
+// runHelp answers `hikyo --help`, `hikyo help [command...]` and
+// `hikyo <command...> --help` for every role of the binary, on stdout with
+// exit 0, before any mode touches its configuration, datastore, network, or
+// terminal. Client verbs answer inside cli.Run, which owns their help text,
+// so for them only the `help` spelling is rewritten and handed back.
+func runHelp(args []string, stdout, stderr io.Writer) (invocation []string, handled bool, code int) {
+	if args[0] == "help" {
+		args = append(slices.Clone(args[1:]), "--help")
+	}
+	cmd := args[0]
+	if cli.IsHelpFlag(cmd) {
+		usage(stdout)
+		return args, true, 0
+	}
+	if slices.Contains(cli.Verbs, cmd) || !cli.HelpRequested(args[1:]) {
+		return args, false, 0
+	}
+	switch cmd {
+	case "client":
+		cli.Usage(stdout)
+	case "admin":
+		app.AdminUsage(stdout)
+	case "backup":
+		app.BackupUsage(stdout)
+	case "restore":
+		app.RestoreUsage(stdout)
+	case "escrow":
+		app.EscrowUsage(stdout)
+	case "server", "migrate", "config-rollout":
+		// These parse their own flag sets, and the flag package's generated
+		// usage is the complete, always-current list of what they accept.
+		return args, false, 0
+	case "upgrade":
+		// The automatic upgrade parses its own flags; `upgrade operator`
+		// loads server configuration first, so it answers from the text.
+		if len(args) < 2 || args[1] != "operator" {
+			return args, false, 0
+		}
+		cli.HelpFromText(stdout, usageText, cli.CommandPath(args))
+	default:
+		if !cli.HelpFromText(stdout, usageText, cli.CommandPath(args)) {
+			fmt.Fprintf(stderr, "hikyo: unknown command %q\n\n", cmd)
+			usage(stderr)
+			return args, true, 2
+		}
+	}
+	return args, true, 0
 }
 
 // writeVersion prints the readable build summary. `hikyo version` shows this
@@ -216,6 +274,9 @@ func shouldCheckForUpdate(command string) bool {
 
 func runServer(ctx context.Context, args []string) int {
 	cfg, warnings, err := config.LoadBootstrap("server", args, os.Getenv, os.Environ())
+	if errors.Is(err, flag.ErrHelp) {
+		return 0
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "hikyo server:", err)
 		return 1
@@ -380,6 +441,9 @@ func workdir() string {
 
 func runMigrate(ctx context.Context, args []string) int {
 	cfg, warnings, err := config.Load("migrate", args, os.Getenv, os.Environ())
+	if errors.Is(err, flag.ErrHelp) {
+		return 0
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "hikyo migrate:", err)
 		return 1
@@ -442,34 +506,74 @@ func runUpgradeOperator(ctx context.Context, args []string) int {
 	return 0
 }
 
-func usage() {
-	fmt.Fprintf(os.Stderr, `hikyo — one binary, several roles
+func usage(w io.Writer) {
+	fmt.Fprint(w, usageText)
+	fmt.Fprintf(w, "client verbs (hikyo help client prints the full reference):\n%s\n", wrapWords(cli.Verbs, 2, 78))
+}
 
-server commands:
-  sudo hikyo upgrade [--target VERSION] [--config FILE]
-  hikyo server [--dev] [--listen ADDR] [--auto-migrate=BOOL]
+// usageText is the multicall help. cmd/hikyo's TestUsage keeps it aligned
+// with run's dispatch table; the client verb list is appended from cli.Verbs.
+const usageText = `hikyo - one binary, several roles
+
+  hikyo --help                          this overview
+  hikyo help <command...>               help for one command, at any depth
+  hikyo <command...> --help             the same
+
+server:
+  hikyo server [--dev] [--listen ADDR] [--auto-migrate=BOOL] [flags]
+                                        hikyo server --help lists every flag
   hikyo migrate [--dev]
+  sudo hikyo upgrade [--target VERSION] [--config FILE]
+                                        verified in-place upgrade on a systemd host
+  hikyo upgrade operator rotate --statement FILE --signature FILE --new-public-key FILE
 
 kubernetes operator (separate deployable; HIKYO_OPERATOR_* env only):
   hikyo operator
+  hikyo config-rollout [--enrollment-file PATH] [--authority-public-key PATH]
 
 privileged local update helper (separate service; JSON config only):
   hikyo updater --config /etc/hikyo/updater.json
+                                        remote apply is disabled; see hikyo upgrade
 
 information:
-  hikyo version
+  hikyo version                         readable build summary
+  hikyo --version                       the version alone, for scripts
   hikyo about
   hikyo welcome
 
-local host authority (server host only):
+local host authority (server host only; --dev directly after the group):
   hikyo admin [--dev] create --username USER
-  hikyo backup [--dev] export [--out DIR]
+  hikyo admin [--dev] reset-credential --principal ID
+  hikyo admin [--dev] grant --principal ID --capability CAP
+  hikyo admin [--dev] privacy export|restrict|erase|release|correct|reapply
+  hikyo admin [--dev] config status|recover
+  hikyo backup [--dev] export [--out DIR] [--recipient R]... [--passphrase-file PATH]
   hikyo backup [--dev] keygen
-  hikyo restore [--dev] run --from ARCHIVE --identity-file PATH
+  hikyo backup [--dev] upgrade-export|upgrade-drill
+  hikyo escrow [--dev] verify --root-key-file FILE --assert-separate-custody
+  hikyo restore [--dev] run --from ARCHIVE (--identity-file PATH | --passphrase-file PATH)
   hikyo restore [--dev] status
   hikyo restore [--dev] reconcile --principal ID
+  hikyo restore [--dev] drill --from ARCHIVE
 
-client verbs:
-  %v
-`, cli.Verbs)
+  each group answers --help with its full synopsis: hikyo backup --help
+
+`
+
+// wrapWords lays words out in lines of at most width columns, each indented.
+func wrapWords(words []string, indent, width int) string {
+	var b strings.Builder
+	line := strings.Repeat(" ", indent)
+	for _, word := range words {
+		if len(line) > indent && len(line)+1+len(word) > width {
+			b.WriteString(line + "\n")
+			line = strings.Repeat(" ", indent)
+		}
+		if len(line) > indent {
+			line += " "
+		}
+		line += word
+	}
+	b.WriteString(line + "\n")
+	return b.String()
 }

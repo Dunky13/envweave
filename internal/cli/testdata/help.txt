@@ -1,22 +1,26 @@
 hikyo - environment and secret management
 
 authentication:
-  hikyo login <instance-url> --local [--as USER]   terminal-native local login
+  hikyo login <instance-url> --local [--as USER] [--name REF] [--trust-file PATH]
+                                                 terminal-native local login
+  hikyo login <instance-url> --device              refused by name until the browser login lands
   hikyo logout [--instance REF]                    revoke the stored session
   hikyo whoami [--instance REF] [-o table|json]    describe the stored session
 
 accounts:
-  hikyo account establish-credential --instance <url|ref> [--as USER]
+  hikyo account establish-credential --instance <url|ref> [--as USER] [--trust-file PATH]
   hikyo account factor enrol-totp [--output-file PATH | --dangerously-print]
   hikyo account factor confirm-totp
   hikyo account factor step-up
   hikyo account passkey enrol|list|remove          browser-only; refused on the terminal
   hikyo account recovery-codes regenerate [--output-file PATH | --dangerously-print]
-  hikyo account recovery begin --instance <url|ref> --as USER [--output-file PATH]
+  hikyo account recovery begin --instance <url|ref> --as USER [--trust-file PATH]
+      [--output-file PATH | --dangerously-print]
   hikyo account reset-credential <principal> [--output-file PATH | --dangerously-print]
 
 contexts:
   hikyo context create <name> --instance <url|ref> [--org O] [--project P] [--env E]
+      [--trust-file PATH]                          the trust bundle a CI runner was provisioned with
   hikyo context list [-o table|json]
   hikyo context show <name> [-o table|json]
   hikyo context delete <name>
@@ -24,8 +28,10 @@ contexts:
 
 managed configuration:
   hikyo instance-config status [-o table|json]
-  hikyo instance-config adopt [--yes]              preview or adopt effective settings
+  hikyo instance-config adopt [--yes] [--confirm-restored-credentials]
+                                                 preview or adopt effective settings
   hikyo instance-config apply --revision N --expected-generation N
+      [--idempotency-key KEY] [--confirm-restored-credentials]
   hikyo instance-config test-email --revision N --expected-generation N --to ADDRESS
 
 diagnostics:
@@ -55,16 +61,26 @@ hierarchy:
   hikyo folder rename <folder> --path <new-path>
   hikyo key list|show|create|rename|declare|reclassify|update|set-group|delete
   hikyo key create --name <NAME> --classification secret|config --declaration <json>
+      [--required-in all|none|<ids>] [--forbidden-in all|none|<ids>] [--group G]
+      [--folder P] [--description D] [--deprecated] [--deprecation-note N]
   hikyo key update <key> [--folder P] [--description D] [--deprecated] [--deprecation-note N]
   hikyo key declare <key> --declaration <json> [--required-in all|none|<ids>]
+      [--forbidden-in all|none|<ids>]
   hikyo key reclassify <key> --classification secret|config    the ceremony, never update
   hikyo key group list|show|create|rename|delete
+  hikyo key group create --name <name>
+  hikyo key group rename <group> --name <new-name>
+
+  key create, rename, declare and update, and key group create and rename,
+  take --acknowledge <token,token>: the secret-scanning override tokens a
+  prior refusal printed, once you have reviewed them.
 
 values:                                            --env selects the environment
   hikyo values list [--reveal] [--output-file PATH | --dangerously-print]
   hikyo values get <KEY> [--reveal] [--output-file PATH | --dangerously-print]
   hikyo values set <KEY> (--stdin | --value-file PATH)   stages; publish commits
   hikyo values set <KEY> --clear                    stages a clear to absent
+  hikyo values set <KEY> ... --acknowledge <token,token>   keep-as-config tokens from a prior scanning warning
   hikyo values declare <KEY> --envs <env,env> (--stdin | --value-file PATH)
   hikyo values diff --left <env> --right <env> [--reveal] [--output-file PATH | --dangerously-print]
   hikyo values copy --from <env> --to <env,env> --keys <KEY,KEY> [--confirm-protected]
@@ -73,13 +89,15 @@ values:                                            --env selects the environment
   hikyo values import --from-dotenv <.env>          stage a plaintext .env through the strict path
   hikyo values pending                              your drafts, and the ids to publish
   hikyo values publish --versions <id,id>           selective; closes over key groups
+      [--preview-token T] [--confirm-protected <env,env>]
+                                                 restore preview token; protected envs reviewed by automation
   hikyo values export [--format table|json|dotenv] [--revision N] [--reveal]
       [--output-file PATH | --dangerously-print]
 
 import:                                            authors artifacts, then stops
   hikyo import --from <k8s|sops|vault|infisical> --project <p> --environment <e>
       --file <path> [--env <slug>] [--out-dir <dir>]
-  hikyo import --from k8s --live --namespace <ns> [--name <secret>]
+  hikyo import --from k8s --live --namespace <ns> [--name <secret>] [--kube-context <ctx>]
       --project <p> --environment <e> [--out-dir <dir>]
   hikyo import --from vault --live --mount <mount> [--path <prefix>] [--kv-version <1|2>]
       --project <p> --environment <e> [--out-dir <dir>]
@@ -107,11 +125,15 @@ revisions:                                         --env selects the environment
   hikyo revision show [<N>|latest]                  carries the change token
   hikyo revision rollback <N> [--key KEY]           stage a restore as ordinary drafts
   hikyo pin create --workload ID --revision N       create, re-pin, or renew
+      [--expires-at RFC3339] [--override-schema]    default expiry 180 days; override pins past a schema failure
   hikyo pin list                                    show pins and expired status
   hikyo pin release <workload-principal>            release a durable pin
   hikyo approval policy list                        list change-approval policies
   hikyo approval policy create --min-approvals N    bind an approval policy to a project or env
+      [--covers ENV] [--ttl SECONDS] [--allow-self-approval] [--disabled]
+      [--approver principal:<id>|group:<groupId>:<bindingId>]... [--bypasser <id>]...
   hikyo approval policy update <policy>             replace an approval policy's fields and members
+      (same flags as create)
   hikyo approval policy delete <policy>             delete an approval policy
   hikyo approval request list                       the environment's change-approval requests
   hikyo approval request approve <request>          approve a change-approval request
@@ -119,6 +141,7 @@ revisions:                                         --env selects the environment
   hikyo approval request merge <request>            merge an approved request via the publish path
   hikyo approval request bypass <request> --reason R emergency-bypass a request's quorum
   hikyo rotate-token-key --yes                      new token key; one full fetch, no restart wave
+  hikyo rotate-scanning-key --yes                   new scanning key; every dismissal is dropped
   hikyo rotate-dek --instance --yes                 new instance DEK version (old stays readable)
   hikyo rotate-dek --org O --project P --yes         new project DEK version; follow with reencrypt
   hikyo rotate-master-key --yes                     new master; re-wrap every tier-3 key
@@ -131,23 +154,26 @@ adapters:
       [--visibility all|private|selected] [--selected-repository-ids <id,...>]
       --prefix <prefix> --keys <id,...> [--names <NAME,...>]
       [--include <glob,...>] [--exclude <glob,...>] [--classification secret|config]
-      [--stdin | --value-file PATH]
+      [--stdin | --value-file PATH] [--create-environment]
   hikyo adapter list [-o table|json]
   hikyo adapter show <adapter> [-o table|json]
   hikyo adapter update <adapter> --origin <https-origin>
+  hikyo adapter update <adapter> --move <move-id> | --cancel-move
+                                                   resume or cancel an attention-required origin move
   hikyo adapter update <adapter> --target <target> --env E --kind <kind>
       --owner <owner> [--repo <repo>] [--destination-environment <name>]
       [--visibility all|private|selected] [--selected-repository-ids <id,...>]
       --prefix <prefix> --keys <id,...> [--names <NAME,...>]
       [--include <glob,...>] [--exclude <glob,...>] [--classification secret|config]
   hikyo adapter delete <adapter> [--keep-remote]
-  hikyo adapter credential set --adapter <adapter> [--stdin | --value-file PATH]
+  hikyo adapter credential set --adapter <adapter> [--stdin | --value-file PATH] [--move <move-id>]
   hikyo adapter credential revoke --adapter <adapter>
   hikyo adapter target add --adapter <adapter> --env E --kind <kind> --owner <owner>
       [--repo <repo>] [--destination-environment <name>]
       [--visibility all|private|selected] [--selected-repository-ids <id,...>]
       [--prefix <prefix>] --keys <id,...> [--names <NAME,...>]
       [--include <glob,...>] [--exclude <glob,...>] [--classification secret|config]
+      [--create-environment]
   hikyo adapter target list --adapter <adapter>
   hikyo adapter target show <target> [--format detail|workflow]
   hikyo adapter target pause <target>                stop pushes; ledger and remote names kept
@@ -158,13 +184,15 @@ adapters:
 
   key selection (--names, --include, --exclude, --classification) resolves to
   explicit key ids when the target is saved; keys created later are not added.
+  --create-environment is consent to create a missing GitHub environment and
+  needs Administration:write on the credential.
 
   adapter credentials are read with terminal echo disabled, from stdin, or
   from --value-file. There is no credential-value argv flag.
 
 dynamic secrets:
   hikyo dynamic-provider create --provider postgres --origin <postgres://user@host:port/db>
-      --grant-role <role> [--stdin | --value-file PATH]
+      --grant-role <role> [--tls-mode verify-full] [--stdin | --value-file PATH]
   hikyo dynamic-provider list [-o table|json]
   hikyo dynamic-provider show <provider> [-o table|json]
   hikyo dynamic-provider credential set --provider <provider> [--stdin | --value-file PATH]
@@ -202,9 +230,16 @@ compose:                                           machine credential only
 
 instance configuration:
   hikyo instance-config provider create --kind saml --name <name> --entity-id <entityID> \
-      (--metadata-file <xml> | --metadata-url <url>)
+      (--metadata-file <xml> | --metadata-url <url>) [--display-name NAME]
+      [--assurance-context URI]... [--confirm-fingerprint FP]... [--confirm-endpoint URL]...
+      [--allow-email-nameid] [--force-sign-requests]
   hikyo instance-config provider list|show|update|disable|remove
-  hikyo instance-config provider refresh-metadata <name>
+  hikyo instance-config provider update <name> [--kind oidc|saml] [--display-name NAME]
+      [--assurance-context URI]... | [--clear-assurance-policy]
+      [--allow-email-nameid BOOL] [--force-sign-requests BOOL] [--enabled BOOL]
+  hikyo instance-config provider disable <name> [--kind oidc|saml]
+  hikyo instance-config provider refresh-metadata <name> [--metadata-file <xml>]
+      [--confirm-fingerprint FP]... [--confirm-endpoint URL]...
   hikyo instance-config saml-sp-key list|rotate
   hikyo instance-config saml-sp-key retire|compromise-retire <fingerprint>
 
@@ -271,6 +306,9 @@ oidc federation:
   Bindings are listed and revoked through "sa credential".
 scim provisioning (org scope; the identity provider's own wire is not a CLI surface):
   hikyo scim binding create --org O --provider <provider> --kind oidc|saml
+      [--subject-source ATTR]                      default externalId; userName is refused
+      [--nameid-format URI] [--nameid-qualifier Q] [--nameid-qualifier-present]
+      [--nameid-sp-qualifier Q] [--nameid-sp-qualifier-present]   SAML only
   hikyo scim binding list|show|delete [<binding>]
   hikyo scim mapping add <binding> --group <idp-group-id> --template <name> (--project P [--env E] | --org-scope)
   hikyo scim mapping update <binding> --group <idp-group-id> --template <name> (--project P [--env E] | --org-scope)

@@ -14,6 +14,21 @@ import (
 	"github.com/Hikyo-Org/hikyo/internal/service"
 )
 
+// EscrowUsage is the frozen help text for the escrow verb group.
+func EscrowUsage(w io.Writer) {
+	fmt.Fprint(w, `hikyo escrow - prove the offline root escrow matches this instance (server host only)
+
+  hikyo escrow verify --root-key-file FILE --assert-separate-custody
+
+verify reads the root key recovered from the separate offline custody store
+and checks it against the running hierarchy without exposing it. The server
+root must be a file (HIKYO_ROOT_KEY_FILE) so the two custodies are provably
+distinct files; --assert-separate-custody is the operator's recorded
+assertion, which filesystem checks cannot prove. For a development datastore,
+put --dev immediately after the group: hikyo escrow --dev verify ...
+`)
+}
+
 func RunEscrow(ctx context.Context, cfg *config.Config, _ *slog.Logger, args []string, out io.Writer, _ *disclose.TerminalSession, _ error) error {
 	if len(args) == 0 || args[0] != "verify" {
 		return errors.New("usage: hikyo escrow verify --root-key-file FILE --assert-separate-custody")

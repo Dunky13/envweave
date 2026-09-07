@@ -86,18 +86,19 @@ Node clocks must be reasonably synchronised (NTP). Lease acquisition compares
 the acquiring node's clock against the recorded expiry, so clock skew larger
 than the heartbeat is a split-brain risk.
 
-## Rolling upgrades
+## Upgrades
 
-Schema changes must land once, before the new binary serves:
+Rolling replacement is not an upgrade procedure. An HA upgrade is an
+operator-enforced full stop of every replica, one verified migrator, then an
+exact-target boot of the new image:
 
-1. Apply migrations once, with a single `hikyo migrate`, or let the first
-   upgraded replica apply them (concurrent migrators serialize under a database
-   session lock, so this is safe).
-2. Roll the replicas to the new image. A replica whose binary is older than the
-   database schema reports not-ready and stays out of rotation, so mixed
-   versions never serve incompatible schemas.
+1. Scale the replicas to zero and confirm every old process has exited.
+2. Run the verified migration once (`hikyo migrate` against the target release
+   under the [controlled migration](/docs/upgrades/#controlled-migration) gates).
+3. Boot the replicas on the exact target release.
 
-Never roll replicas before the migration lands.
+Never restart replicas on the old image after the migration lands, and never
+roll replicas while the schema is moving.
 
 ## Node replacement and capacity
 

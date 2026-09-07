@@ -61,9 +61,10 @@ HIKYO_EXTERNAL_ORIGIN=https://hikyo.example.com \
   --root-key-file /etc/hikyo/root.key
 ```
 
-Install the TLS private key as mode `0400` or `0600`. Renewals are detected by
-a 10-second file poll; `SIGHUP` reloads immediately. Failed reloads retain the
-last known-good certificate.
+Install the TLS private key as mode `0400` or `0600`. The bootstrap pair is
+imported once into the managed node configuration; files are not watched and
+`SIGHUP` does not reload them. Renew by publishing and applying the node
+certificate through [managed configuration](/docs/managed-configuration/).
 
 For reverse-proxy mode, omit the TLS flags, bind the public listener privately,
 set `HIKYO_TRUSTED_PROXY_CIDRS` to the exact proxy networks, and set
@@ -93,9 +94,9 @@ Readiness gives the complete datastore and optional HA check a two-second budget
 An unavailable or stalled datastore returns HTTP 503; `/healthz` remains independent
 so a database outage removes traffic without triggering a process restart.
 
-The same private listener serves `/metrics` in Prometheus text format —
-RED-style request counters and latency per surface class, in-flight and
-admission-pressure gauges, plus the retention and TLS gauges — with no external
+The same private listener serves `/metrics` in Prometheus text format (RED-style
+request counters and latency per surface class, in-flight and
+admission-pressure gauges, plus the retention and TLS gauges) with no external
 service dependency. It is unauthenticated; scrape it only from the host or a
 trusted network and never expose the operational bind. See
 [metrics](/docs/configuration/#operational-metrics) for the full list.

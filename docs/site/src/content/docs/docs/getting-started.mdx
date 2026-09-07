@@ -21,7 +21,7 @@ SQLite database, and one administrator account.
 
 ```bash
 git clone https://github.com/Hikyo-Org/Hikyo.git
-cd hikyo
+cd Hikyo
 npm install --global --ignore-scripts corepack@0.35.0
 corepack enable
 corepack install --global pnpm@11.24.0
@@ -86,8 +86,9 @@ or a pipe. Delete `hikyo-admin-authority` after the command succeeds, then open
 
 <Callout type="warn" title="Evaluation only">
   `--dev` is deliberately convenient, not a production configuration. It uses
-  local plaintext HTTP and an environment variable for the one-off admin command.
-  Follow the self-hosting guide before exposing Hikyo beyond loopback.
+  local plaintext HTTP and a zero-config SQLite datastore in its own
+  development trust domain. Follow the self-hosting guide before exposing
+  Hikyo beyond loopback.
 </Callout>
 
 ## Next steps
