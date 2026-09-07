@@ -209,7 +209,15 @@ The root key and backup identity are read from files, used for the drill's
 duration only, and never persisted or logged. The scratch target is left for
 inspection unless `--cleanup` was requested and the drill passed.
 
-Include both readable restore and current root escrow verification in the quarterly runbook. A successful drill proves the archived hierarchy can be opened. To record verification against the current installation, recover a separate private root file from escrow and run this host-local command with the server's datastore, public upgrade bundle and operator pin configuration:
+Include both readable restore and current root escrow verification in the quarterly runbook. A successful drill proves the archived hierarchy can be opened. To record verification against the current installation, recover a separate private root file from escrow and run this host-local command.
+
+On a Linux systemd host that `hikyo upgrade` has set up, root runs it directly. The command finds the service's environment files and root key through `/etc/hikyo/upgrade.json`, runs as the service user, and hands the recovered file to that user on a descriptor, so the copy can stay root-owned:
+
+```sh
+sudo hikyo escrow verify --root-key-file /root/recovered-root --assert-separate-custody
+```
+
+Elsewhere, supply the server's datastore, public upgrade bundle and operator pin configuration yourself:
 
 ```sh
 HIKYO_ROOT_KEY_FILE=/run/hikyo-root/root-key \
@@ -217,7 +225,7 @@ HIKYO_ROOT_KEY_FILE=/run/hikyo-root/root-key \
   --assert-separate-custody
 ```
 
-`HIKYO_ROOT_KEY_FILE` identifies the actual configured server root file and is also supported by `hikyo server`; the server flag takes precedence. Verification refuses an unidentified or environment-only server root source. The command refuses the configured server root file, hardlink aliases, symlinks and files that are not private and operator-owned. It verifies the complete current key hierarchy and atomically binds the public timestamp to the finalized root epoch, installation and recovery incarnation. Root rotation or restore makes the old record stale; dual-wrapped root rotation must finish before verification. Private key bytes never enter an API or audit payload. The flag records the operator's separate-custody assertion: software cannot prove that a copy was physically offline. An export job alone is not a recovery test.
+`HIKYO_ROOT_KEY_FILE` identifies the actual configured server root file and is also supported by `hikyo server`; the server flag takes precedence. Verification refuses an unidentified or environment-only server root source. The command refuses the configured server root file, hardlink aliases, symlinks and files that are not private and owned by the operator or root. It verifies the complete current key hierarchy and atomically binds the public timestamp to the finalized root epoch, installation and recovery incarnation. Root rotation or restore makes the old record stale; dual-wrapped root rotation must finish before verification. Private key bytes never enter an API or audit payload. The flag records the operator's separate-custody assertion: software cannot prove that a copy was physically offline. An export job alone is not a recovery test.
 
 With `--cleanup`, SQLite scratch files are removed only after every drill step
 and its recovery-time check pass. A failed or refused drill retains the target

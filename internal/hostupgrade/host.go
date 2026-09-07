@@ -10,6 +10,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -27,6 +28,13 @@ type command struct {
 	// stderr receives the child's error output when set; otherwise it is
 	// discarded because it can contain operational configuration.
 	stderr io.Writer
+	// stdin and stdout pass an operator's terminal through to an interactive
+	// child. stdout unset means bounded capture for coordinator parsing.
+	stdin  io.Reader
+	stdout io.Writer
+	// credential is an optional second private file handed to a runtime
+	// child as descriptor 4, owned by the runtime user like the root key.
+	credential string
 }
 
 type boundedOutput struct{ bytes []byte }
@@ -756,4 +764,52 @@ func (h *Host) show(ctx context.Context, properties ...string) (map[string]strin
 		}
 	}
 	return values, nil
+}
+
+// RunOperator executes one operator verb of the installed executable the way
+// the service itself runs: as the runtime user, in the working directory,
+// with the unit's environment files applied in order and the configured root
+// key on descriptor 3. Root-run host commands therefore need no hand-fed
+// configuration. A --root-key-file argument names a private file only root
+// can read; it is handed to the child on descriptor 4 so an escrow custody
+// copy never has to be re-owned. The verb keeps the operator's terminal.
+func (h *Host) RunOperator(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+	if len(args) == 0 {
+		return errors.New("operator command requires a verb")
+	}
+	if err := h.Preflight(ctx); err != nil {
+		return err
+	}
+	values := h.Environment()
+	runtimeEnv := filepath.Join(h.config.StateDirectory, "runtime.env")
+	if err := trustedFile(runtimeEnv); err == nil {
+		data, err := os.ReadFile(runtimeEnv)
+		if err != nil {
+			return err
+		}
+		extra, err := ParseEnvironmentFile(data)
+		if err != nil {
+			return fmt.Errorf("%s: %w", runtimeEnv, err)
+		}
+		for k, v := range extra {
+			values[k] = v
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	values["HIKYO_ROOT_KEY_FILE"] = "/proc/self/fd/3"
+	args = slices.Clone(args)
+	credential := ""
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--root-key-file" && i+1 < len(args) {
+			credential, args[i+1] = args[i+1], "/proc/self/fd/4"
+		} else if rest, ok := strings.CutPrefix(args[i], "--root-key-file="); ok {
+			credential, args[i] = rest, "--root-key-file=/proc/self/fd/4"
+		}
+	}
+	if credential != "" && (!safePath(credential) || !filepath.IsAbs(credential)) {
+		return errors.New("--root-key-file must be an absolute path")
+	}
+	_, err := h.run(ctx, command{path: h.config.Binary, args: args, env: environmentList(values), directory: h.config.WorkingDirectory, runtime: true, uid: h.uid, gid: h.gid, rootKey: h.config.RootKeyFile, credential: credential, stdin: stdin, stdout: stdout, stderr: stderr})
+	return err
 }

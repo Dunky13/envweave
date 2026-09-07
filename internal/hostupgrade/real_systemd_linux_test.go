@@ -98,6 +98,14 @@ WantedBy=multi-user.target
 	}
 	must(err)
 	t.Log("original hardened unit passed preflight with real systemd and a service cgroup")
+	write(filepath.Join(c.StateDirectory, "runtime.env"), "HIKYO_UPGRADE_BUNDLE=/var/lib/hikyo-upgrade/bundle-fixture\nHIKYO_ROOT_KEY_FILE=/proc/self/fd/3\n", 0600)
+	write("/root/custody.key", "custody copy", 0600)
+	var delegated strings.Builder
+	must(h.RunOperator(ctx, []string{"escrow", "verify", "--root-key-file", "/root/custody.key", "--assert-separate-custody"}, strings.NewReader("operator input\n"), &delegated, os.Stderr))
+	if !strings.Contains(delegated.String(), "escrow verified through delegation") {
+		t.Fatalf("operator delegation output: %q", delegated.String())
+	}
+	t.Log("root operator verb ran as the runtime user with merged unit environment, descriptor credentials and terminal passthrough")
 	must(h.FenceAndStop(ctx))
 	candidate, err := h.StageCandidate("/host-upgrade-helper", digest)
 	must(err)
