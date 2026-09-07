@@ -183,7 +183,7 @@ func writeRaceShard(output io.Writer, packages []packageInfo, opts options) erro
 			}
 			names := make([]string, 0, len(tests))
 			for _, test := range tests {
-				if shardFor("race-app", test.name, opts.shardCount) == opts.shard {
+				if appRaceShard(test.name, opts.shardCount) == opts.shard {
 					names = append(names, test.name)
 				}
 			}
@@ -336,6 +336,26 @@ func isGoTargetName(name, prefix string) bool {
 	}
 	first, _ := utf8.DecodeRuneInString(name[len(prefix):])
 	return !unicode.IsLower(first)
+}
+
+// appRaceShard places an internal/app race test. The other heavy suites are
+// pinned to shards 1 and 2 (service, lint, migrate; conformance) and measured
+// at about 14 and 16 minutes under the detector, while shard 0's remaining
+// packages take about 5. The app suite is about 12. An even split put it on
+// top of the heavy shards (measured 9 / 18 / 20 minutes); sending two thirds
+// of it to shard 0 lands near 13 / 16 / 18 with headroom under the 20-minute
+// package limit. Deterministic by name, so assignments stay stable.
+func appRaceShard(name string, shardCount int) int {
+	if shardCount == 1 {
+		return 0
+	}
+	hash := fnv.New32a()
+	_, _ = io.WriteString(hash, "race-app:"+name)
+	bucket := int(hash.Sum32() % uint32(2*shardCount))
+	if bucket < shardCount {
+		return 0
+	}
+	return bucket - shardCount
 }
 
 func shardFor(kind, relativePath string, shardCount int) int {
