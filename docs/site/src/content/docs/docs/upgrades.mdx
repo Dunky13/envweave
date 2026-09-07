@@ -22,8 +22,9 @@ Intermediate releases stay in maintenance. The command reports success only
 after the exact final executable and database state pass health checks.
 
 The first run creates `/etc/hikyo/upgrade.json` for the standard `hikyo.service`
-installation and prompts twice for a recovery-key passphrase. Subsequent runs
-prompt once to unlock the encrypted operator keys. Custom deployments can supply
+installation and the encrypted operator keys, wrapped with a secret derived
+from the root key file, so no prompt is needed then or later and the command
+can run unattended. Custom deployments can supply
 a root-owned config with `--config FILE`; unsupported unit settings fail before
 the service stops. This command currently supports nightly releases on a single
 Linux systemd host with SQLite. Compose, Kubernetes, PostgreSQL and stable
@@ -32,8 +33,7 @@ deployment upgrades use the manual procedure below.
 Older nightlies, including the pre-ledger releases, do not contain this command.
 After a signed release containing it is published, bootstrap the new coordinator
 without replacing the working server first. The bootstrap needs `curl`,
-`python3` and `openssl` on the server, plus an interactive terminal for the
-recovery-key passphrase:
+`python3` and `openssl` on the server:
 
 ```sh
 curl --fail --silent --show-error --proto '=https' https://hikyo.app/upgrade-nightly.sh | sudo sh
@@ -45,9 +45,12 @@ exact recovery-signed bridge; the command finds and verifies it automatically.
 
 Encrypted operator custody lives in `/etc/hikyo/upgrade-keys/operator.age`, owned
 by root and inaccessible to the runtime user. It includes the backup identity,
-independent attestation key and root escrow. The passphrase is never saved.
-This explicitly chosen local custody model does not provide an off-host recovery
-copy. Preserve the encrypted vault and passphrase through your recovery process.
+independent attestation key and root escrow, wrapped with a secret derived from
+`/etc/hikyo/root.key`. Keys created by earlier releases under a passphrase are
+rewrapped the next time `sudo hikyo upgrade` runs from a terminal; it asks for
+the passphrase once more and never again. This explicitly chosen local custody
+model does not provide an off-host recovery copy. Preserve the encrypted vault
+together with the root key through your recovery process.
 After each completed upgrade the command keeps only the encrypted backup taken
 before the current schema under `/var/lib/hikyo-upgrade`; earlier `backup-*`,
 `bundle-*` and `evidence-*` directories there are removed. Copy any backup you

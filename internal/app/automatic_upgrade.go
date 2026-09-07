@@ -249,41 +249,49 @@ func RunAutomaticUpgrade(ctx context.Context, args []string, out io.Writer, read
 	return nil
 }
 
+// openAutomaticCustody unlocks the operator vault with a secret derived from
+// the installation's root key, so an upgrade needs no human at a terminal.
+// A vault created under the earlier passphrase design is migrated once: the
+// passphrase is asked for a last time, the same record is rewrapped, and the
+// backup identity that decrypts earlier upgrade backups is preserved.
 func openAutomaticCustody(c hostupgrade.Config, instance string, readPassword func(string) (string, error)) (*upgradecustody.Vault, error) {
-	if readPassword == nil {
-		return nil, errors.New("upgrade custody requires an interactive operator terminal")
-	}
-	_, err := os.Lstat(filepath.Join(c.CustodyDirectory, "operator.age"))
-	create := errors.Is(err, os.ErrNotExist)
-	if err != nil && !create {
-		return nil, err
-	}
-	prompt := "Unlock upgrade recovery keys: "
-	if create {
-		prompt = "Create a passphrase for encrypted upgrade recovery keys: "
-	}
-	password, err := readPassword(prompt)
-	if err != nil {
-		return nil, err
-	}
-	secret := []byte(password)
-	defer clear(secret)
-	if !create {
-		return upgradecustody.Open(c.CustodyDirectory, secret, instance)
-	}
-	confirm, err := readPassword("Confirm upgrade recovery passphrase: ")
-	if err != nil {
-		return nil, err
-	}
-	if confirm != password {
-		return nil, errors.New("upgrade recovery passphrases differ")
-	}
 	root, err := crypto.ReadRootKey(c.RootKeyFile, "")
 	if err != nil {
 		return nil, err
 	}
 	defer crypto.Zero(root)
-	return upgradecustody.Create(c.CustodyDirectory, secret, root, instance)
+	secret, err := upgradecustody.RootKeySecret(root)
+	if err != nil {
+		return nil, err
+	}
+	defer clear(secret)
+	_, err = os.Lstat(filepath.Join(c.CustodyDirectory, "operator.age"))
+	if errors.Is(err, os.ErrNotExist) {
+		return upgradecustody.Create(c.CustodyDirectory, secret, root, instance)
+	}
+	if err != nil {
+		return nil, err
+	}
+	vault, err := upgradecustody.Open(c.CustodyDirectory, secret, instance)
+	if err == nil {
+		return vault, nil
+	}
+	if !errors.Is(err, upgradecustody.ErrUnlock) {
+		return nil, err
+	}
+	if readPassword == nil {
+		return nil, errors.New("upgrade custody still uses a passphrase; run sudo hikyo upgrade once from a terminal to migrate it to root-key wrapping")
+	}
+	password, err := readPassword("Enter the upgrade recovery passphrase once more to migrate the keys to root-key wrapping: ")
+	if err != nil {
+		return nil, err
+	}
+	previous := []byte(password)
+	defer clear(previous)
+	if err := upgradecustody.Rewrap(c.CustodyDirectory, previous, secret, instance); err != nil {
+		return nil, err
+	}
+	return upgradecustody.Open(c.CustodyDirectory, secret, instance)
 }
 
 func prepareAutomaticEvidence(ctx context.Context, host *hostupgrade.Host, database upgrade.Config, route automaticRoute, candidate string, vault *upgradecustody.Vault, journal *automaticJournal, out io.Writer) error {
