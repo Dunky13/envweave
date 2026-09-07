@@ -8,9 +8,7 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
-	"crypto/hkdf"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
@@ -21,6 +19,7 @@ import (
 	"time"
 
 	"github.com/Hikyo-Org/hikyo/internal/backupreceipt"
+	hikyocrypto "github.com/Hikyo-Org/hikyo/internal/crypto"
 	"github.com/Hikyo-Org/hikyo/internal/crypto/backup"
 	"github.com/Hikyo-Org/hikyo/internal/definitions"
 	"github.com/Hikyo-Org/hikyo/internal/releasetrust"
@@ -141,12 +140,9 @@ func seal(r record, passphrase []byte) ([]byte, error) {
 // read that key, so wrapping with it keeps the file encrypted at rest without
 // asking a human for a second secret, which lets upgrades run unattended.
 func RootKeySecret(rootKey []byte) ([]byte, error) {
-	if len(rootKey) != 32 {
-		return nil, errors.New("custody wrapping requires the 32-byte root key")
-	}
-	secret, err := hkdf.Key(sha256.New, rootKey, nil, "hikyo.dev/upgrade-custody/root-key-wrap/v1", 32)
+	secret, err := hikyocrypto.CustodyWrapKey(rootKey)
 	if err != nil {
-		return nil, errors.New("derive custody wrapping secret")
+		return nil, err
 	}
 	out := make([]byte, hex.EncodedLen(len(secret)))
 	hex.Encode(out, secret)
