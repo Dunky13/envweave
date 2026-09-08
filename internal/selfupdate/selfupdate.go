@@ -36,6 +36,20 @@ type Config struct {
 	StateDir          string
 	TrustRootBase64   string
 	RecoveryKeyBase64 string
+	// Progress receives one line per download, verification and assembly
+	// step so a long nightly preparation is visible. nil discards them.
+	Progress io.Writer
+}
+
+func (i *Installer) progress(format string, args ...any) {
+	if i == nil || i.config.Progress == nil {
+		return
+	}
+	fmt.Fprintf(i.config.Progress, format+"\n", args...)
+}
+
+func mebibytes(n int64) string {
+	return fmt.Sprintf("%.0f MiB", float64(n)/(1<<20))
 }
 
 // Installer downloads, validates, and atomically replaces one Hikyo binary.

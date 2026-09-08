@@ -70,6 +70,7 @@ func (i *Installer) AssembleNightlyRoute(ctx context.Context, target PreparedNig
 			highest = item.Identity
 		}
 	}
+	i.progress("  Assembling route bundle across %d releases.", len(evidence))
 	directory, err := i.assembleNightlyEvidence(ctx, evidence, material, snapshot, pinned)
 	if err != nil {
 		return "", fmt.Errorf("selfupdate: assemble nightly route: %w", err)

@@ -114,6 +114,15 @@ func (i *Installer) prepareNightly(ctx context.Context, status updatecheck.Statu
 	}
 	var total int64
 	for _, candidate := range status.Assets {
+		total += candidate.Size
+	}
+	if cachedDirectory == "" {
+		i.progress("  Downloading nightly %s: %d assets, %s.", status.LatestVersion, len(status.Assets), mebibytes(total))
+	} else {
+		i.progress("  Reusing cached nightly %s; re-verifying %d assets.", status.LatestVersion, len(status.Assets))
+	}
+	total = 0
+	for _, candidate := range status.Assets {
 		if !releaseidentity.SafeName(candidate.Name) {
 			return errors.New("selfupdate: unsafe nightly payload name")
 		}
@@ -127,6 +136,7 @@ func (i *Installer) prepareNightly(ctx context.Context, status updatecheck.Statu
 		}
 		var raw []byte
 		if cachedDirectory == "" {
+			i.progress("    %s (%s)", asset.Name, mebibytes(asset.Size))
 			raw, err = i.download(ctx, asset, maxArchiveBytes)
 		} else {
 			raw, err = readNightlyFile(filepath.Join(cachedDirectory, asset.Name), maxArchiveBytes)
@@ -146,6 +156,7 @@ func (i *Installer) prepareNightly(ctx context.Context, status updatecheck.Statu
 			return err
 		}
 	}
+	i.progress("  Verifying nightly %s signatures.", status.LatestVersion)
 	release, err := upgradebundle.VerifyNightlyDirectory(ctx, stage, snapshot)
 	if err != nil {
 		return fmt.Errorf("selfupdate: authenticate complete nightly: %w", err)
@@ -180,6 +191,7 @@ func (i *Installer) prepareNightly(ctx context.Context, status updatecheck.Statu
 	if err := filedurability.SyncDirectory(i.config.StateDir); err != nil {
 		return err
 	}
+	i.progress("  Assembling runtime bundle for %s.", identity.Version)
 	bundleDirectory, err := i.assembleNightlyBundle(ctx, destination, material, snapshot, releasetrust.PinnedTrust{Root: rootRaw, RecoveryPublicKey: recovery}, identity)
 	if err != nil {
 		return fmt.Errorf("selfupdate: assemble runtime bundle: %w", err)

@@ -135,7 +135,7 @@ func RunAutomaticUpgrade(ctx context.Context, args []string, out io.Writer, read
 	}
 	database := upgrade.Config{Engine: releaseidentity.SQLite, Path: cfg.Store.Path}
 	cache := filepath.Join(c.StateDirectory, "downloads")
-	installer, err := selfupdate.NewInstaller(selfupdate.Config{StateDir: cache, TrustRootBase64: base64.StdEncoding.EncodeToString(pinned.Root), RecoveryKeyBase64: base64.StdEncoding.EncodeToString(pinned.RecoveryPublicKey)})
+	installer, err := selfupdate.NewInstaller(selfupdate.Config{StateDir: cache, TrustRootBase64: base64.StdEncoding.EncodeToString(pinned.Root), RecoveryKeyBase64: base64.StdEncoding.EncodeToString(pinned.RecoveryPublicKey), Progress: out})
 	if err != nil {
 		return err
 	}
@@ -149,6 +149,7 @@ func RunAutomaticUpgrade(ctx context.Context, args []string, out io.Writer, read
 	if err != nil {
 		return err
 	}
+	fmt.Fprintf(out, "  Selected nightly %s.\n", status.LatestVersion)
 	var target selfupdate.PreparedNightly
 	if previous != nil && previous.Phase != "complete" {
 		// An unfinished operation pins its exact authenticated target even if a
@@ -172,19 +173,22 @@ func RunAutomaticUpgrade(ctx context.Context, args []string, out io.Writer, read
 		if *handoff {
 			return errors.New("verified target binary does not match its signed compatibility declaration")
 		}
+		fmt.Fprintf(out, "  Handing off to the verified %s executable; it restarts the five steps.\n", target.Identity.Version)
 		return &AutomaticHandoff{Executable: target.BinaryPath, Arguments: []string{"upgrade", "--config", *configuration, "--target", target.Identity.Version, "--handoff"}}
 	}
-	route, err := prepareAutomaticRoute(ctx, installer, source, target, pinned, database, previous)
+	fmt.Fprintln(out, "  Resolving the migration route from the installed release.")
+	route, err := prepareAutomaticRoute(ctx, installer, source, target, pinned, database, previous, out)
 	if err != nil {
 		return err
 	}
 	if len(route.Plan.Steps()) == 0 {
 		fmt.Fprintf(out, "Hikyo %s is already installed.\n", target.Identity.Version)
-		return nil
+		return installer.PruneNightlyCache(target.Identity)
 	}
 	if previous != nil && previous.Phase != "complete" && previous.Route != route.Plan.Digest() {
 		return errors.New("unfinished upgrade route differs from current authenticated evidence")
 	}
+	fmt.Fprintf(out, "  Route has %d step(s). Staging the route bundle for the service.\n", len(route.Plan.Steps()))
 	publicBundle, err := host.StagePublicBundle(route.Directory)
 	if err != nil {
 		return err
@@ -198,6 +202,7 @@ func RunAutomaticUpgrade(ctx context.Context, args []string, out io.Writer, read
 		if !ok {
 			return errors.New("authenticated route executable is missing")
 		}
+		fmt.Fprintf(out, "  Staging candidate executable %s.\n", step.Target.Version)
 		staged[step.Target], err = host.StageCandidate(prepared.BinaryPath, string(prepared.BinarySHA256))
 		if err != nil {
 			return err
@@ -246,7 +251,11 @@ func RunAutomaticUpgrade(ctx context.Context, args []string, out io.Writer, read
 		return err
 	}
 	fmt.Fprintf(out, "Hikyo %s is upgraded and ready. Encrypted backup retained at %s.\n", target.Identity.Version, journal.Runtime.CiphertextPath)
-	return nil
+	// The installed binary and public bundle are copies; the download cache
+	// and staged candidates behind them are now dead weight. Keep the target
+	// nightly so an immediate rerun reports "already installed" without a
+	// fresh multi-hundred-MiB download.
+	return errors.Join(installer.PruneNightlyCache(target.Identity), host.PruneCandidates())
 }
 
 // openAutomaticCustody unlocks the operator vault with a secret derived from
