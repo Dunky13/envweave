@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Hikyo-Org/hikyo/internal/diagnostics"
 	"github.com/Hikyo-Org/hikyo/internal/updatecheck"
 	"github.com/Masterminds/semver/v3"
 )
@@ -36,6 +37,13 @@ type Config struct {
 	StateDir          string
 	TrustRootBase64   string
 	RecoveryKeyBase64 string
+	// TransientBundles lets the host coordinator discard superseded private
+	// bundles while resolving a route. Manual staging keeps published locators.
+	TransientBundles bool
+}
+
+func mebibytes(n int64) string {
+	return fmt.Sprintf("%.0f MiB", float64(n)/(1<<20))
 }
 
 // Installer downloads, validates, and atomically replaces one Hikyo binary.
@@ -52,6 +60,7 @@ func NewInstaller(config Config) (*Installer, error) {
 	if err != nil {
 		return nil, err
 	}
+	client.Transport = diagnostics.Transport{Base: client.Transport}
 	installer := newInstaller(client, os.Executable)
 	installer.config = config
 	return installer, nil
@@ -209,6 +218,10 @@ func assetDigest(asset updatecheck.Asset) ([]byte, error) {
 }
 
 func (i *Installer) download(ctx context.Context, asset updatecheck.Asset, limit int64) ([]byte, error) {
+	started := time.Now()
+	defer func() {
+		diagnostics.Printf(ctx, 3, "Download %s finished in %s", asset.Name, time.Since(started).Round(time.Millisecond))
+	}()
 	if asset.Size > limit {
 		return nil, fmt.Errorf("selfupdate: asset %s exceeds size limit", asset.Name)
 	}

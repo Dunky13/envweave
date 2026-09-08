@@ -394,3 +394,28 @@ func TestLinuxRuntimeFailureSavesErrorOutputForTheOperator(t *testing.T) {
 		t.Fatal("child error output must not reach the operator error string")
 	}
 }
+
+func TestLinuxPruneCandidatesRemovesStagedBinaries(t *testing.T) {
+	h := rootTestHost(t)
+	candidates := h.config.CandidateDirectory
+	for _, name := range []string{"hikyo-" + strings.Repeat("a", 64), "hikyo-" + strings.Repeat("b", 64), ".hikyo-binary-123"} {
+		if err := os.WriteFile(filepath.Join(candidates, name), []byte("binary"), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{"unrelated", "hikyo-operator-notes"} {
+		if err := os.WriteFile(filepath.Join(candidates, name), []byte("keep"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := h.PruneCandidates(); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(candidates)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 || entries[0].Name() != "hikyo-operator-notes" || entries[1].Name() != "unrelated" {
+		t.Fatalf("candidates after prune: %v", entries)
+	}
+}

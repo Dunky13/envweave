@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Hikyo-Org/hikyo/internal/console"
+	"github.com/Hikyo-Org/hikyo/internal/diagnostics"
 	"github.com/Hikyo-Org/hikyo/internal/selfupdate"
 	"github.com/Hikyo-Org/hikyo/internal/updatecheck"
 	"github.com/gofrs/flock"
@@ -173,10 +174,13 @@ func updateSource(ios IO) (updatecheck.Source, error) {
 	if err != nil {
 		return nil, err
 	}
+	client.Transport = diagnostics.Transport{Base: client.Transport}
 	return updatecheck.NewGitHubSource(client), nil
 }
 
 func refreshReleaseSnapshot(ctx context.Context, ios IO) error {
+	diagnostics.Printf(ctx, 1, "refreshing release metadata")
+	defer diagnostics.Time(ctx, "refresh release metadata")()
 	state, err := NewState(ios.Env)
 	if err != nil {
 		return err
@@ -206,6 +210,7 @@ func refreshReleaseSnapshot(ctx context.Context, ios IO) error {
 		}
 		current.CheckedAt = ios.now().UTC()
 		current.Releases = releases
+		diagnostics.Printf(ctx, 2, "release metadata contains %d releases", len(releases))
 		return state.putUpdatesUnlocked(current)
 	})
 }
@@ -267,6 +272,7 @@ func promptAndApplyUpdate(ctx context.Context, ios IO, status updatecheck.Status
 	if ios.BinaryUpdater == nil {
 		return false, errors.New("binary updater is unavailable")
 	}
+	diagnostics.Printf(ctx, 1, "applying verified CLI update")
 	if err := ios.BinaryUpdater.Apply(ctx, status); err != nil {
 		var staged *selfupdate.StagedNightly
 		if errors.As(err, &staged) {

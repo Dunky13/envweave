@@ -7,6 +7,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/Hikyo-Org/hikyo/internal/diagnostics"
 	"github.com/Hikyo-Org/hikyo/internal/hostupgrade"
 	"github.com/Hikyo-Org/hikyo/internal/releaseidentity"
 	"github.com/Hikyo-Org/hikyo/internal/store/upgrade"
@@ -40,9 +41,11 @@ func (s automaticStore) Installed(ctx context.Context, manifest releaseidentity.
 }
 
 func applyAutomaticRoute(ctx context.Context, host automaticApplyHost, database automaticInspection, route automaticRoute, staged map[releaseidentity.Identity]string, journal *automaticJournal, journalPath string, out io.Writer) (err error) {
+	completed := false
+	defer diagnostics.Time(ctx, "apply migration route")()
 	// Register the failure fence before any reconciliation or process operation.
 	defer func() {
-		if err != nil {
+		if err != nil && !completed {
 			cleanup, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 			defer cancel()
 			err = errors.Join(err, host.FenceAndStop(cleanup))
@@ -71,6 +74,7 @@ func applyAutomaticRoute(ctx context.Context, host automaticApplyHost, database 
 	fmt.Fprintln(out, "4/5 Applying the authenticated migration route.")
 	for index := start; index < len(steps); index++ {
 		step := steps[index]
+		diagnostics.Printf(ctx, 1, "Migration hop %d/%d: %s", index+1, len(steps), step.Target.Version)
 		candidate, ok := staged[step.Target]
 		prepared, have := route.Executables[step.Target]
 		if !ok || !have || candidate == "" || prepared.Identity != step.Target || prepared.BinarySHA256.Validate() != nil {
@@ -108,6 +112,7 @@ func applyAutomaticRoute(ctx context.Context, host automaticApplyHost, database 
 				return err
 			}
 		}
+		diagnostics.Printf(ctx, 2, "Installing verified candidate SHA-256 %s", prepared.BinarySHA256)
 		if err := host.InstallBinary(ctx, candidate, string(prepared.BinarySHA256)); err != nil {
 			return err
 		}
@@ -156,9 +161,14 @@ func applyAutomaticRoute(ctx context.Context, host automaticApplyHost, database 
 	if err := writeAutomaticJournal(journalPath, journal); err != nil {
 		return err
 	}
+	completed = true
+	diagnostics.Printf(ctx, 1, "Pruning stale public upgrade evidence; retaining the recovery backup")
 	// Earlier runs' public bundles, one-use attestations and backups are no
 	// longer referenced; only this run's evidence and encrypted backup remain.
-	return host.PrunePublic(journal.Runtime)
+	if err := host.PrunePublic(journal.Runtime); err != nil {
+		return fmt.Errorf("upgrade completed; public evidence cleanup failed: %w", err)
+	}
+	return nil
 }
 
 func validateAutomaticPosition(plan upgradecompat.Plan, journal *automaticJournal) error {

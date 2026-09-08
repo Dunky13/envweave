@@ -11,6 +11,7 @@ import (
 	"github.com/Hikyo-Org/hikyo/internal/buildcompat"
 	"github.com/Hikyo-Org/hikyo/internal/config"
 	"github.com/Hikyo-Org/hikyo/internal/devupgrade"
+	"github.com/Hikyo-Org/hikyo/internal/diagnostics"
 	"github.com/Hikyo-Org/hikyo/internal/releaseidentity"
 	"github.com/Hikyo-Org/hikyo/internal/store"
 	"github.com/Hikyo-Org/hikyo/internal/store/upgrade"
@@ -21,6 +22,8 @@ import (
 // databaseGate is shared by server, local administration and explicit migration.
 // The returned opaque admission is the sole runtime datastore constructor input.
 func databaseGate(ctx context.Context, cfg *config.Config, root []byte, mode upgradegate.Mode) (upgradegate.Result, error) {
+	diagnostics.Printf(ctx, 1, "Preparing datastore admission and migration evidence")
+	defer diagnostics.Time(ctx, "datastore admission")()
 	request, cleanup, err := upgradeRequest(ctx, cfg, root, mode)
 	if err != nil {
 		return upgradegate.Result{}, err

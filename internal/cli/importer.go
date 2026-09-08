@@ -15,6 +15,7 @@ import (
 
 	"github.com/Hikyo-Org/hikyo/api/apigen"
 	"github.com/Hikyo-Org/hikyo/internal/definitions"
+	"github.com/Hikyo-Org/hikyo/internal/diagnostics"
 	"github.com/Hikyo-Org/hikyo/internal/disclose"
 	"github.com/Hikyo-Org/hikyo/internal/dotenv"
 	"github.com/Hikyo-Org/hikyo/internal/importer"
@@ -61,6 +62,8 @@ const (
 )
 
 func runImport(ctx context.Context, ios IO, args []string) error {
+	diagnostics.Printf(ctx, 1, "import: preparing source import")
+	defer diagnostics.Time(ctx, "source import")()
 	c, err := commonFlagsForOperation("import")
 	if err != nil {
 		return err
@@ -171,6 +174,7 @@ func runImport(ctx context.Context, ios IO, args []string) error {
 			return failf(ExitUsage,
 				"hikyo import --mapping takes its target, mode and source selectors from the template; remove selector overrides")
 		}
+		diagnostics.Printf(ctx, 1, "import: reading mapping template")
 		raw, err := importer.ReadFile(*mapping)
 		if err != nil {
 			return failf(ExitUsage, "reading the mapping template: %v", err)
@@ -208,6 +212,8 @@ func runImport(ctx context.Context, ios IO, args []string) error {
 	// The foreign source is read BEFORE the Hikyo session is touched, so a
 	// caller who names an invalid source or exceeds a connector bound hears
 	// about it without a Hikyo round trip carrying anything.
+	diagnostics.Printf(ctx, 1, "import: reading and parsing source")
+	readDone := diagnostics.Time(ctx, "import source read and parse")
 	var in importer.Input
 	var result importer.Result
 	sourcePath := ""
@@ -219,16 +225,20 @@ func runImport(ctx context.Context, ios IO, args []string) error {
 	} else {
 		in, err = importer.ReadExport(*file)
 		if err != nil {
+			readDone()
 			return failf(ExitUsage, "reading the export: %v", err)
 		}
 		in.EnvSlug = *envSlug
 		result, err = importer.Run(ctx, source, in)
 		sourcePath = *file
 	}
+	readDone()
 	if err != nil {
 		return failf(ExitRefused, "%v", err)
 	}
 
+	diagnostics.Printf(ctx, 2, "import: parsed records=%d skipped=%d", len(result.Records), len(result.Skipped))
+	diagnostics.Printf(ctx, 1, "import: preparing candidate plan")
 	// The rename transform runs BEFORE the server is asked anything: the
 	// presence read mints a token per candidate key, and it cannot do that
 	// without knowing which names this run will propose.
@@ -247,6 +257,7 @@ func runImport(ctx context.Context, ios IO, args []string) error {
 		return failf(ExitRefused, "%v", err)
 	}
 
+	diagnostics.Printf(ctx, 1, "import: resolving authenticated target")
 	st, err := NewState(ios.Env)
 	if err != nil {
 		return err
@@ -280,6 +291,8 @@ func runImport(ctx context.Context, ios IO, args []string) error {
 
 	// Phase 1's only server contact: read-only,
 	// `read@project AND read@environment`, no reveal, no comparison, no write.
+	diagnostics.Printf(ctx, 1, "import: checking existing values")
+	diagnostics.Printf(ctx, 2, "import: candidates=%d environments=1", len(candidates))
 	var occurrences apigen.ValueOccurrenceList
 	if err := client.Do(ctx, http.MethodPost,
 		project+"/environments/"+url.PathEscape(envID)+"/values/occurrences",
@@ -294,16 +307,24 @@ func runImport(ctx context.Context, ios IO, args []string) error {
 		Keys:                occurrenceKeys(occurrences),
 	}
 
+	diagnostics.Printf(ctx, 1, "import: building artifact plan")
 	plan, err := importer.BuildPlan(planIn)
 	if err != nil {
 		return failf(ExitRefused, "%v", err)
 	}
 
+	diagnostics.Printf(ctx, 1, "import: writing review artifacts")
+	writeDone := diagnostics.Time(ctx, "import artifact write")
 	valuesPath, err := writeArtifacts(ios, *outDir, envID, plan)
+	writeDone()
 	if err != nil {
 		return err
 	}
-	return reportImport(ios, plan, result.Resolution, sourcePath, valuesPath, *outDir)
+	if err := reportImport(ios, plan, result.Resolution, sourcePath, valuesPath, *outDir); err != nil {
+		return err
+	}
+	diagnostics.Printf(ctx, 1, "import: review artifacts ready; values have not been applied")
+	return nil
 }
 
 func wireImportCandidates(in []importer.PlannedCandidate) []apigen.ValueOccurrenceCandidate {
@@ -538,6 +559,8 @@ func validateImportArtifactTargets(values importer.ValuesFile, project, env stri
 // movement rejects those keys by name. Without it, the verb behaves exactly as
 // locked.
 func runValuesImport(ctx context.Context, ios IO, args []string) error {
+	diagnostics.Printf(ctx, 1, "values import: preparing import")
+	defer diagnostics.Time(ctx, "values import")()
 	var valuesFile, manifestPath, overwrite, format, fromDotenv string
 	st, flags, err := parseCommon("values import", ios, args, func(fs *flag.FlagSet) {
 		fs.StringVar(&format, "o", "table", "output format: table or json")
@@ -578,15 +601,21 @@ func runValuesImport(ctx context.Context, ios IO, args []string) error {
 			"usage: hikyo values import --env <e> (--file <values-file> | --from-dotenv <.env>) [--manifest <run-manifest.json>] [--overwrite KEY,KEY]")
 	}
 
+	diagnostics.Printf(ctx, 1, "values import: reading and parsing values file")
+	parseDone := diagnostics.Time(ctx, "values import read and parse")
 	raw, err := importer.ReadFile(valuesFile)
 	if err != nil {
+		parseDone()
 		return failf(ExitUsage, "reading the values file: %v", err)
 	}
 	values, err := importer.ParseValuesFile(raw)
+	parseDone()
 	if err != nil {
 		return failf(ExitRefused, "%v", err)
 	}
 
+	diagnostics.Printf(ctx, 2, "values import: entries=%d", len(values.Entries))
+	diagnostics.Printf(ctx, 1, "values import: validating import preconditions")
 	body := apigen.ImportValuesRequest{}
 	for _, e := range values.Entries {
 		body.Entries = append(body.Entries, struct {
@@ -619,6 +648,7 @@ func runValuesImport(ctx context.Context, ios IO, args []string) error {
 	// file is not part of. The project cross-check needs no server contact.
 	var manifest *importer.Manifest
 	if manifestPath != "" {
+		diagnostics.Printf(ctx, 1, "values import: reading and validating run manifest")
 		rawManifest, err := importer.ReadFile(manifestPath)
 		if err != nil {
 			return failf(ExitUsage, "reading the run manifest: %v", err)
@@ -770,11 +800,16 @@ func runValuesImport(ctx context.Context, ios IO, args []string) error {
 		}
 	}
 
+	diagnostics.Printf(ctx, 1, "values import: applying values")
+	applyDone := diagnostics.Time(ctx, "values import apply")
 	var result apigen.ImportValuesResult
 	if err := client.Do(ctx, http.MethodPost,
 		project+"/environments/"+url.PathEscape(env)+"/values/import", body, &result); err != nil {
+		applyDone()
 		return err
 	}
+	applyDone()
+	diagnostics.Printf(ctx, 2, "values import: imported=%d skipped=%d", len(result.Imported), len(result.Skipped))
 	warnFindings(ios, result.Findings)
 	// The manifest's phase-completion marker is what lets a resumed migration
 	// know where it stopped, so a run that completed says so. `applied` stays
@@ -788,7 +823,9 @@ func runValuesImport(ctx context.Context, ios IO, args []string) error {
 		if createdEnvFile {
 			ref = values.EnvironmentName
 		}
+		diagnostics.Printf(ctx, 1, "values import: updating run manifest")
 		if err := markImported(manifestPath, ref); err != nil {
+			diagnostics.Printf(ctx, 1, "values import: values applied; run manifest update failed")
 			fmt.Fprintf(ios.Stderr,
 				"the import landed, but the run manifest could not be updated (%v); "+
 					"a resumed migration will read it as not yet imported\n", err)
@@ -809,7 +846,11 @@ func runValuesImport(ctx context.Context, ios IO, args []string) error {
 	for _, k := range result.Skipped {
 		rows = append(rows, []string{k, "skipped"})
 	}
-	return Render(ios.Stdout, f, Table{Columns: []string{"KEY", "OUTCOME"}, Rows: rows, JSON: result})
+	if err := Render(ios.Stdout, f, Table{Columns: []string{"KEY", "OUTCOME"}, Rows: rows, JSON: result}); err != nil {
+		return err
+	}
+	diagnostics.Printf(ctx, 1, "values import: complete")
+	return nil
 }
 
 // runValuesImportDotenv stages a raw `.env` through the SAME strict server path
@@ -820,15 +861,21 @@ func runValuesImport(ctx context.Context, ios IO, args []string) error {
 // cross argv — only the file path does — and after a successful import the
 // operator is warned that the source `.env` is still plaintext on disk.
 func runValuesImportDotenv(ctx context.Context, ios IO, st *State, flags commonFlags, f Format, path string) error {
+	diagnostics.Printf(ctx, 1, "values import: reading and parsing dotenv source")
+	parseDone := diagnostics.Time(ctx, "values import read and parse")
 	raw, err := os.ReadFile(path)
 	if err != nil {
+		parseDone()
 		return failf(ExitUsage, "reading %s: %v", path, err)
 	}
 	entries, err := dotenv.Parse(raw)
+	parseDone()
 	if err != nil {
 		return failf(ExitRefused, "%v", err)
 	}
 
+	diagnostics.Printf(ctx, 2, "values import: entries=%d", len(entries))
+	diagnostics.Printf(ctx, 1, "values import: resolving authenticated target")
 	body := apigen.ImportValuesRequest{}
 	for _, e := range entries {
 		body.Entries = append(body.Entries, struct {
@@ -850,11 +897,16 @@ func runValuesImportDotenv(ctx context.Context, ios IO, st *State, flags commonF
 		return err
 	}
 
+	diagnostics.Printf(ctx, 1, "values import: applying values")
+	applyDone := diagnostics.Time(ctx, "values import apply")
 	var result apigen.ImportValuesResult
 	if err := client.Do(ctx, http.MethodPost,
 		project+"/environments/"+url.PathEscape(env)+"/values/import", body, &result); err != nil {
+		applyDone()
 		return err
 	}
+	applyDone()
+	diagnostics.Printf(ctx, 2, "values import: imported=%d skipped=%d", len(result.Imported), len(result.Skipped))
 	warnFindings(ios, result.Findings)
 	if len(result.Skipped) > 0 {
 		sorted := append([]string{}, result.Skipped...)
@@ -871,7 +923,11 @@ func runValuesImportDotenv(ctx context.Context, ios IO, st *State, flags commonF
 	for _, k := range result.Skipped {
 		rows = append(rows, []string{k, "skipped"})
 	}
-	return Render(ios.Stdout, f, Table{Columns: []string{"KEY", "OUTCOME"}, Rows: rows, JSON: result})
+	if err := Render(ios.Stdout, f, Table{Columns: []string{"KEY", "OUTCOME"}, Rows: rows, JSON: result}); err != nil {
+		return err
+	}
+	diagnostics.Printf(ctx, 1, "values import: complete")
+	return nil
 }
 
 // markImported rewrites a run manifest with this environment's completion

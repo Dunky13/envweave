@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"time"
+
+	"github.com/Hikyo-Org/hikyo/internal/diagnostics"
 )
 
 func (o *ownerRuntime) serve(ctx context.Context, ready func()) error {
@@ -23,6 +25,7 @@ func (o *ownerRuntime) serve(ctx context.Context, ready func()) error {
 	configDone := make(chan struct{})
 	go func() { defer close(configDone); o.selfConfig.Run(configCtx) }()
 	o.server.log.Info("server ready", "version", Version, "addr", address, "operational_addr", operationalAddress)
+	diagnostics.Printf(ctx, 1, "Server is accepting requests")
 	if ready != nil {
 		ready()
 	}

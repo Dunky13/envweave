@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Hikyo-Org/hikyo/internal/diagnostics"
 	"github.com/Hikyo-Org/hikyo/internal/releaseidentity"
 	"github.com/Hikyo-Org/hikyo/internal/releasetrust"
 	"github.com/Hikyo-Org/hikyo/internal/selfupdate"
@@ -188,6 +189,7 @@ func discoverAutomaticRoute(ctx context.Context, installer automaticReleasePrepa
 		if identity.Profile != releaseidentity.NightlyV1 {
 			return result, errors.New("automatic nightly upgrade cannot cross into a stable release")
 		}
+		diagnostics.Printf(ctx, 1, "  Route from the installed release needs nightly %s; fetching its evidence.\n", identity.Version)
 		release, err := source.ReleaseByVersion(ctx, identity.Version)
 		if err != nil {
 			return result, err

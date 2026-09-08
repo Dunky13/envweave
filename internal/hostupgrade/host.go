@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Hikyo-Org/hikyo/internal/diagnostics"
 	"github.com/Hikyo-Org/hikyo/internal/filedurability"
 )
 
@@ -564,6 +565,29 @@ func (h *Host) StageCandidate(source, digest string) (string, error) {
 	return destination, copyBinary(source, destination, digest)
 }
 
+// PruneCandidates removes every staged candidate executable. InstallBinary
+// copies the chosen candidate into place, so after a completed upgrade the
+// staging copies are dead weight of over 100 MiB each.
+func (h *Host) PruneCandidates() error {
+	if err := trustedDirectory(h.config.CandidateDirectory); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(h.config.CandidateDirectory)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || (!(strings.HasPrefix(name, "hikyo-") && validDigest(strings.TrimPrefix(name, "hikyo-"))) && !strings.HasPrefix(name, ".hikyo-binary-")) {
+			continue
+		}
+		if err := os.Remove(filepath.Join(h.config.CandidateDirectory, name)); err != nil {
+			return err
+		}
+	}
+	return filedurability.SyncDirectory(h.config.CandidateDirectory)
+}
+
 func (h *Host) InstallBinary(ctx context.Context, candidate, digest string) error {
 	if filepath.Dir(candidate) != h.config.CandidateDirectory {
 		return errors.New("binary installation requires a staged candidate")
@@ -722,6 +746,8 @@ func (h *Host) Complete(ctx context.Context) error {
 }
 
 func (h *Host) systemctl(ctx context.Context, args ...string) ([]byte, error) {
+	diagnostics.Printf(ctx, 2, "systemd operation %s", args[0])
+	defer diagnostics.Time(ctx, "systemd "+args[0])()
 	bounded, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
 	output, err := h.run(bounded, command{path: "/usr/bin/systemctl", args: append([]string{"--no-pager", "--no-ask-password"}, args...), env: []string{"PATH=/usr/bin:/bin", "LANG=C"}})

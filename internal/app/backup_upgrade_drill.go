@@ -11,6 +11,7 @@ import (
 	"github.com/Hikyo-Org/hikyo/internal/backupreceipt"
 	"github.com/Hikyo-Org/hikyo/internal/crypto"
 	"github.com/Hikyo-Org/hikyo/internal/crypto/backup"
+	"github.com/Hikyo-Org/hikyo/internal/diagnostics"
 	"github.com/Hikyo-Org/hikyo/internal/domain"
 	"github.com/Hikyo-Org/hikyo/internal/releaseidentity"
 	"github.com/Hikyo-Org/hikyo/internal/service"
@@ -71,7 +72,11 @@ func DrillUpgrade(ctx context.Context, request UpgradeDrillRequest) (UpgradeDril
 	if err := store.VerifyEmbeddedUpgradeSource(request.Plan, request.Scratch.Engine); err != nil {
 		return UpgradeDrillResult{}, err
 	}
+	defer diagnostics.Time(ctx, "upgrade drill recovery proof")()
+	diagnostics.Printf(ctx, 1, "upgrade drill: decrypting and authenticating archive against receipt")
+	authDone := diagnostics.Time(ctx, "upgrade drill archive authentication")
 	authenticated, err := backupreceipt.AuthenticateArchive(ctx, request.Ciphertext, request.Receipt, request.Plan, request.Unlock, "")
+	authDone()
 	if err != nil {
 		return UpgradeDrillResult{}, err
 	}
@@ -80,6 +85,7 @@ func DrillUpgrade(ctx context.Context, request UpgradeDrillRequest) (UpgradeDril
 	if err != nil {
 		return UpgradeDrillResult{}, err
 	}
+	diagnostics.Printf(ctx, 1, "upgrade drill: validating manifest and empty scratch target")
 	manifest, _, err := store.ReadManifestEvidence(plain)
 	if err != nil {
 		return UpgradeDrillResult{}, err
@@ -87,6 +93,8 @@ func DrillUpgrade(ctx context.Context, request UpgradeDrillRequest) (UpgradeDril
 	if err := checkRestorable(ctx, request.Scratch, manifest); err != nil {
 		return UpgradeDrillResult{}, err
 	}
+	diagnostics.Printf(ctx, 2, "upgrade drill: engine=%s schema=%d", manifest.Engine, manifest.SchemaVersion)
+	diagnostics.Printf(ctx, 1, "upgrade drill: restoring isolated scratch datastore")
 	switch request.Scratch.Engine {
 	case store.EngineSQLite:
 		if _, err := tx.RestoreUpgradeSQLite(ctx, plain, request.Scratch.Path, request.Plan, service.CompleteRestore(request.Now, manifest)); err != nil {
@@ -127,6 +135,7 @@ func DrillUpgrade(ctx context.Context, request UpgradeDrillRequest) (UpgradeDril
 		}
 		defer scratch.Close()
 		recovery := &service.Recovery{DB: scratch}
+		diagnostics.Printf(ctx, 1, "upgrade drill: verifying restored key hierarchy")
 		existing := &keyring.RecoveryStore{DB: scratch}
 		if err := crypto.VerifyExistingHierarchy(ctx, existing, slices.Clone(request.RootKey)); err != nil {
 			return fmt.Errorf("verify restored hierarchy: %w", err)
@@ -136,6 +145,7 @@ func DrillUpgrade(ctx context.Context, request UpgradeDrillRequest) (UpgradeDril
 			return fmt.Errorf("open restored keyring: %w", err)
 		}
 		result = UpgradeDrillResult{HierarchyReadable: true}
+		diagnostics.Printf(ctx, 1, "upgrade drill: proving stored value readability")
 		readable, err := recovery.ProveValuesReadable(ctx, kr)
 		switch {
 		case err == nil && readable:
@@ -149,6 +159,8 @@ func DrillUpgrade(ctx context.Context, request UpgradeDrillRequest) (UpgradeDril
 		if err != nil {
 			return fmt.Errorf("read restored status: %w", err)
 		}
+		diagnostics.Printf(ctx, 2, "upgrade drill: pending_principals=%d", len(status.Pending))
+		diagnostics.Printf(ctx, 1, "upgrade drill: proving restored credential capability")
 		if len(status.Pending) == 0 {
 			result.CredentialProof = "authoritatively-no-unreconciled-principal"
 		} else if request.AutoCredentialProof {
@@ -174,6 +186,7 @@ func DrillUpgrade(ctx context.Context, request UpgradeDrillRequest) (UpgradeDril
 	if err != nil {
 		return UpgradeDrillResult{}, err
 	}
+	diagnostics.Printf(ctx, 1, "upgrade drill: constructing recovery attestation")
 	now := request.Now.UTC().Truncate(time.Second)
 	if now.Before(source.CreatedAt) {
 		return UpgradeDrillResult{}, errors.New("attestation clock predates backup")

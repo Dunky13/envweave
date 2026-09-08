@@ -18,6 +18,7 @@ import (
 
 	"github.com/Hikyo-Org/hikyo/api"
 	"github.com/Hikyo-Org/hikyo/api/apigen"
+	"github.com/Hikyo-Org/hikyo/internal/diagnostics"
 	"github.com/Hikyo-Org/hikyo/internal/disclose"
 	"github.com/Hikyo-Org/hikyo/internal/updatecheck"
 )
@@ -122,6 +123,8 @@ func (ios IO) prepareDisclosure(options disclose.Options) (*disclose.PreparedSin
 // Run dispatches one invocation and returns its exit code.
 func Run(ctx context.Context, io IO, args []string) int {
 	defer io.TerminalSession.Close()
+	args, verbosity := ParseVerbosity(args)
+	ctx = diagnostics.With(ctx, diagnostics.Level(ctx)+verbosity, io.Stderr)
 	if len(args) == 0 {
 		Usage(io.Stderr)
 		return ExitUsage
@@ -147,6 +150,8 @@ func Run(ctx context.Context, io IO, args []string) int {
 			return ExitOK
 		}
 	}
+	diagnostics.Printf(ctx, 1, "starting %s", verb)
+	defer diagnostics.Time(ctx, verb)()
 	return Report(io.Stderr, handler(ctx, io, rest))
 }
 
@@ -197,6 +202,8 @@ var verbHandlers = map[string]func(context.Context, IO, []string) error{
 // is reviewed like a spec change.
 func Usage(w io.Writer) {
 	fmt.Fprint(w, usageText)
+	fmt.Fprintln(w)
+	fmt.Fprint(w, verbosityHelp)
 }
 
 // usageText is the frozen help text Usage prints and Help slices per command

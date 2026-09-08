@@ -15,6 +15,7 @@ import (
 
 	"github.com/Hikyo-Org/hikyo/api/apigen"
 	"github.com/Hikyo-Org/hikyo/internal/definitions"
+	"github.com/Hikyo-Org/hikyo/internal/diagnostics"
 	"github.com/Hikyo-Org/hikyo/internal/disclose"
 	"github.com/Hikyo-Org/hikyo/internal/importer"
 )
@@ -30,6 +31,8 @@ import (
 // the interactive session under the aggregate session deadline and emits the
 // project's artifacts.
 func runImportWizard(ctx context.Context, ios IO, c commonFlags, outDir string) error {
+	diagnostics.Printf(ctx, 1, "import: resolving wizard target")
+	defer diagnostics.Time(ctx, "import wizard")()
 	st, err := NewState(ios.Env)
 	if err != nil {
 		return err
@@ -56,6 +59,7 @@ func runImportWizard(ctx context.Context, ios IO, c commonFlags, outDir string) 
 		terminalPrompter: newTerminalPrompter(ios),
 		ctx:              ctx, client: client, projectBase: projectBasePath,
 	}
+	diagnostics.Printf(ctx, 1, "import: gathering source and environment choices")
 	plan, err := importer.Wizard(host, projectID)
 	if err != nil {
 		return failf(ExitRefused, "%v", err)
@@ -67,11 +71,19 @@ func runImportWizard(ctx context.Context, ios IO, c commonFlags, outDir string) 
 	if err := ctx.Err(); err != nil {
 		return failf(ExitRefused, "the import session exceeded its %s deadline before emitting artifacts", importer.SessionDeadline)
 	}
+	diagnostics.Printf(ctx, 1, "import: writing review artifacts")
+	diagnostics.Printf(ctx, 2, "import: planned environments=%d", len(plan.Envs))
+	writeDone := diagnostics.Time(ctx, "import artifact write")
 	valuesPaths, err := writeProjectArtifacts(ios, outDir, plan)
+	writeDone()
 	if err != nil {
 		return err
 	}
-	return reportProject(ios, plan, outDir, host.sourceFiles, valuesPaths)
+	if err := reportProject(ios, plan, outDir, host.sourceFiles, valuesPaths); err != nil {
+		return err
+	}
+	diagnostics.Printf(ctx, 1, "import: review artifacts ready; values have not been applied")
+	return nil
 }
 
 // cliWizardHost is the impure WizardHost the engine calls. It never prints an
@@ -90,6 +102,8 @@ type cliWizardHost struct {
 // ReadSource performs one connector read for a gathered selector, mapping the
 // wizard's Selector onto the same Run/RunLive the flag mode uses.
 func (h *cliWizardHost) ReadSource(source string, sel importer.Selector) (importer.SourceRead, error) {
+	diagnostics.Printf(h.ctx, 1, "import: reading and parsing source")
+	defer diagnostics.Time(h.ctx, "import source read and parse")()
 	if sel.Live {
 		res, err := importer.RunLive(h.ctx, source, importer.LiveInput{
 			Context: sel.Context, Namespace: sel.Namespace, Name: sel.Name,
@@ -98,6 +112,7 @@ func (h *cliWizardHost) ReadSource(source string, sel importer.Selector) (import
 		if err != nil {
 			return importer.SourceRead{}, err
 		}
+		diagnostics.Printf(h.ctx, 2, "import: parsed records=%d skipped=%d", len(res.Records), len(res.Skipped))
 		return importer.SourceRead{Result: res, EnvSlug: sel.EnvSlug}, nil
 	}
 	in, err := importer.ReadExport(sel.File)
@@ -109,16 +124,20 @@ func (h *cliWizardHost) ReadSource(source string, sel importer.Selector) (import
 	if err != nil {
 		return importer.SourceRead{}, err
 	}
+	diagnostics.Printf(h.ctx, 2, "import: parsed records=%d skipped=%d", len(res.Records), len(res.Skipped))
 	h.sourceFiles = append(h.sourceFiles, sel.File)
 	return importer.SourceRead{Result: res, FileDigest: importer.Digest(in.Data), EnvSlug: sel.EnvSlug}, nil
 }
 
 // ExistingEnvironments lists the project's environments the actor can read.
 func (h *cliWizardHost) ExistingEnvironments() ([]importer.NamedEnv, error) {
+	diagnostics.Printf(h.ctx, 1, "import: listing existing environments")
+	defer diagnostics.Time(h.ctx, "import environment list")()
 	var list apigen.EnvironmentList
 	if err := h.client.Do(h.ctx, http.MethodGet, h.projectBase+"/environments", nil, &list); err != nil {
 		return nil, err
 	}
+	diagnostics.Printf(h.ctx, 2, "import: existing environments=%d", len(list.Items))
 	out := make([]importer.NamedEnv, 0, len(list.Items))
 	for _, e := range list.Items {
 		out = append(out, importer.NamedEnv{ID: string(e.Id), Name: e.Name})
@@ -128,6 +147,9 @@ func (h *cliWizardHost) ExistingEnvironments() ([]importer.NamedEnv, error) {
 
 // Presence reads the server's occurrence answer for one existing environment.
 func (h *cliWizardHost) Presence(envID string, candidates []importer.PlannedCandidate) (importer.ServerState, error) {
+	diagnostics.Printf(h.ctx, 1, "import: checking existing values")
+	diagnostics.Printf(h.ctx, 2, "import: candidates=%d environments=1", len(candidates))
+	defer diagnostics.Time(h.ctx, "import presence check")()
 	var occurrences apigen.ValueOccurrenceList
 	if err := h.client.Do(h.ctx, http.MethodPost,
 		h.projectBase+"/environments/"+url.PathEscape(envID)+"/values/occurrences",
@@ -169,6 +191,9 @@ func occurrenceKeys(occurrences apigen.ValueOccurrenceList) []importer.KeyState 
 func runReplayMultiEnv(ctx context.Context, ios IO, client *Client, projectBase, projectID, source string,
 	result importer.Result, fileDigest, envSlug, sourcePath string, template *importer.Template,
 	candidates []importer.PlannedCandidate, outDir string) error {
+	diagnostics.Printf(ctx, 1, "import: checking replay environments")
+	diagnostics.Printf(ctx, 2, "import: candidates=%d environments=%d", len(candidates), len(template.Environments))
+	defer diagnostics.Time(ctx, "import multi-environment replay")()
 	in := importer.ProjectPlanInput{
 		Source: source, Project: projectID, Template: template,
 	}
@@ -198,11 +223,16 @@ func runReplayMultiEnv(ctx context.Context, ios IO, client *Client, projectBase,
 		}
 		in.Envs = append(in.Envs, env)
 	}
+	diagnostics.Printf(ctx, 1, "import: building artifact plan")
 	plan, err := importer.BuildProjectPlan(in)
 	if err != nil {
 		return failf(ExitRefused, "%v", err)
 	}
+	diagnostics.Printf(ctx, 1, "import: writing review artifacts")
+	diagnostics.Printf(ctx, 2, "import: planned environments=%d", len(plan.Envs))
+	writeDone := diagnostics.Time(ctx, "import artifact write")
 	valuesPaths, err := writeProjectArtifacts(ios, outDir, plan)
+	writeDone()
 	if err != nil {
 		return err
 	}
@@ -210,7 +240,11 @@ func runReplayMultiEnv(ctx context.Context, ios IO, client *Client, projectBase,
 	if sourcePath != "" {
 		sources = []string{sourcePath}
 	}
-	return reportProject(ios, plan, outDir, sources, valuesPaths)
+	if err := reportProject(ios, plan, outDir, sources, valuesPaths); err != nil {
+		return err
+	}
+	diagnostics.Printf(ctx, 1, "import: review artifacts ready; values have not been applied")
+	return nil
 }
 
 // ---------------------------------------------------------------------------

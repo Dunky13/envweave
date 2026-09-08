@@ -338,3 +338,9 @@ target resolution, per dimension, first hit wins:
 exit codes:
   0 success   1 internal   2 usage   3 authentication   4 refused
   5 not found (also unauthorized - indistinguishable by design)   6 unavailable
+
+global diagnostics (stderr only):
+  -v, --verbose                        phases and progress; repeat for more detail
+  -vv                                  artifact and HTTP request details
+  -vvv                                 timings as well (maximum level)
+  put verbosity before other options; arguments after -- are untouched

@@ -27,6 +27,45 @@ hikyo server --help              every server flag, from the flag parser
 Anything after `--` belongs to the command `hikyo run` executes and is never
 read as a request for help.
 
+## Verbosity
+
+Use the same repeatable global options with any command. Place them before the
+command or its other options:
+
+| Option | Additional diagnostics |
+| --- | --- |
+| `-v` or `--verbose` | Progress through operational phases. |
+| `-vv` | Counts, artifact sizes, database mode and HTTP request status. |
+| `-vvv` | Timings for operations and individual phases. |
+
+```sh
+sudo hikyo -vvv upgrade
+hikyo -v backup export --out /var/backups/hikyo
+hikyo -vv migrate
+hikyo -v server
+hikyo -vv values import --env staging --from-dotenv .env -o json
+```
+
+Repeat `--verbose` to increase the level: `--verbose --verbose` equals `-vv`.
+Diagnostics go to stderr; command results, including JSON, stay on stdout.
+Help and machine-version output retain their normal output contracts. Tokens
+after `--` remain arguments to the child command.
+
+Backup and restore report archive authentication, snapshot export with encryption,
+validation, data publication and recovery drills. Migration reports signed
+release checks and actual schema writes; an already-applied schema does not
+claim another write. Server startup reports configuration, datastore and keyring
+loading, service/provider preparation and listener setup. Serving readiness is
+reported separately after serving begins; maintenance mode identifies its
+restricted listener.
+
+Source imports report parsing, planning and review-artifact creation. Those
+artifacts are preparation; `values import` reports the separate application step.
+Detailed diagnostics use counts and explicitly selected operational metadata.
+They do not include secret names or values, key material, database connection
+strings, file paths, request bodies or credential-bearing URLs. Existing command
+results and errors keep their existing formats.
+
 ## Server and host operator
 
 | Command family | Purpose |

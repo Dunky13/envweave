@@ -17,6 +17,7 @@ import (
 
 	"github.com/Hikyo-Org/hikyo/api"
 	"github.com/Hikyo-Org/hikyo/api/apigen"
+	"github.com/Hikyo-Org/hikyo/internal/diagnostics"
 )
 
 // Client is the origin-bound HTTP client.
@@ -108,7 +109,7 @@ func NewClient(entry TrustEntry, bearer string) (*Client, error) {
 		Entry:  entry,
 		Bearer: bearer,
 		HTTP: &http.Client{
-			Transport: transport,
+			Transport: diagnostics.Transport{Base: transport},
 			Timeout:   30 * time.Second,
 			CheckRedirect: func(req *http.Request, _ []*http.Request) error {
 				return failf(ExitRefused,

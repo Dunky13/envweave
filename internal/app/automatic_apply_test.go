@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -353,6 +354,67 @@ func TestAutomaticHealthFailureIsTerminalWithoutRewritingHealthyDB(t *testing.T)
 			host.events = nil
 			if err := applyAutomaticRoute(t.Context(), host, host.db, route, staged, journal, host.path, io.Discard); err == nil || strings.Join(host.events, ",") != "fence" {
 				t.Fatalf("terminal host journal retried automatically: %v %v", host.events, err)
+			}
+		})
+	}
+}
+
+func TestAutomaticCleanupFailureDoesNotStopCompletedService(t *testing.T) {
+	route, journal, host, staged := automaticApplyFixture(t, 1)
+	host.failAt = "prune"
+	err := applyAutomaticRoute(t.Context(), host, host.db, route, staged, journal, host.path, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "upgrade completed; public evidence cleanup failed") {
+		t.Fatalf("cleanup failure not reported distinctly: %v", err)
+	}
+	persisted, readErr := readAutomaticJournal(host.path)
+	if readErr != nil || persisted.Phase != "complete" || !host.running || !host.completed {
+		t.Fatalf("cleanup fenced healthy service: %v %+v %v", host.events, persisted, readErr)
+	}
+}
+
+func TestAutomaticPublicBundleCleanupChecksJournalPublication(t *testing.T) {
+	for _, tc := range []struct {
+		name                     string
+		published, same, invalid bool
+	}{
+		{name: "failure before first journal publish"},
+		{name: "failure before replacing prior journal", published: true},
+		{name: "failure after journal rename", published: true, same: true},
+		{name: "unreadable journal", invalid: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, journal, host, _ := automaticApplyFixture(t, 1)
+			bundle := filepath.Join(t.TempDir(), "bundle-new")
+			if err := os.Mkdir(bundle, 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(bundle, "payload"), []byte("release bytes"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			if tc.published {
+				journal.Runtime.BundleDirectory = "prior-bundle"
+				if tc.same {
+					journal.Runtime.BundleDirectory = bundle
+				}
+				if err := writeAutomaticJournal(host.path, journal); err != nil {
+					t.Fatal(err)
+				}
+			} else if tc.invalid {
+				if err := os.WriteFile(host.path, []byte("invalid"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			err := cleanupAutomaticUnpublishedBundle(host.path, bundle)
+			if (err != nil) != tc.invalid {
+				t.Fatalf("cleanup error=%v", err)
+			}
+			_, statErr := os.Stat(bundle)
+			if tc.same || tc.invalid {
+				if statErr != nil {
+					t.Fatal("removed potentially referenced bundle", statErr)
+				}
+			} else if !os.IsNotExist(statErr) {
+				t.Fatal("left unpublished bundle", statErr)
 			}
 		})
 	}
