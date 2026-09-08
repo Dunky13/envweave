@@ -84,6 +84,13 @@ func (i *Installer) assembleNightlyEvidence(ctx context.Context, evidence []Prep
 			return "", err
 		}
 	}
+	if len(material.StablePolicy) > 0 {
+		for name, raw := range map[string][]byte{"stable-policy.json": material.StablePolicy, "stable-policy.sigstore.json": material.StablePolicySignature, "stable-trusted-root.json": material.StableTrustedRoot} {
+			if err := write("snapshot/"+name, raw); err != nil {
+				return "", err
+			}
+		}
+	}
 	var metadata releasetrust.Metadata
 	if err := definitions.DecodeStrict(material.Metadata, &metadata); err != nil {
 		return "", err

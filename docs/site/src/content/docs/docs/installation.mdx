@@ -33,9 +33,9 @@ treat a development build or a nightly as a supported production release.
 Published releases include local-install packages for Linux amd64 and arm64:
 Debian (`.deb`), RPM (`.rpm`), Alpine (`.apk`), and Arch Linux
 (`.pkg.tar.zst`). Download the **complete** release bundle first and verify it
-against the recovery-signed trust metadata with the release's pinned
+against recovery-authorized trust with the release's pinned
 `verify-bundle.sh`. Follow the [release verification
-runbook](https://github.com/Hikyo-Org/Hikyo/blob/main/docs/release/signing.md#per-release-ceremony);
+runbook](/release/signing/#per-release-ceremony);
 do not install a package copied out of an unverified or draft bundle.
 
 After verification, install the matching local file. These examples show amd64
@@ -83,8 +83,8 @@ account to download Actions artifacts.
 
 Use a snapshot only for evaluation. Its commit is immutable and its checksums
 detect download corruption, but it has no signed release manifest, official
-installer, upgrade promise, or production support. The offline signing runbook
-remains the only path from built bytes to an official Hikyo release.
+installer, upgrade promise, or production support. The [online release ceremony](/release/online-signing/)
+defines the path from built bytes to an official Hikyo release.
 
 ## Local evaluation
 

@@ -107,7 +107,7 @@ if printf '1\n1.0.0-alpha.0\noffline bootstrap 1.0.0-alpha.0\n%s\n%s\n%s\n%s\n' 
 	PATH="$fixture_dir/bin:$PATH" \
 	FAKE_DISK_LOCATION=Internal \
 	XDG_STATE_HOME="$fixture_dir/state" \
-	"$script_dir/ceremony.sh" >"$fixture_dir/internal.out" 2>"$fixture_dir/internal.err"
+	"$script_dir/ceremony.sh" --offline >"$fixture_dir/internal.out" 2>"$fixture_dir/internal.err"
 then
 	printf 'release ceremony fixture: internal key storage was accepted\n' >&2
 	exit 1
@@ -121,7 +121,7 @@ if printf '1\n1.0.0-alpha.0\noffline bootstrap 1.0.0-alpha.0\n%s\n%s\n%s\n%s\nwr
 	"$fixture_dir/recovery-a" "$fixture_dir/recovery-b" | env \
 	PATH="$fixture_dir/bin:$PATH" \
 	XDG_STATE_HOME="$fixture_dir/state" \
-	"$script_dir/ceremony.sh" >"$fixture_dir/refusal.out" 2>"$fixture_dir/refusal.err"
+	"$script_dir/ceremony.sh" --offline >"$fixture_dir/refusal.out" 2>"$fixture_dir/refusal.err"
 then
 	printf 'release ceremony fixture: wrong confirmation was accepted\n' >&2
 	exit 1
@@ -136,7 +136,7 @@ printf 'existing public root\n' >"$fixture_dir/repo/release/trust/root.json"
 if printf '1\n1.0.0-alpha.0\n' | env \
 	PATH="$fixture_dir/bin:$PATH" \
 	XDG_STATE_HOME="$fixture_dir/state" \
-	"$script_dir/ceremony.sh" >"$fixture_dir/existing.out" 2>"$fixture_dir/existing.err"
+	"$script_dir/ceremony.sh" --offline >"$fixture_dir/existing.out" 2>"$fixture_dir/existing.err"
 then
 	printf 'release ceremony fixture: existing root replacement was accepted\n' >&2
 	exit 1

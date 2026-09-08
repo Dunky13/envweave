@@ -124,6 +124,20 @@ func Load(ctx context.Context, directory string, pinned releasetrust.PinnedTrust
 			return Bundle{}, err
 		}
 	}
+	var metadata releasetrust.Metadata
+	if err := definitions.DecodeStrict(material.Metadata, &metadata); err != nil {
+		return Bundle{}, err
+	}
+	if _, statErr := root.Lstat("stable-policy.json"); statErr == nil || metadata.Event.SignedBy == releasetrust.StableWorkflowSigner {
+		for name, target := range map[string]*[]byte{"stable-policy.json": &material.StablePolicy, "stable-policy.sigstore.json": &material.StablePolicySignature, "stable-trusted-root.json": &material.StableTrustedRoot} {
+			*target, err = reader.read(name)
+			if err != nil {
+				return Bundle{}, err
+			}
+		}
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return Bundle{}, statErr
+	}
 	snapshot, err := releasetrust.VerifySnapshot(pinned, material, floor)
 	if err != nil {
 		return Bundle{}, fmt.Errorf("authenticate offline trust snapshot: %w", err)

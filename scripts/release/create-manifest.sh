@@ -58,7 +58,12 @@ find "$dist" -maxdepth 1 -type f -print | LC_ALL=C sort >"$scratch/files"
 while IFS= read -r path; do
 	name=$(basename "$path")
 	case "$name" in
+		stable-policy.sigstore.json) kind='stable-policy-signature' ;;
 		release-manifest.json | *.sigstore.json) continue ;;
+		stable-policy.json) kind='stable-policy' ;;
+		stable-trusted-root.json) kind='sigstore-trusted-root' ;;
+		build-provenance.json) kind='build-provenance' ;;
+		hikyo-release-verifier_*) kind='release-verifier' ;;
 		release-candidate.json) kind='release-candidate' ;;
 		upgrade-compatibility.json) kind='upgrade-compatibility' ;;
 		binary-provenance.json)

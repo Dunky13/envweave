@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 
+	"github.com/Hikyo-Org/hikyo/internal/definitions"
 	"github.com/Hikyo-Org/hikyo/internal/releaseidentity"
 	"github.com/Hikyo-Org/hikyo/internal/releasetrust"
 	"github.com/Hikyo-Org/hikyo/internal/updatecheck"
@@ -41,6 +42,8 @@ type legacySignatureBundle struct {
 }
 
 type verificationState struct {
+	CatalogSequence        int64   `json:"catalog_sequence,omitempty"`
+	CatalogSHA256          string  `json:"catalog_sha256,omitempty"`
 	TrustSequence          int64   `json:"trust_sequence"`
 	HighestReleaseSequence *int64  `json:"highest_release_sequence"`
 	HighestRelease         *string `json:"highest_release"`
@@ -57,7 +60,7 @@ func (i *Installer) verifyStable(ctx context.Context, status updatecheck.Status,
 	if err := os.MkdirAll(i.config.StateDir, 0o700); err != nil {
 		return fmt.Errorf("selfupdate: create trust state directory: %w", err)
 	}
-	lock := flock.New(filepath.Join(i.config.StateDir, "release-trust.lock"))
+	lock := flock.New(releasetrust.VerificationLockPath(filepath.Join(i.config.StateDir, "release-trust.json")))
 	locked, err := lock.TryLock()
 	if err != nil {
 		return fmt.Errorf("selfupdate: acquire stable trust lock: %w", err)
@@ -101,6 +104,9 @@ func (i *Installer) verifyStableLocked(ctx context.Context, status updatecheck.S
 	if err := json.Unmarshal(metadataRaw, &metadata); err != nil {
 		return fmt.Errorf("selfupdate: decode trust metadata: %w", err)
 	}
+	if metadata.Event.SignedBy == releasetrust.StableWorkflowSigner {
+		return i.verifyStableWorkflow(ctx, status, archiveName, archive, releasetrust.PinnedTrust{Root: rootRaw, RecoveryPublicKey: recoveryKey})
+	}
 	if err := validateTrustMetadata(root, metadata); err != nil {
 		return err
 	}
@@ -140,6 +146,9 @@ func (i *Installer) verifyStableLocked(ctx context.Context, status updatecheck.S
 	var manifest releaseManifest
 	if err := json.Unmarshal(manifestRaw, &manifest); err != nil {
 		return fmt.Errorf("selfupdate: decode release manifest: %w", err)
+	}
+	if manifest.SigningKeyID == releasetrust.StableWorkflowSigner {
+		return i.verifyStableWorkflow(ctx, status, archiveName, archive, releasetrust.PinnedTrust{Root: rootRaw, RecoveryPublicKey: recoveryKey})
 	}
 	var candidate releaseCandidate
 	if err := json.Unmarshal(candidateRaw, &candidate); err != nil {
@@ -230,12 +239,35 @@ func verifyBlobSignature(publicKeyPEM, bundleRaw, payload []byte) error {
 	return releasetrust.VerifyKeySignature(publicKeyPEM, bundleRaw, payload)
 }
 
-func updateVerificationState(path string, metadata trustMetadata, metadataRaw []byte) error {
+func updateVerificationState(path string, metadata trustMetadata, metadataRaw []byte, snapshotFloors ...releasetrust.SnapshotFloor) error {
+	if len(snapshotFloors) > 0 {
+		return updateWorkflowVerificationState(path, snapshotFloors[0])
+	}
+	var floor releasetrust.SnapshotFloor
+	if len(snapshotFloors) > 0 {
+		floor = snapshotFloors[0]
+	}
 	if raw, err := os.ReadFile(path); err == nil {
+		var canonical releasetrust.SnapshotFloor
+		if err := definitions.DecodeStrict(raw, &canonical); err == nil {
+			next := canonical
+			next.MetadataSequence = metadata.Sequence
+			next.MetadataSHA256 = releaseidentity.Hash(metadataRaw)
+			next.HighestReleaseSequence = 0
+			if metadata.HighestReleaseSequence != nil {
+				next.HighestReleaseSequence = *metadata.HighestReleaseSequence
+			}
+			return updateWorkflowVerificationState(path, next)
+		}
 		var current verificationState
 		if err := json.Unmarshal(raw, &current); err != nil || current.TrustSequence < 1 || !sha256Pattern.MatchString(current.MetadataSHA256) ||
-			(current.HighestRelease == nil) != (current.HighestReleaseSequence == nil) {
+			(current.HighestRelease == nil) != (current.HighestReleaseSequence == nil) || current.CatalogSequence < 0 || (current.CatalogSequence == 0) != (current.CatalogSHA256 == "") || (current.CatalogSequence > 0 && !sha256Pattern.MatchString(current.CatalogSHA256)) {
 			return errors.New("selfupdate: stable trust verification state is invalid")
+		}
+		if current.CatalogSequence > 0 {
+			if floor.CatalogSequence < current.CatalogSequence || (floor.CatalogSequence == current.CatalogSequence && string(floor.CatalogSHA256) != current.CatalogSHA256) {
+				return errors.New("selfupdate: catalog rollback or equivocation refused")
+			}
 		}
 		if metadata.Sequence < current.TrustSequence {
 			return errors.New("selfupdate: trust metadata rollback refused")
@@ -251,6 +283,7 @@ func updateVerificationState(path string, metadata trustMetadata, metadataRaw []
 		return fmt.Errorf("selfupdate: read stable trust state: %w", err)
 	}
 	state := verificationState{
+		CatalogSequence: floor.CatalogSequence, CatalogSHA256: string(floor.CatalogSHA256),
 		TrustSequence: metadata.Sequence, HighestReleaseSequence: metadata.HighestReleaseSequence,
 		HighestRelease: metadata.HighestRelease, MetadataSHA256: digestHex(metadataRaw),
 	}
@@ -258,6 +291,32 @@ func updateVerificationState(path string, metadata trustMetadata, metadataRaw []
 	if err != nil {
 		return err
 	}
+	return writeVerificationState(path, raw)
+}
+
+func updateWorkflowVerificationState(path string, next releasetrust.SnapshotFloor) error {
+	if err := next.Validate(); err != nil {
+		return err
+	}
+	if raw, err := os.ReadFile(path); err == nil {
+		current, err := releasetrust.DecodeVerificationFloor(raw, next)
+		if err != nil {
+			return err
+		}
+		if err := current.Advance(next); err != nil {
+			return err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	raw, err := json.MarshalIndent(next, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeVerificationState(path, raw)
+}
+
+func writeVerificationState(path string, raw []byte) error {
 	temporary, err := os.CreateTemp(filepath.Dir(path), ".release-trust-*")
 	if err != nil {
 		return fmt.Errorf("selfupdate: create stable trust state: %w", err)

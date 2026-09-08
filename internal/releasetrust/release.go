@@ -18,17 +18,19 @@ const MaxArtifacts = 512
 const MaxArtifactBytes int64 = 2 << 30
 
 type StableMaterial struct {
-	Manifest          []byte
-	ManifestSignature []byte
-	Candidate         []byte
-	Compatibility     []byte
+	Provenance, ProvenanceSignature []byte
+	Manifest                        []byte
+	ManifestSignature               []byte
+	Candidate                       []byte
+	Compatibility                   []byte
 }
 
 type verifiedReleaseState struct {
-	identity  releaseidentity.Identity
-	snapshot  releaseidentity.Digest
-	policy    releaseidentity.Digest
-	artifacts []Artifact
+	signingKeyID string
+	identity     releaseidentity.Identity
+	snapshot     releaseidentity.Digest
+	policy       releaseidentity.Digest
+	artifacts    []Artifact
 }
 
 // VerifiedRelease is immutable authenticated release identity and inventory.
@@ -122,19 +124,29 @@ func VerifyStable(snapshot Snapshot, material StableMaterial) (VerifiedRelease, 
 	if candidate.Version != manifest.Version || candidate.Sequence != manifest.ReleaseSequence || candidate.Commit != manifest.SourceCommit || candidate.KeyID != manifest.SigningKeyID || !releaseidentity.SafeName(candidate.PublicKey) {
 		return VerifiedRelease{}, errors.New("release candidate does not match manifest")
 	}
-	var primary Primary
-	covering := 0
-	for _, key := range snapshot.state.metadata.PrimaryKeys {
-		if key.ValidFromReleaseSequence <= manifest.ReleaseSequence && (key.ValidThroughReleaseSequence == nil || *key.ValidThroughReleaseSequence >= manifest.ReleaseSequence) {
-			covering++
-			primary = key
+	if manifest.SigningKeyID == StableWorkflowSigner {
+		policy := snapshot.state.workflowPolicy
+		if policy == nil || candidate.PublicKey != "stable-policy.json" || manifest.ReleaseSequence < policy.MinimumReleaseSequence || slices.Contains(policy.RevokedManifests, manifestDigest) {
+			return VerifiedRelease{}, errors.New("stable workflow signer is not authorized")
 		}
-	}
-	if covering != 1 || primary.Revoked || (primary.Pending != nil && *primary.Pending) || primary.ID != candidate.KeyID || primary.PublicKey != candidate.PublicKey {
-		return VerifiedRelease{}, errors.New("release signer is revoked, pending or ambiguously authorized")
-	}
-	if err := VerifyKeySignature(snapshot.state.keys[primary.ID], material.ManifestSignature, material.Manifest); err != nil {
-		return VerifiedRelease{}, err
+		if err := policy.verify(snapshot.state.stableTrustedRoot, material.ManifestSignature, material.Manifest, manifest.SourceCommit, manifest.Tag); err != nil {
+			return VerifiedRelease{}, err
+		}
+	} else {
+		var primary Primary
+		covering := 0
+		for _, key := range snapshot.state.metadata.PrimaryKeys {
+			if key.ValidFromReleaseSequence <= manifest.ReleaseSequence && (key.ValidThroughReleaseSequence == nil || *key.ValidThroughReleaseSequence >= manifest.ReleaseSequence) {
+				covering++
+				primary = key
+			}
+		}
+		if covering != 1 || primary.Revoked || (primary.Pending != nil && *primary.Pending) || primary.ID != candidate.KeyID || primary.PublicKey != candidate.PublicKey {
+			return VerifiedRelease{}, errors.New("release signer is revoked, pending or ambiguously authorized")
+		}
+		if err := VerifyKeySignature(snapshot.state.keys[primary.ID], material.ManifestSignature, material.Manifest); err != nil {
+			return VerifiedRelease{}, err
+		}
 	}
 	if err := validateArtifacts(manifest.Artifacts); err != nil {
 		return VerifiedRelease{}, err
@@ -150,7 +162,17 @@ func VerifyStable(snapshot Snapshot, material StableMaterial) (VerifiedRelease, 
 		return VerifiedRelease{}, errors.New("manifest does not bind exact compatibility declaration and candidate")
 	}
 	identity := releaseidentity.Identity{Profile: releaseidentity.StableV1, Version: manifest.Version, Sequence: uint64(manifest.ReleaseSequence), Commit: manifest.SourceCommit, CompatibilitySHA256: compatibilityDigest, ManifestSHA256: manifestDigest}
-	return VerifiedRelease{state: &verifiedReleaseState{identity: identity, snapshot: snapshot.Digest(), policy: snapshot.state.stablePolicy, artifacts: slices.Clone(manifest.Artifacts)}}, nil
+	policyDigest := snapshot.state.legacyStablePolicy
+	if manifest.SigningKeyID == StableWorkflowSigner {
+		policyDigest = snapshot.state.stablePolicy
+	}
+	release := VerifiedRelease{state: &verifiedReleaseState{identity: identity, snapshot: snapshot.Digest(), policy: policyDigest, signingKeyID: manifest.SigningKeyID, artifacts: slices.Clone(manifest.Artifacts)}}
+	if manifest.SigningKeyID == StableWorkflowSigner {
+		if err := VerifyStableProvenance(snapshot, release, material.ProvenanceSignature, material.Provenance); err != nil {
+			return VerifiedRelease{}, err
+		}
+	}
+	return release, nil
 }
 
 func RequireLatestStable(snapshot Snapshot, release VerifiedRelease) error {
@@ -189,7 +211,7 @@ func validateArtifacts(artifacts []Artifact) error {
 			return errors.New("unsupported exact artifact platform")
 		}
 		switch artifact.Kind {
-		case "binary", "binary-provenance", "release-candidate", "upgrade-compatibility", "sbom", "checksum", "installer", "nightly-policy", "sigstore-trusted-root", "release-notes":
+		case "binary", "binary-provenance", "build-provenance", "release-verifier", "stable-policy", "stable-policy-signature", "release-candidate", "upgrade-compatibility", "sbom", "checksum", "installer", "nightly-policy", "sigstore-trusted-root", "release-notes":
 		case "package":
 			if !slices.Contains([]string{"apk", "archlinux", "deb", "rpm"}, artifact.Format) || !slices.Contains([]string{"amd64", "arm64"}, artifact.Arch) || (artifact.Platform != "" && artifact.Platform != "linux/"+artifact.Arch) {
 				return errors.New("invalid package identity")
@@ -238,4 +260,17 @@ func validateArtifactVersions(artifacts []Artifact, version string) error {
 		}
 	}
 	return nil
+}
+
+// StableSigningPublicKey returns the already authenticated historical primary
+// key for external OCI verification. It never supplies a key for keyless output.
+func (s Snapshot) StableSigningPublicKey(release VerifiedRelease) ([]byte, error) {
+	if !s.Valid() || !release.Valid() || release.SnapshotDigest() != s.Digest() || release.Identity().Profile != releaseidentity.StableV1 || release.state.signingKeyID == StableWorkflowSigner || release.PolicyDigest() != s.state.legacyStablePolicy {
+		return nil, errors.New("historical stable key requires authenticated keyed release")
+	}
+	key := s.state.keys[release.state.signingKeyID]
+	if len(key) == 0 {
+		return nil, errors.New("authenticated historical key unavailable")
+	}
+	return slices.Clone(key), nil
 }

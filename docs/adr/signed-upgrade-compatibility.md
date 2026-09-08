@@ -1,5 +1,7 @@
 # Signed upgrade compatibility and platform orchestration
 
+> **Declared stable-signing amendment (2026-09-08):** The owner selected online keyless stable signing with reviewed draft publication. [Stable workflow signing](stable-workflow-signing.md) supersedes the historical offline stable ceremony after implementation merge and explicit recovery-signed policy activation. The existing root remains; activation and 1.0 publication are pending.
+
 Status: locked upon merge of the #638 governance and legacy-retirement PR, 2026-09-05.
 Native Codex high-effort review completed in three rounds, final verdict SOUND.
 The accompanying retirement code satisfies the prerequisite to make this decision operative.

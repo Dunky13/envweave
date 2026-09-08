@@ -64,6 +64,31 @@ render_mode populated-upgrade \
 	--set upgrade.evidence=true \
 	--set upgrade.legacyWritersStopped=true \
 	--set-string upgrade.targetManifestSHA256=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+render_mode keyless-admission \
+	--set releaseTrust.admissionPolicy.enabled=true \
+	--set releaseTrust.admissionPolicy.mode=keyless
+
+python3 - "$tmp/keyless-admission.yaml" "$chart/Chart.yaml" <<'PY' || exit 1
+import sys, yaml
+
+with open(sys.argv[1]) as stream:
+    policies = [doc for doc in yaml.safe_load_all(stream) if doc and doc.get("kind") == "ClusterPolicy"]
+with open(sys.argv[2]) as stream:
+    version = yaml.safe_load(stream)["appVersion"]
+assert len(policies) == 1, "expected exactly one signature admission policy"
+spec = policies[0]["spec"]
+assert spec["validationFailureAction"] == "Enforce", "signature admission must enforce"
+rules = spec["rules"]
+assert len(rules) == 1, "unexpected signature admission rules"
+verification = rules[0]["verifyImages"]
+assert len(verification) == 1, "unexpected image verification entries"
+assert verification[0]["required"] is True and verification[0]["verifyDigest"] is True
+assert verification[0]["attestors"] == [{"entries": [{"keyless": {
+    "issuer": "https://token.actions.githubusercontent.com",
+    "subject": f"https://github.com/Hikyo-Org/Hikyo/.github/workflows/release.yml@refs/tags/v{version}",
+    "rekor": {"url": "https://rekor.sigstore.dev"},
+}}]}], "keyless admission must require exact workflow/tag identity and transparency proof"
+PY
 
 python3 - "$tmp/cluster-wide.yaml" "$tmp/namespaced.yaml" "$tmp/no-rollouts.yaml" "$tmp/native-tls.yaml" "$tmp/mcp-enabled.yaml" <<'PY' || exit 1
 import sys, yaml

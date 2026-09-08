@@ -120,19 +120,30 @@ func readRelease(ctx context.Context, directory string, snapshot releasetrust.Sn
 	if err := ctx.Err(); err != nil {
 		return releasetrust.VerifiedRelease{}, nil, err
 	}
-	files, err := readExact(directory, []string{"release-manifest.json", "release-manifest.sigstore.json", "release-candidate.json", "upgrade-compatibility.json"})
+	names := []string{"release-manifest.json", "release-manifest.sigstore.json", "release-candidate.json", "upgrade-compatibility.json"}
+	if _, err := os.Lstat(filepath.Join(directory, "build-provenance.json")); err == nil {
+		names = append(names, "build-provenance.json", "build-provenance.json.sigstore.json")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return releasetrust.VerifiedRelease{}, nil, err
+	}
+	files, err := readExact(directory, names)
 	if err != nil {
 		return releasetrust.VerifiedRelease{}, nil, err
 	}
 	release, err := releasetrust.VerifyStable(snapshot, releasetrust.StableMaterial{
 		Manifest: files["release-manifest.json"], ManifestSignature: files["release-manifest.sigstore.json"],
-		Candidate: files["release-candidate.json"], Compatibility: files["upgrade-compatibility.json"],
+		Candidate: files["release-candidate.json"], Compatibility: files["upgrade-compatibility.json"], Provenance: files["build-provenance.json"], ProvenanceSignature: files["build-provenance.json.sigstore.json"],
 	})
 	if err != nil {
 		return releasetrust.VerifiedRelease{}, nil, fmt.Errorf("authenticate release proofs: %w", err)
 	}
-	return release, map[string][]byte{
+	documents := map[string][]byte{
 		"manifest.json": files["release-manifest.json"], "manifest.sigstore.json": files["release-manifest.sigstore.json"],
 		"release-candidate.json": files["release-candidate.json"], "upgrade-compatibility.json": files["upgrade-compatibility.json"],
-	}, nil
+	}
+	if len(files["build-provenance.json"]) > 0 {
+		documents["build-provenance.json"] = files["build-provenance.json"]
+		documents["build-provenance.json.sigstore.json"] = files["build-provenance.json.sigstore.json"]
+	}
+	return release, documents, nil
 }

@@ -26,15 +26,20 @@ case "$1 $2" in
 		printf '{"isDraft":%s,"isPrerelease":%s,"tagName":"%s"}\n' \
 			"$GH_RELEASE_DRAFT" "$GH_RELEASE_PRERELEASE" "$GH_RELEASE_TAG"
 		;;
-	'api repos/Hikyo-Org/homebrew-tap/contents/Casks/hikyo.rb?ref=main') exit 1 ;;
+	'api repos/Hikyo-Org/homebrew-tap/contents/Casks/hikyo.rb?ref=main') printf 'gh: Not Found (HTTP 404)\n' >&2; exit 1 ;;
 	'api repos/Hikyo-Org/homebrew-tap/git/ref/heads/main')
 		printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n'
 		;;
 	'api repos/Hikyo-Org/homebrew-tap/git/ref/heads/release/hikyo-1.2.3')
-		[ "${GH_BRANCH_EXISTS:-false}" = true ] || exit 1
+		[ "${GH_BRANCH_EXISTS:-false}" = true ] || { printf 'gh: Not Found (HTTP 404)\n' >&2; exit 1; }
 		printf '{"object":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}\n'
 		;;
-	'api repos/Hikyo-Org/homebrew-tap/contents/Casks/hikyo.rb?ref=release%2Fhikyo-1.2.3') exit 1 ;;
+	'api repos/Hikyo-Org/homebrew-tap/contents/Casks/hikyo.rb?ref=release%2Fhikyo-1.2.3')
+		if [ "${GH_BRANCH_EXISTS:-false}" = true ]; then
+			jq -nc --arg content "${GH_BRANCH_CONTENT:-different}" '{sha:("a"*40),content:$content}'
+		else printf 'gh: Not Found (HTTP 404)\n' >&2; exit 1; fi ;;
+	'api repos/Hikyo-Org/homebrew-tap/compare/'*)
+		if [ "${GH_UNRELATED:-false}" = true ]; then printf '{"files":[{"filename":"other-user-file"}]}\n'; else printf '{"files":[{"filename":"Casks/hikyo.rb"}]}\n'; fi ;;
 	'api --method')
 		case "$*" in
 			*' PATCH repos/Hikyo-Org/homebrew-tap/git/refs/heads/release/hikyo-1.2.3 '* )
@@ -89,10 +94,25 @@ fi
 
 : >"$GH_CALLS"
 export GH_BRANCH_EXISTS=true
+"$(dirname "$0")/render-homebrew-cask.sh" "$bundle/release-manifest.json" "$bundle" "$fixture_dir/expected.rb" Hikyo-Org/Hikyo >/dev/null
+GH_BRANCH_CONTENT=$(base64 <"$fixture_dir/expected.rb" | tr -d '\n')
+export GH_BRANCH_CONTENT
 "$(dirname "$0")/publish-homebrew-cask.sh" \
 	Hikyo-Org/Hikyo v1.2.3 "$bundle" Hikyo-Org/homebrew-tap >/dev/null
-grep -F 'api --method PATCH repos/Hikyo-Org/homebrew-tap/git/refs/heads/release/hikyo-1.2.3' "$GH_CALLS" >/dev/null
-grep -F -- '-f sha=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -F force=true' "$GH_CALLS" >/dev/null
+if grep -E 'api --method (PATCH|PUT)|force=true' "$GH_CALLS" >/dev/null; then
+	printf 'homebrew publish fixture: existing verified cask was overwritten\n' >&2; exit 1
+fi
+for scenario in unrelated different; do
+	: >"$GH_CALLS"
+	if [ "$scenario" = unrelated ]; then export GH_UNRELATED=true; else unset GH_BRANCH_CONTENT; fi
+	if "$(dirname "$0")/publish-homebrew-cask.sh" Hikyo-Org/Hikyo v1.2.3 "$bundle" Hikyo-Org/homebrew-tap >"$fixture_dir/retry.out" 2>"$fixture_dir/retry.err"; then
+		printf 'homebrew publish fixture: unsafe existing branch accepted\n' >&2; exit 1
+	fi
+	if grep -E 'api --method|pr create' "$GH_CALLS" >/dev/null; then
+		printf 'homebrew publish fixture: unsafe existing branch mutated\n' >&2; exit 1
+	fi
+	unset GH_UNRELATED
+done
 unset GH_BRANCH_EXISTS
 
 : >"$GH_CALLS"

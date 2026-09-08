@@ -46,12 +46,42 @@ if [ "$trust_only" = false ]; then
 	[ -n "$mode" ] || fail 'choose --latest or --historical VERSION'
 fi
 command -v jq >/dev/null 2>&1 || fail 'jq is required'
-command -v "$COSIGN_BIN" >/dev/null 2>&1 || fail "cosign not found: $COSIGN_BIN"
 
 root_dir=$(CDPATH='' cd -- "$(dirname "$root")" && pwd)
 [ -f "$root" ] || fail "missing trust root $root"
 [ -f "$metadata" ] || fail "missing trust metadata $metadata"
 [ -f "$metadata_signature" ] || fail "missing trust metadata signature $metadata_signature"
+
+# A delegated snapshot must use the strict verifier. It validates the pinned
+# recovery delegation, Sigstore roots, certificate claims and log checkpoints.
+# Do not retry the legacy keyed path if this verification fails.
+if [ -f "$root_dir/stable-policy.json" ] || \
+	[ "$(jq -r '.event.signed_by' "$metadata")" = github-actions-stable ]; then
+	[ "$root" -ef "$root_dir/root.json" ] || fail 'stable verification requires root.json in the trust directory'
+	[ "$metadata" -ef "$root_dir/metadata.json" ] && \
+		[ "$metadata_signature" -ef "$root_dir/metadata.sigstore.json" ] \
+		|| fail 'stable verification requires metadata and signature in the trust directory'
+	[ -n "${HIKYO_STABLE_VERIFIER:-}" ] || fail 'set HIKYO_STABLE_VERIFIER to a trusted stable verifier binary'
+	command -v "$HIKYO_STABLE_VERIFIER" >/dev/null 2>&1 || fail 'trusted stable verifier is unavailable'
+	set -- verify --trust "$root_dir" --state "$state"
+	if [ "$trust_only" = true ]; then
+		set -- "$@" --trust-only
+	else
+		[ -f "$bundle/release-manifest.json" ] || fail 'missing release-manifest.json'
+		stable_version=$(jq -er '.version' "$bundle/release-manifest.json") || fail 'missing stable version'
+		stable_commit=$(jq -er '.source_commit' "$bundle/release-manifest.json") || fail 'missing stable source commit'
+		if [ "$mode" = historical ]; then
+			[ "$stable_version" = "$historical_version" ] || fail 'historical version does not match bundle'
+			set -- "$@" --historical
+		else
+			set -- "$@" --latest
+		fi
+		set -- "$@" --directory "$bundle" --version "$stable_version" --commit "$stable_commit"
+		if [ "$verify_published" = true ]; then set -- "$@" --published; fi
+	fi
+	exec "$HIKYO_STABLE_VERIFIER" "$@"
+fi
+command -v "$COSIGN_BIN" >/dev/null 2>&1 || fail "cosign not found: $COSIGN_BIN"
 
 jq -e '
 	.schema == "hikyo.dev/trust-root/v1" and

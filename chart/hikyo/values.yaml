@@ -112,9 +112,11 @@ updates:
 
 releaseTrust:
   admissionPolicy:
-    # Requires Kyverno. The policy verifies the exact Hikyo image repository
-    # with the offline primary key packaged into the release chart.
+    # Requires Kyverno. Stable release packaging selects keyless verification
+    # of this chart version's exact GitHub workflow identity and Rekor proof.
+    # Keyed mode remains available for historical primary-signed releases.
     enabled: false
+    mode: keyed
 
 resources: {}
 

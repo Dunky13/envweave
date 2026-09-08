@@ -5,6 +5,11 @@ Written 2026-09-07 during the autonomous release run (decision log:
 This is the step-by-step order of operations from the current `main` to a
 published, signed, verifiable `v1.0.0`. Steps are split into what an agent
 can do without keys or external credentials and what only the owner can do.
+**Update 2026-09-08:** 1.0 is paused for design work. The owner selected the
+[online signing ceremony](online-signing.md); its implementation and one-time
+recovery-authorized activation precede the final release candidate. Historical
+acceptance counts below are dated evidence, not a fresh candidate assessment.
+
 The [acceptance ledger](acceptance-1.0.md) stays the authority for every
 criterion's status; this plan only sequences the remaining work.
 
@@ -20,7 +25,7 @@ criterion's status; this plan only sequences the remaining work.
   `pending_release` 1.0.0 at sequence 1. It was generated for nightly
   activation under the online-custody exception in
   `release/trust/BOOTSTRAP.md`, not by the offline ceremony in
-  `signing.md`. Step 10 below decides what to do with that.
+  `signing.md`. Step 10 below retains that root and authorizes stable CI.
 - The six GitHub security advisories for the 2026-09-05 fork merge are
   published (2026-09-08); CVE assignment is pending with GitHub.
 - Since the last acceptance refresh (main `549726d9`), 28 further PRs merged
@@ -68,16 +73,12 @@ criterion's status; this plan only sequences the remaining work.
    `0.0.1-nightly.20260906.24.g90b4ca6a` (the first nightly containing fix
    commit `3700a0ef`). CVE IDs were requested for all six; GitHub assigns
    them asynchronously. The 1.0.0 release notes should list them.
-10. **Decide the signing root custody (Q5 in the decision log).**
-    Options: (a) accept the existing `recovery-1` / `primary-1` root, generated
-    online under the documented exception, for 1.0; (b) run the offline
-    ceremony in `signing.md` for a fresh primary and rotate to it under the
-    existing recovery root; (c) replace the recovery root too, which breaks
-    every nightly installation's pinned trust and the legacy bridges.
-    Recommendation: **(b)**. The recovery root is already deployed to nightly
-    users and bridges, so replacing it costs real installations; a fresh
-    offline primary is cheap and restores the ADR posture for the key that
-    actually signs release bytes. Record the choice in `BOOTSTRAP.md`.
+10. **Activate the selected online stable policy after implementation merges.**
+    Keep the existing recovery root. Run `scripts/release/ceremony.sh setup`,
+    inspect the delegation, recovery-sign it with the existing local helper and
+    merge the verified public trust PR. Follow [online setup](online-signing.md).
+    This supersedes the earlier fresh-offline-primary recommendation. The laptop
+    stays online; ordinary releases require no primary/recovery decryption.
 11. **GitHub live provider run** for M4 / GH-E2E / GH-CONTRACT. Needs seven
     fine-grained PATs and the dedicated fixture repository, organisation and
     protected environment (see `internal/adapter/githubactions/contract_external_test.go`
@@ -98,45 +99,39 @@ criterion's status; this plan only sequences the remaining work.
     `fallback-channel-test.json` if it is older than 93 days at tag time.
 14. **Public docs endpoint check** at the candidate:
     `scripts/ci/check-docs-live.sh https://hikyo.app security@developwent.io`
-    and `scripts/ci/check-oss-policy.sh`. Both must pass from outside CI too.
+    and `scripts/ci/check-oss-policy.sh . docs/site/dist` after building the docs
+    site. `SITE_ROOT` is a local directory, not a URL. The owner reports both
+    checks passed; repeat against the final candidate if relevant content changes.
 
-## Phase D: tag and build (owner, mechanical)
+## Phase D: tag and build, after designs and final acceptance
 
-15. Confirm `release/trust/metadata.json` still carries
-    `pending_release` 1.0.0 at sequence 1 (the bootstrap metadata is already
-    the candidate for the first release; no pre-tag metadata bump is needed).
-    If step 10 chose a fresh primary, that rotation metadata must be
-    recovery-signed and merged first.
-16. Create the tag on the merged candidate commit: `git tag -s v1.0.0 <sha>`
-    and push it. Tag creation is admin-only by ruleset; `check-tag.sh`
-    refuses a reused version or a commit not reachable from `main`.
-17. `release-build` runs: trust bootstrap verification, both-engine
-    compatibility generation, GoReleaser archives, native packages, the
-    distroless multi-arch image, the digest-pinned chart, SBOMs, provenance,
-    the rendered installer and an **unsigned draft release**. Wait for it.
-18. The `freeze-guard` CI job wakes up on its own once `v1.0.0` exists: it
-    diffs `api/openapi.yaml` against the tag on every later PR that touches
-    the API. No wiring change is needed; it is already in the required-job
-    registry.
+15. Pull clean current main and run `scripts/release/ceremony.sh status`.
+    The delegated stable policy must authenticate. No manual per-release
+    recovery-signed candidate metadata is needed.
+16. Run `scripts/release/ceremony.sh build 1.0.0` only when the release is approved.
+    It checks exact-main CI and synchronized trust, prepares the candidate, and
+    asks for the signed immutable tag push.
+17. Wait for `release-build`. It signs the complete draft, OCI image/chart,
+    metadata/catalog and first-party provenance with the delegated GitHub OIDC
+    identity. A signed draft is still not a public release.
+18. The API freeze activates when `v1.0.0` exists. Later API changes are compared
+    against that tag by the existing required freeze guard.
 
-## Phase E: offline signing ceremony (owner, per `signing.md`)
+## Phase E: review and publication, laptop online
 
-19. Download every draft asset online; recompute `checksums.txt`; compare the
-    GHCR image and chart index digests with the digest files; confirm the
-    manifest matches `release-candidate.json`.
-20. Offline, recovery key only: `scripts/release/bind-manifest.sh` binds the
-    manifest into `metadata.bound.json` (sequence 2, `highest_release` 1.0.0),
-    recovery-sign it, commit it as `release/trust/metadata.json` plus its
-    signature, merge to `main`.
-21. Offline, primary key only: `scripts/release/sign-bundle.sh` over every
-    asset and both OCI payloads.
-22. Online, no private key mounted: `scripts/release/publish-oci-signatures.sh`,
-    upload the manifest and every `*.sigstore.json` to the draft.
-23. Redownload the complete draft and run
-    `verify-bundle.sh --published --state "$XDG_STATE_HOME/hikyo/release-trust.json"`.
-    Only then publish the release. GitHub immutable releases lock the assets.
-24. Homebrew: the ceremony renders `Casks/hikyo.rb` and opens the tap PR;
-    review its CI and merge it separately.
+19. Run `scripts/release/ceremony.sh review 1.0.0`. It verifies all downloaded
+    evidence and actual OCI signatures, then prints the exact manifest hash.
+20. Review release notes, the manifest and final-candidate acceptance evidence.
+    Keep the printed SHA-256; signature validity does not prove an honest build.
+21. Run `scripts/release/ceremony.sh publish 1.0.0 REVIEWED_MANIFEST_SHA256`.
+    Confirm the exact hash. The local publication helper repeats verification and
+    refuses changes between review and publication.
+22. Wait for publication and public-download verification to pass. Immutable
+    release settings lock the assets; a failed check is not publication success.
+23. Run `scripts/release/ceremony.sh sync-trust 1.0.0`. Review and merge the
+    signed metadata/catalog PR before any subsequent release build.
+24. Homebrew remains separate: publish the cask proposal only from the verified
+    public release and review its protected tap PR. See the [online guide](online-signing.md).
 
 ## Phase F: after publication (agent can do most of it)
 

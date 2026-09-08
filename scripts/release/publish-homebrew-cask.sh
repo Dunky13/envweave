@@ -59,7 +59,7 @@ cask_content=$(base64 <"$cask" | tr -d '\n')
 
 contents_endpoint="repos/$tap_repository/contents/Casks/hikyo.rb"
 current_sha=
-if current_json=$("$GH_BIN" api "$contents_endpoint?ref=main" 2>/dev/null); then
+if current_json=$("$GH_BIN" api "$contents_endpoint?ref=main" 2>"$scratch/main-error"); then
 	printf '%s\n' "$current_json" | jq -e '.sha | test("^[0-9a-f]{40}$")' >/dev/null \
 		|| fail 'tap returned invalid cask identity'
 	current_content=$(printf '%s\n' "$current_json" | jq -r '.content' | tr -d '\n')
@@ -67,6 +67,8 @@ if current_json=$("$GH_BIN" api "$contents_endpoint?ref=main" 2>/dev/null); then
 		printf 'homebrew publish: tap already contains Hikyo %s\n' "$version"
 		exit 0
 	fi
+else
+	grep -F '(HTTP 404)' "$scratch/main-error" >/dev/null || fail 'cannot inspect current tap cask'
 fi
 
 branch="release/hikyo-$version"
@@ -75,23 +77,33 @@ base_sha=$("$GH_BIN" api "repos/$tap_repository/git/ref/heads/main" \
 	--jq '.object.sha') || fail 'cannot resolve tap main'
 case "$base_sha" in *[!0-9a-f]* | '') fail 'tap main returned invalid commit' ;; esac
 [ "${#base_sha}" -eq 40 ] || fail 'tap main returned invalid commit'
-if "$GH_BIN" api "repos/$tap_repository/git/ref/heads/$branch" >/dev/null 2>&1; then
-	"$GH_BIN" api --method PATCH "repos/$tap_repository/git/refs/heads/$branch" \
-		-f sha="$base_sha" -F force=true >/dev/null \
-		|| fail "cannot refresh tap branch $branch from main"
+existing_branch=false
+if branch_ref=$("$GH_BIN" api "repos/$tap_repository/git/ref/heads/$branch" 2>"$scratch/branch-error"); then
+	existing_branch=true
+	branch_head=$(printf '%s\n' "$branch_ref" | jq -er '.object.sha | select(test("^[0-9a-f]{40}$"))') || fail 'tap branch returned invalid commit'
+	comparison=$("$GH_BIN" api "repos/$tap_repository/compare/$base_sha...$branch_head") || fail 'cannot inspect existing tap branch changes'
+	printf '%s\n' "$comparison" | jq -e '
+		(.files | type == "array") and all(.files[]; .filename == "Casks/hikyo.rb" and (.previous_filename // "Casks/hikyo.rb") == "Casks/hikyo.rb")
+	' >/dev/null || fail 'existing tap branch contains unrelated changes; no changes were overwritten'
 else
+	grep -F '(HTTP 404)' "$scratch/branch-error" >/dev/null || fail 'cannot determine whether tap branch exists'
 	"$GH_BIN" api --method POST "repos/$tap_repository/git/refs" \
 		-f ref="refs/heads/$branch" -f sha="$base_sha" >/dev/null \
 		|| fail "cannot create tap branch $branch"
 fi
 
 branch_content=
-if branch_json=$("$GH_BIN" api "$contents_endpoint?ref=$branch_query" 2>/dev/null); then
+if branch_json=$("$GH_BIN" api "$contents_endpoint?ref=$branch_query" 2>"$scratch/content-error"); then
 	current_sha=$(printf '%s\n' "$branch_json" | jq -er '.sha | select(test("^[0-9a-f]{40}$"))') \
 		|| fail 'tap branch returned invalid cask identity'
 	branch_content=$(printf '%s\n' "$branch_json" | jq -r '.content' | tr -d '\n')
+else
+	grep -F '(HTTP 404)' "$scratch/content-error" >/dev/null || fail 'cannot inspect tap branch cask'
 fi
 if [ "$branch_content" != "$cask_content" ]; then
+	if [ "$existing_branch" = true ] && [ "$branch_head" != "$base_sha" ]; then
+		fail 'existing tap branch differs from verified cask; no changes were overwritten'
+	fi
 	if [ -n "$current_sha" ]; then
 		update_json=$(
 			"$GH_BIN" api --method PUT "$contents_endpoint" \

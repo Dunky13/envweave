@@ -62,3 +62,5 @@ for its ripple register.
 | threat-model ADR | [threat-model.md](./threat-model.md) |
 
 Background research the ADRs cite lives in [`../research/`](../research/).
+
+- [Stable workflow signing and reviewed publication](stable-workflow-signing.md)

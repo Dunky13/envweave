@@ -1,4 +1,8 @@
 {{- if .Values.releaseTrust.admissionPolicy.enabled }}
+{{- $mode := .Values.releaseTrust.admissionPolicy.mode | default "keyed" }}
+{{- if not (has $mode (list "keyed" "keyless")) }}
+{{- fail "releaseTrust.admissionPolicy.mode must be keyed or keyless" }}
+{{- end }}
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
@@ -22,9 +26,17 @@ spec:
           required: true
           attestors:
             - entries:
+{{- if eq $mode "keyless" }}
+                - keyless:
+                    issuer: https://token.actions.githubusercontent.com
+                    subject: {{ printf "https://github.com/Hikyo-Org/Hikyo/.github/workflows/release.yml@refs/tags/v%s" .Chart.AppVersion | quote }}
+                    rekor:
+                      url: https://rekor.sigstore.dev
+{{- else }}
                 - keys:
                     publicKeys: |-
 {{ .Files.Get "files/release/trust/primary.pub" | indent 22 }}
                     rekor:
                       ignoreTlog: true
+{{- end }}
 {{- end }}

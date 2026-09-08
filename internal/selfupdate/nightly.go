@@ -237,9 +237,17 @@ func saveNightlyState(statePath string, state nightlyVerificationState) error {
 }
 
 func (i *Installer) nightlySnapshot(ctx context.Context, pinned releasetrust.PinnedTrust, floor releaseidentity.SnapshotFloor) (releasetrust.SnapshotMaterial, releasetrust.Snapshot, error) {
+	return i.downloadSnapshot(ctx, pinned, floor, true)
+}
+
+func (i *Installer) downloadSnapshot(ctx context.Context, pinned releasetrust.PinnedTrust, floor releaseidentity.SnapshotFloor, nightly bool) (releasetrust.SnapshotMaterial, releasetrust.Snapshot, error) {
 	var err error
 	material := releasetrust.SnapshotMaterial{PrimaryKeys: map[string][]byte{}}
-	for name, target := range map[string]*[]byte{"metadata.json": &material.Metadata, "metadata.sigstore.json": &material.MetadataSignature, "catalog.json": &material.Catalog, "catalog.sigstore.json": &material.CatalogSignature, "nightly/policy.json": &material.NightlyPolicy} {
+	files := map[string]*[]byte{"metadata.json": &material.Metadata, "metadata.sigstore.json": &material.MetadataSignature, "catalog.json": &material.Catalog, "catalog.sigstore.json": &material.CatalogSignature}
+	if nightly {
+		files["nightly/policy.json"] = &material.NightlyPolicy
+	}
+	for name, target := range files {
 		*target, err = i.downloadURL(ctx, trustURL(name), maxTrustBytes)
 		if err != nil {
 			return releasetrust.SnapshotMaterial{}, releasetrust.Snapshot{}, err
@@ -248,6 +256,18 @@ func (i *Installer) nightlySnapshot(ctx context.Context, pinned releasetrust.Pin
 	var metadata releasetrust.Metadata
 	if err := definitions.DecodeStrict(material.Metadata, &metadata); err != nil {
 		return releasetrust.SnapshotMaterial{}, releasetrust.Snapshot{}, err
+	}
+	var catalog releasetrust.Catalog
+	if err := definitions.DecodeStrict(material.Catalog, &catalog); err != nil {
+		return releasetrust.SnapshotMaterial{}, releasetrust.Snapshot{}, err
+	}
+	if metadata.Event.SignedBy == releasetrust.StableWorkflowSigner || catalog.StablePolicySHA256 != "" || !nightly {
+		for name, target := range map[string]*[]byte{"stable-policy.json": &material.StablePolicy, "stable-policy.sigstore.json": &material.StablePolicySignature, "stable-trusted-root.json": &material.StableTrustedRoot} {
+			*target, err = i.downloadURL(ctx, trustURL(name), maxTrustBytes)
+			if err != nil {
+				return releasetrust.SnapshotMaterial{}, releasetrust.Snapshot{}, err
+			}
+		}
 	}
 	if len(metadata.PrimaryKeys) > 256 {
 		return releasetrust.SnapshotMaterial{}, releasetrust.Snapshot{}, errors.New("selfupdate: primary inventory exceeds bound")

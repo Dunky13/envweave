@@ -30,9 +30,25 @@ const pages = [
     target: 'release/signing.md',
     title: 'Release signing ceremony',
   },
+  {
+    source: 'docs/release/online-signing.md',
+    target: 'release/online-signing.md',
+    title: 'Online stable release guide',
+  },
+  {
+    source: 'docs/release/legacy-offline-signing.md',
+    target: 'release/legacy-offline-signing.md',
+    title: 'Legacy offline release reference',
+  },
 ];
 
 const siteLinks = new Map([
+  ['online-signing.md', '/release/online-signing/'],
+  ['online-signing.md#one-time-setup', '/release/online-signing/#one-time-setup'],
+  ['online-signing.md#custody-and-recovery', '/release/online-signing/#custody-and-recovery'],
+  ['legacy-offline-signing.md', '/release/legacy-offline-signing/'],
+  ['../adr/stable-workflow-signing.md', 'https://github.com/Hikyo-Org/Hikyo/blob/main/docs/adr/stable-workflow-signing.md'],
+  ['../research/release-signing-ceremonies.md', 'https://github.com/Hikyo-Org/Hikyo/blob/main/docs/research/release-signing-ceremonies.md'],
   ['./CONTRIBUTING.md', '/contributing/'],
   ['./GOVERNANCE.md', '/governance/'],
   ['./docs/status/README.md', '/implementation-status/'],
