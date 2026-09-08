@@ -39,6 +39,7 @@ import (
 	"github.com/Hikyo-Org/hikyo/internal/config"
 	"github.com/Hikyo-Org/hikyo/internal/crypto"
 	"github.com/Hikyo-Org/hikyo/internal/crypto/backup"
+	"github.com/Hikyo-Org/hikyo/internal/diagnostics"
 	"github.com/Hikyo-Org/hikyo/internal/disclose"
 	"github.com/Hikyo-Org/hikyo/internal/domain"
 	"github.com/Hikyo-Org/hikyo/internal/service"
@@ -197,22 +198,32 @@ func runBackupExport(ctx context.Context, cfg *config.Config, log *slog.Logger, 
 		return errors.New("no destination: pass --out DIR or set HIKYO_BACKUP_DIR")
 	}
 
+	diagnostics.Printf(ctx, 1, "backup: validating datastore admission")
+	admissionDone := diagnostics.Time(ctx, "backup datastore admission")
 	db, err := openBackupRuntime(ctx, cfg)
+	admissionDone()
 	if err != nil {
 		return err
 	}
 	defer db.Close()
 
 	svc := &service.Backup{DB: db, Options: options}
+	diagnostics.Printf(ctx, 2, "backup: recipients=%d passphrase=%t", len(options.Recipients), options.Passphrase != "")
+	diagnostics.Printf(ctx, 1, "backup: exporting and encrypting consistent snapshot")
+	exportDone := diagnostics.Time(ctx, "backup snapshot export and encryption")
 	result, err := svc.Export(ctx, dir)
+	exportDone()
 	if err != nil {
 		return err
 	}
+	diagnostics.Printf(ctx, 2, "backup: encrypted_bytes=%d engine=%s schema=%d", result.Bytes, result.Manifest.Engine, result.Manifest.SchemaVersion)
+	diagnostics.Printf(ctx, 1, "backup: recording published archive")
 	if err := svc.RecordExport(ctx, service.TriggerManual, result); err != nil {
 		// The artifact exists and is complete; only its record failed. Say
 		// exactly that rather than implying the backup did not happen.
 		return fmt.Errorf("the archive was published to %s, but its audit record could not be written: %w", result.Path, err)
 	}
+	diagnostics.Printf(ctx, 1, "backup: export complete")
 	log.Info("backup exported", "path", result.Path, "bytes", result.Bytes,
 		"engine", result.Manifest.Engine, "schema_version", result.Manifest.SchemaVersion)
 	fmt.Fprintf(stderr, "wrote %s (%d bytes, %s schema %d)\n",
@@ -341,12 +352,16 @@ func runRestoreRun(ctx context.Context, cfg *config.Config, log *slog.Logger, ar
 		return fmt.Errorf("restore staging directory: %w", err)
 	}
 	defer os.RemoveAll(work)
+	diagnostics.Printf(ctx, 1, "restore: decrypting and authenticating complete archive")
+	decryptDone := diagnostics.Time(ctx, "restore archive authentication")
 	plain, err := decryptArchive(*from, filepath.Join(work, "archive.tar"), unlock)
+	decryptDone()
 	if err != nil {
 		return err
 	}
 	defer plain.Close()
 
+	diagnostics.Printf(ctx, 1, "restore: validating manifest and empty target")
 	manifest, err := store.ReadManifest(plain)
 	if err != nil {
 		return err
@@ -355,10 +370,12 @@ func runRestoreRun(ctx context.Context, cfg *config.Config, log *slog.Logger, ar
 	if err := checkRestorable(ctx, sc, manifest); err != nil {
 		return err
 	}
+	diagnostics.Printf(ctx, 2, "restore: engine=%s schema=%d", manifest.Engine, manifest.SchemaVersion)
 	if _, err := plain.Seek(0, io.SeekStart); err != nil {
 		return fmt.Errorf("rewind archive: %w", err)
 	}
 
+	diagnostics.Printf(ctx, 1, "restore: publishing data and invalidating previous credentials")
 	now := time.Now()
 	switch sc.Engine {
 	case store.EngineSQLite:
@@ -376,6 +393,7 @@ func runRestoreRun(ctx context.Context, cfg *config.Config, log *slog.Logger, ar
 
 	// Data publication never migrates or admits serving. A new current-incarnation
 	// export/drill must pass the upgrade gate before any later schema writes.
+	diagnostics.Printf(ctx, 1, "restore: reading reconciliation status")
 	var status service.Status
 	err = withReconciliation(ctx, cfg, func(s reconciliationService) error { var err error; status, err = s.Status(ctx); return err })
 	if err != nil {
@@ -384,6 +402,8 @@ func runRestoreRun(ctx context.Context, cfg *config.Config, log *slog.Logger, ar
 	log.Warn("restore complete: every pre-restore authentication artifact is now inert",
 		"engine", manifest.Engine, "credential_epoch", status.State.CredentialEpoch,
 		"restore_epoch", status.State.RestoreEpoch, "pending_principals", len(status.Pending))
+	diagnostics.Printf(ctx, 2, "restore: pending_principals=%d", len(status.Pending))
+	diagnostics.Printf(ctx, 1, "restore: data restore complete")
 	fmt.Fprintf(stderr, "restored %s (schema %d); credential epoch is now %d\n",
 		manifest.Engine, manifest.SchemaVersion, status.State.CredentialEpoch)
 	printPending(stderr, status)
@@ -475,6 +495,8 @@ func decryptArchive(source, path string, u backup.Unlock) (*os.File, error) {
 }
 
 func runRestoreStatus(ctx context.Context, cfg *config.Config, stderr io.Writer) error {
+	diagnostics.Printf(ctx, 1, "restore: reading reconciliation status")
+	defer diagnostics.Time(ctx, "restore reconciliation status")()
 	var status service.Status
 	err := withReconciliation(ctx, cfg, func(s reconciliationService) error { var err error; status, err = s.Status(ctx); return err })
 	if err != nil {
@@ -485,6 +507,7 @@ func runRestoreStatus(ctx context.Context, cfg *config.Config, stderr io.Writer)
 		fmt.Fprintln(stderr, "this instance has never been restored; no reconciliation is outstanding")
 		return nil
 	}
+	diagnostics.Printf(ctx, 2, "restore: pending_principals=%d", len(status.Pending))
 	fmt.Fprintf(stderr, "restored at %s (credential epoch %d, restore epoch %d)\n",
 		status.State.ReactivatedAt.Format(time.RFC3339), status.State.CredentialEpoch, status.State.RestoreEpoch)
 	printPending(stderr, status)
@@ -516,6 +539,8 @@ func runRestoreReconcile(ctx context.Context, cfg *config.Config, log *slog.Logg
 	if *principal == "" {
 		return errors.New("--principal is required: reconciliation is a per-principal assertion, and there is no bulk form")
 	}
+	diagnostics.Printf(ctx, 1, "restore: reconciling one approved principal")
+	defer diagnostics.Time(ctx, "restore principal reconciliation")()
 	var status service.Status
 	err := withReconciliation(ctx, cfg, func(s reconciliationService) error {
 		var err error
@@ -527,6 +552,8 @@ func runRestoreReconcile(ctx context.Context, cfg *config.Config, log *slog.Logg
 	}
 
 	log.Info("principal reconciled", "principal", *principal, "pending", len(status.Pending))
+	diagnostics.Printf(ctx, 2, "restore: pending_principals=%d", len(status.Pending))
+	diagnostics.Printf(ctx, 1, "restore: principal reconciliation complete")
 	fmt.Fprintf(stderr, "reconciled %s\n", *principal)
 	printPending(stderr, status)
 	return nil
@@ -595,7 +622,10 @@ func runRestoreDrill(ctx context.Context, cfg *config.Config, log *slog.Logger, 
 	// outlives the drill.
 	defer crypto.Zero(rootKey)
 
+	diagnostics.Printf(ctx, 1, "restore drill: hashing archive")
+	digestDone := diagnostics.Time(ctx, "restore drill archive digest")
 	digest, err := fileDigest(*from)
+	digestDone()
 	if err != nil {
 		return err
 	}
@@ -620,6 +650,7 @@ func runRestoreDrill(ctx context.Context, cfg *config.Config, log *slog.Logger, 
 	// A refused or failed drill does not establish ownership of the target.
 	// Preserve it for inspection, including any pre-existing database.
 	if *cleanup && drillErr == nil && report.OK() {
+		diagnostics.Printf(ctx, 1, "restore drill: processing scratch cleanup")
 		switch scratch.Engine {
 		case store.EngineSQLite:
 			if err := removeDrillSQLite(scratch.Path); err != nil {
@@ -638,6 +669,7 @@ func runRestoreDrill(ctx context.Context, cfg *config.Config, log *slog.Logger, 
 	// manifest existed (an unreadable archive) has nothing to record and is
 	// returned as-is.
 	if manifest.Engine != "" {
+		diagnostics.Printf(ctx, 1, "restore drill: recording verdict on live instance")
 		live, err := openBackupRuntime(ctx, cfg)
 		if err != nil {
 			return errors.Join(drillErr, err)
@@ -658,6 +690,7 @@ func runRestoreDrill(ctx context.Context, cfg *config.Config, log *slog.Logger, 
 	if !report.OK() {
 		return fmt.Errorf("restore drill failed at %q", report.FailedStep)
 	}
+	diagnostics.Printf(ctx, 1, "restore drill: recovery proof complete")
 	log.Info("restore drill passed", "archive", report.Archive, "engine", report.Engine,
 		"elapsed", report.Elapsed, "rto_target", report.RTOTarget)
 	return nil
@@ -670,18 +703,23 @@ func runRestoreDrill(ctx context.Context, cfg *config.Config, log *slog.Logger, 
 func runDrillSteps(ctx context.Context, cfg *config.Config, scratch store.Config, from string,
 	unlock backup.Unlock, rootKey []byte, principal domain.PrincipalID, scope domain.Scope, report *service.DrillReport,
 ) (store.Manifest, error) {
+	defer diagnostics.Time(ctx, "restore drill recovery proof")()
 	work, err := os.MkdirTemp("", "hikyo-drill-")
 	if err != nil {
 		report.FailedStep = "staging"
 		return store.Manifest{}, fmt.Errorf("drill staging directory: %w", err)
 	}
 	defer os.RemoveAll(work)
+	diagnostics.Printf(ctx, 1, "restore drill: decrypting and authenticating complete archive")
+	decryptDone := diagnostics.Time(ctx, "restore drill archive authentication")
 	plain, err := decryptArchive(from, filepath.Join(work, "archive.tar"), unlock)
+	decryptDone()
 	if err != nil {
 		report.FailedStep = "decrypt"
 		return store.Manifest{}, err
 	}
 	defer plain.Close()
+	diagnostics.Printf(ctx, 1, "restore drill: validating manifest and empty scratch target")
 	manifest, err := store.ReadManifest(plain)
 	if err != nil {
 		report.FailedStep = "manifest"
@@ -691,10 +729,12 @@ func runDrillSteps(ctx context.Context, cfg *config.Config, scratch store.Config
 		report.FailedStep = "preflight"
 		return manifest, err
 	}
+	diagnostics.Printf(ctx, 2, "restore drill: engine=%s schema=%d", manifest.Engine, manifest.SchemaVersion)
 	if _, err := plain.Seek(0, io.SeekStart); err != nil {
 		report.FailedStep = "restore"
 		return manifest, fmt.Errorf("rewind archive: %w", err)
 	}
+	diagnostics.Printf(ctx, 1, "restore drill: restoring isolated scratch datastore")
 	now := time.Now()
 	switch scratch.Engine {
 	case store.EngineSQLite:
@@ -710,6 +750,7 @@ func runDrillSteps(ctx context.Context, cfg *config.Config, scratch store.Config
 	}
 
 	err = withDataRecovery(ctx, cfg, scratch, func(scratchDB *store.RecoveryDB) error {
+		diagnostics.Printf(ctx, 1, "restore drill: verifying restored key hierarchy")
 		// Boot the restored data under the escrowed root key. A copy is handed to
 		// LoadKeyring (which zeroes it); the caller keeps and wipes the original.
 		existing := &keyring.RecoveryStore{DB: scratchDB}
@@ -724,6 +765,7 @@ func runDrillSteps(ctx context.Context, cfg *config.Config, scratch store.Config
 		}
 
 		backupSvc := &service.Recovery{DB: scratchDB}
+		diagnostics.Printf(ctx, 1, "restore drill: proving stored value readability")
 		readable, err := backupSvc.ProveValuesReadable(ctx, kr)
 		report.ValuesReadable = readable
 		if err != nil {
@@ -735,6 +777,7 @@ func runDrillSteps(ctx context.Context, cfg *config.Config, scratch store.Config
 		// throwaway credential in the named project to prove the recovered
 		// instance can issue new machine identity. Both use the reconciled
 		// principal's own authority.
+		diagnostics.Printf(ctx, 1, "restore drill: reconciling approved principal and proving credential issuance")
 		if _, err := (&service.Recovery{DB: scratchDB}).Reconcile(ctx, principal); err != nil {
 			report.FailedStep = "reconcile"
 			return err

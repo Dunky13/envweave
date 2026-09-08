@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/Hikyo-Org/hikyo/internal/definitions"
+	"github.com/Hikyo-Org/hikyo/internal/diagnostics"
 	"github.com/Hikyo-Org/hikyo/internal/filedurability"
 	"github.com/Hikyo-Org/hikyo/internal/releaseidentity"
 	"github.com/Hikyo-Org/hikyo/internal/releasetrust"
@@ -43,6 +44,7 @@ func (i *Installer) stageNightly(ctx context.Context, status updatecheck.Status)
 }
 
 func (i *Installer) prepareNightly(ctx context.Context, status updatecheck.Status, expected *releaseidentity.Identity, extract bool, prepared *PreparedNightly) (err error) {
+	defer diagnostics.Time(ctx, "prepare nightly")()
 	if !status.Immutable {
 		return errors.New("selfupdate: nightly release is not immutable")
 	}
@@ -91,11 +93,6 @@ func (i *Installer) prepareNightly(ctx context.Context, status updatecheck.Statu
 	if err != nil {
 		return err
 	}
-	stage, err := os.MkdirTemp(i.config.StateDir, ".nightly-download-")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(stage)
 	// A target handoff and exact historical route reads reuse immutable cached
 	// bytes. They still match every discovery digest and re-run full signature
 	// verification against the fresh snapshot below before granting authority.
@@ -112,14 +109,24 @@ func (i *Installer) prepareNightly(ctx context.Context, status updatecheck.Statu
 			return err
 		}
 	}
+	// Reverify cache bytes in place. A handoff must not allocate another
+	// complete release merely to authenticate the same immutable inventory.
+	stage := cachedDirectory
+	if stage == "" {
+		stage, err = os.MkdirTemp(i.config.StateDir, ".nightly-download-")
+		if err != nil {
+			return err
+		}
+		defer func() { err = errors.Join(err, os.RemoveAll(stage)) }()
+	}
 	var total int64
 	for _, candidate := range status.Assets {
 		total += candidate.Size
 	}
 	if cachedDirectory == "" {
-		i.progress("  Downloading nightly %s: %d assets, %s.", status.LatestVersion, len(status.Assets), mebibytes(total))
+		diagnostics.Printf(ctx, 1, "  Downloading nightly %s: %d assets, %s.", status.LatestVersion, len(status.Assets), mebibytes(total))
 	} else {
-		i.progress("  Reusing cached nightly %s; re-verifying %d assets.", status.LatestVersion, len(status.Assets))
+		diagnostics.Printf(ctx, 1, "  Reusing cached nightly %s; re-verifying %d assets.", status.LatestVersion, len(status.Assets))
 	}
 	total = 0
 	for _, candidate := range status.Assets {
@@ -136,7 +143,7 @@ func (i *Installer) prepareNightly(ctx context.Context, status updatecheck.Statu
 		}
 		var raw []byte
 		if cachedDirectory == "" {
-			i.progress("    %s (%s)", asset.Name, mebibytes(asset.Size))
+			diagnostics.Printf(ctx, 2, "    %s (%s)", asset.Name, mebibytes(asset.Size))
 			raw, err = i.download(ctx, asset, maxArchiveBytes)
 		} else {
 			raw, err = readNightlyFile(filepath.Join(cachedDirectory, asset.Name), maxArchiveBytes)
@@ -147,6 +154,9 @@ func (i *Installer) prepareNightly(ctx context.Context, status updatecheck.Statu
 		if err != nil {
 			return err
 		}
+		if cachedDirectory != "" {
+			continue
+		}
 		file, err := os.OpenFile(filepath.Join(stage, asset.Name), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 		if err != nil {
 			return err
@@ -156,7 +166,7 @@ func (i *Installer) prepareNightly(ctx context.Context, status updatecheck.Statu
 			return err
 		}
 	}
-	i.progress("  Verifying nightly %s signatures.", status.LatestVersion)
+	diagnostics.Printf(ctx, 1, "  Verifying nightly %s signatures.", status.LatestVersion)
 	release, err := upgradebundle.VerifyNightlyDirectory(ctx, stage, snapshot)
 	if err != nil {
 		return fmt.Errorf("selfupdate: authenticate complete nightly: %w", err)
@@ -191,7 +201,7 @@ func (i *Installer) prepareNightly(ctx context.Context, status updatecheck.Statu
 	if err := filedurability.SyncDirectory(i.config.StateDir); err != nil {
 		return err
 	}
-	i.progress("  Assembling runtime bundle for %s.", identity.Version)
+	diagnostics.Printf(ctx, 1, "  Assembling runtime bundle for %s.", identity.Version)
 	bundleDirectory, err := i.assembleNightlyBundle(ctx, destination, material, snapshot, releasetrust.PinnedTrust{Root: rootRaw, RecoveryPublicKey: recovery}, identity)
 	if err != nil {
 		return fmt.Errorf("selfupdate: assemble runtime bundle: %w", err)

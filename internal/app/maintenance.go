@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Hikyo-Org/hikyo/internal/config"
+	"github.com/Hikyo-Org/hikyo/internal/diagnostics"
 	"github.com/Hikyo-Org/hikyo/internal/server"
 )
 
@@ -32,6 +33,7 @@ func (s *Server) serveMaintenance(ctx context.Context, ready func()) error {
 	go func() { done <- httpServer.Serve(s.operationalLn) }()
 	operationalAddr := s.OperationalAddr
 	s.log.Warn("maintenance active; tenant serving unavailable; complete local upgrade or recovery and restart", "operational_addr", operationalAddr)
+	diagnostics.Printf(ctx, 1, "Maintenance listener is accepting status requests; tenant traffic remains disabled")
 	if ready != nil {
 		ready()
 	}

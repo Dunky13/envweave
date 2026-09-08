@@ -7,6 +7,11 @@ editUrl: https://github.com/Hikyo-Org/Hikyo/edit/main/docs/site/src/content/docs
 Hikyo backup and restore are host-only commands. They operate on the configured
 datastore and have no network API.
 
+Add global `-v`, `-vv` or `-vvv` before the command to see phases, operational
+details or timings, for example `hikyo -vvv backup export`. Archive contents,
+unlock material and root keys are excluded from these diagnostics. See
+[CLI verbosity](/docs/cli-reference/#verbosity) for the shared output contract.
+
 ## What an archive protects
 
 One age-encrypted archive contains a consistent datastore snapshot and its

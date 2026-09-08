@@ -403,8 +403,10 @@ func TestLinuxPruneCandidatesRemovesStagedBinaries(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(candidates, "unrelated"), []byte("keep"), 0600); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{"unrelated", "hikyo-operator-notes"} {
+		if err := os.WriteFile(filepath.Join(candidates, name), []byte("keep"), 0600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := h.PruneCandidates(); err != nil {
 		t.Fatal(err)
@@ -413,7 +415,7 @@ func TestLinuxPruneCandidatesRemovesStagedBinaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 || entries[0].Name() != "unrelated" {
+	if len(entries) != 2 || entries[0].Name() != "hikyo-operator-notes" || entries[1].Name() != "unrelated" {
 		t.Fatalf("candidates after prune: %v", entries)
 	}
 }

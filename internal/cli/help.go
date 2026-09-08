@@ -47,7 +47,11 @@ func CommandPath(args []string) []string {
 // one at a time so `values set KEY --help` shows `values set`. It returns
 // false when not even the first word is a known command.
 func Help(w io.Writer, path []string) bool {
-	return HelpFromText(w, usageText, path)
+	if !HelpFromText(w, usageText, path) {
+		return false
+	}
+	fmt.Fprint(w, verbosityHelp)
+	return true
 }
 
 // HelpFromText is Help over an arbitrary usage text laid out like usageText.

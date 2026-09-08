@@ -18,11 +18,13 @@ import (
 	"github.com/Hikyo-Org/hikyo/internal/config"
 	"github.com/Hikyo-Org/hikyo/internal/crypto"
 	"github.com/Hikyo-Org/hikyo/internal/definitions"
+	"github.com/Hikyo-Org/hikyo/internal/diagnostics"
 	"github.com/Hikyo-Org/hikyo/internal/domain"
 	"github.com/Hikyo-Org/hikyo/internal/filedurability"
 	"github.com/Hikyo-Org/hikyo/internal/hostupgrade"
 	"github.com/Hikyo-Org/hikyo/internal/releaseidentity"
 	"github.com/Hikyo-Org/hikyo/internal/selfupdate"
+	"github.com/Hikyo-Org/hikyo/internal/storagehealth"
 	"github.com/Hikyo-Org/hikyo/internal/store"
 	"github.com/Hikyo-Org/hikyo/internal/store/upgrade"
 	"github.com/Hikyo-Org/hikyo/internal/updatecheck"
@@ -62,12 +64,18 @@ func RunAutomaticUpgrade(ctx context.Context, args []string, out io.Writer, read
 	configuration := fs.String("config", hostupgrade.ConfigPath, "root-owned deployment configuration")
 	version := fs.String("target", "", "exact nightly version; default is latest signed nightly")
 	handoff := fs.Bool("handoff", false, "continue in the independently verified target executable")
+	fs.Usage = func() {
+		fmt.Fprintln(out, "Usage: sudo hikyo [-v|-vv|-vvv] upgrade [--target VERSION] [--config FILE]")
+		fmt.Fprintln(out, "Verbosity: -v phases, -vv artifacts and requests, -vvv timings. Diagnostics go to stderr.")
+		fs.PrintDefaults()
+	}
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 0 {
 		return errors.New("usage: sudo hikyo upgrade [--target VERSION] [--config FILE]")
 	}
+	defer diagnostics.Time(ctx, "automatic upgrade")()
 	if runtime.GOOS != "linux" || os.Geteuid() != 0 {
 		return errors.New("automatic upgrades require sudo hikyo upgrade on the Linux systemd server")
 	}
@@ -79,6 +87,7 @@ func RunAutomaticUpgrade(ctx context.Context, args []string, out io.Writer, read
 	if err != nil {
 		return err
 	}
+	diagnostics.Printf(ctx, 1, "Checking deployment configuration and systemd prerequisites")
 	host, err := hostupgrade.New(c)
 	if err != nil {
 		return err
@@ -135,21 +144,64 @@ func RunAutomaticUpgrade(ctx context.Context, args []string, out io.Writer, read
 	}
 	database := upgrade.Config{Engine: releaseidentity.SQLite, Path: cfg.Store.Path}
 	cache := filepath.Join(c.StateDirectory, "downloads")
-	installer, err := selfupdate.NewInstaller(selfupdate.Config{StateDir: cache, TrustRootBase64: base64.StdEncoding.EncodeToString(pinned.Root), RecoveryKeyBase64: base64.StdEncoding.EncodeToString(pinned.RecoveryPublicKey), Progress: out})
+	installer, err := selfupdate.NewInstaller(selfupdate.Config{StateDir: cache, TrustRootBase64: base64.StdEncoding.EncodeToString(pinned.Root), RecoveryKeyBase64: base64.StdEncoding.EncodeToString(pinned.RecoveryPublicKey), TransientBundles: true})
 	if err != nil {
 		return err
 	}
+	// Reclaim abandoned work before the first download, while the operator
+	// lock is held. Recovery artifacts referenced by the journal stay public.
+	keep := []releaseidentity.Identity{}
+	if previous != nil {
+		keep = append(keep, previous.Target)
+	}
+	diagnostics.Printf(ctx, 1, "Cleaning obsolete private download artifacts in %s", cache)
+	if previous != nil && previous.Phase != "complete" {
+		if err := installer.PruneNightlyScratch(ctx); err != nil {
+			return err
+		}
+	} else if err := installer.PruneNightlyCache(ctx, keep...); err != nil {
+		return err
+	}
+	capacity, err := storagehealth.Read(c.StateDirectory)
+	if err != nil {
+		return fmt.Errorf("inspect upgrade storage: %w", err)
+	}
+	diagnostics.Printf(ctx, 1, "Upgrade filesystem has %.0f MiB available after cleanup", float64(capacity.AvailableBytes)/(1<<20))
+	if previous == nil || previous.Phase == "complete" {
+		if err := host.PruneCandidates(); err != nil {
+			return err
+		}
+		if previous != nil {
+			if err := host.PrunePublic(previous.Runtime); err != nil {
+				return err
+			}
+		}
+	}
+	// Failures can happen before a journal exists. Retire reproducible private
+	// cache work on ordinary errors too; preserve all public recovery material.
+	defer func() {
+		var next *AutomaticHandoff
+		if err != nil && !errors.As(err, &next) {
+			currentJournal, readErr := readAutomaticJournal(journalPath)
+			if readErr != nil || (currentJournal != nil && currentJournal.Phase != "complete") {
+				err = errors.Join(err, readErr, installer.PruneNightlyScratch(ctx))
+			} else {
+				err = errors.Join(err, installer.PruneNightlyCache(ctx, keep...))
+			}
+		}
+	}()
 	client, err := updatecheck.NewHTTPClient(60 * time.Second)
 	if err != nil {
 		return err
 	}
+	client.Transport = diagnostics.Transport{Base: client.Transport}
 	source := updatecheck.NewGitHubSource(client)
 	fmt.Fprintln(out, "1/5 Verifying the signed nightly and migration route.")
 	status, err := selectAutomaticRelease(ctx, source, *version)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "  Selected nightly %s.\n", status.LatestVersion)
+	diagnostics.Printf(ctx, 1, "  Selected nightly %s.", status.LatestVersion)
 	var target selfupdate.PreparedNightly
 	if previous != nil && previous.Phase != "complete" {
 		// An unfinished operation pins its exact authenticated target even if a
@@ -173,26 +225,37 @@ func RunAutomaticUpgrade(ctx context.Context, args []string, out io.Writer, read
 		if *handoff {
 			return errors.New("verified target binary does not match its signed compatibility declaration")
 		}
-		fmt.Fprintf(out, "  Handing off to the verified %s executable; it restarts the five steps.\n", target.Identity.Version)
+		diagnostics.Printf(ctx, 1, "  Handing off to the verified %s executable; it restarts the five steps.", target.Identity.Version)
 		return &AutomaticHandoff{Executable: target.BinaryPath, Arguments: []string{"upgrade", "--config", *configuration, "--target", target.Identity.Version, "--handoff"}}
 	}
-	fmt.Fprintln(out, "  Resolving the migration route from the installed release.")
-	route, err := prepareAutomaticRoute(ctx, installer, source, target, pinned, database, previous, out)
+	diagnostics.Printf(ctx, 1, "  Resolving the migration route from the installed release.")
+	route, err := prepareAutomaticRoute(ctx, installer, source, target, pinned, database, previous)
 	if err != nil {
 		return err
 	}
 	if len(route.Plan.Steps()) == 0 {
+		if err := errors.Join(installer.PruneNightlyCache(ctx, target.Identity), host.PruneCandidates()); err != nil {
+			return fmt.Errorf("Hikyo %s is already installed; temporary artifact cleanup failed: %w", target.Identity.Version, err)
+		}
 		fmt.Fprintf(out, "Hikyo %s is already installed.\n", target.Identity.Version)
-		return installer.PruneNightlyCache(target.Identity)
+		return nil
 	}
 	if previous != nil && previous.Phase != "complete" && previous.Route != route.Plan.Digest() {
 		return errors.New("unfinished upgrade route differs from current authenticated evidence")
 	}
-	fmt.Fprintf(out, "  Route has %d step(s). Staging the route bundle for the service.\n", len(route.Plan.Steps()))
+	diagnostics.Printf(ctx, 1, "  Route has %d step(s). Staging the route bundle for the service.", len(route.Plan.Steps()))
 	publicBundle, err := host.StagePublicBundle(route.Directory)
 	if err != nil {
 		return err
 	}
+	retainPublicBundle := false
+	defer func() {
+		// Journal publication can fail before rename (for example ENOSPC)
+		// or after rename during directory sync. Measure its actual reference.
+		if !retainPublicBundle {
+			err = errors.Join(err, cleanupAutomaticUnpublishedBundle(journalPath, publicBundle))
+		}
+	}()
 	if _, err := upgradebundle.Load(ctx, publicBundle, pinned, route.Bundle.Snapshot().Floor()); err != nil {
 		return err
 	}
@@ -202,7 +265,7 @@ func RunAutomaticUpgrade(ctx context.Context, args []string, out io.Writer, read
 		if !ok {
 			return errors.New("authenticated route executable is missing")
 		}
-		fmt.Fprintf(out, "  Staging candidate executable %s.\n", step.Target.Version)
+		diagnostics.Printf(ctx, 1, "  Staging candidate executable %s.", step.Target.Version)
 		staged[step.Target], err = host.StageCandidate(prepared.BinaryPath, string(prepared.BinarySHA256))
 		if err != nil {
 			return err
@@ -228,6 +291,7 @@ func RunAutomaticUpgrade(ctx context.Context, args []string, out io.Writer, read
 		if err := writeAutomaticJournal(journalPath, journal); err != nil {
 			return err
 		}
+		retainPublicBundle = true
 		fmt.Fprintln(out, "2/5 Stopping writers and creating the encrypted backup.")
 		if err := host.FenceAndStop(ctx); err != nil {
 			return err
@@ -247,15 +311,19 @@ func RunAutomaticUpgrade(ctx context.Context, args []string, out io.Writer, read
 			return err
 		}
 	}
+	retainPublicBundle = true
 	if err := applyAutomaticRoute(ctx, host, automaticStore{database}, route, staged, journal, journalPath, out); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "Hikyo %s is upgraded and ready. Encrypted backup retained at %s.\n", target.Identity.Version, journal.Runtime.CiphertextPath)
 	// The installed binary and public bundle are copies; the download cache
 	// and staged candidates behind them are now dead weight. Keep the target
 	// nightly so an immediate rerun reports "already installed" without a
 	// fresh multi-hundred-MiB download.
-	return errors.Join(installer.PruneNightlyCache(target.Identity), host.PruneCandidates())
+	if err := errors.Join(installer.PruneNightlyCache(ctx, target.Identity), host.PruneCandidates()); err != nil {
+		return fmt.Errorf("Hikyo %s is upgraded and ready; temporary artifact cleanup failed: %w", target.Identity.Version, err)
+	}
+	fmt.Fprintf(out, "Hikyo %s is upgraded and ready. Encrypted backup retained at %s.\n", target.Identity.Version, journal.Runtime.CiphertextPath)
+	return nil
 }
 
 // openAutomaticCustody unlocks the operator vault with a secret derived from
@@ -383,6 +451,20 @@ func writeAutomaticFile(path string, raw []byte, mode os.FileMode) error {
 		return err
 	}
 	return filedurability.SyncDirectory(filepath.Dir(path))
+}
+
+// cleanupAutomaticUnpublishedBundle receives only this invocation's newly
+// staged path. An unreadable journal leaves ownership uncertain, so preserve
+// the bundle and report the error rather than deleting potential recovery data.
+func cleanupAutomaticUnpublishedBundle(journalPath, bundlePath string) error {
+	journal, err := readAutomaticJournal(journalPath)
+	if err != nil {
+		return fmt.Errorf("check staged bundle journal before cleanup: %w", err)
+	}
+	if journal != nil && journal.Runtime.BundleDirectory == bundlePath {
+		return nil
+	}
+	return os.RemoveAll(bundlePath)
 }
 
 func writeAutomaticJournal(path string, journal *automaticJournal) error {

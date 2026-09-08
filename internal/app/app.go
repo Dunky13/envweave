@@ -18,6 +18,7 @@ import (
 	"github.com/Hikyo-Org/hikyo/internal/admission"
 	"github.com/Hikyo-Org/hikyo/internal/config"
 	"github.com/Hikyo-Org/hikyo/internal/crypto"
+	"github.com/Hikyo-Org/hikyo/internal/diagnostics"
 	"github.com/Hikyo-Org/hikyo/internal/remotefetch"
 	"github.com/Hikyo-Org/hikyo/internal/runtimeconfig"
 	"github.com/Hikyo-Org/hikyo/internal/server"
@@ -55,10 +56,14 @@ func storeConfig(cfg *config.Config) store.Config {
 // keyring (DDL only). Signed public evidence authorizes schema application;
 // maintenance remains until the exact candidate boot proves hierarchy health.
 func RunMigrate(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
+	diagnostics.Printf(ctx, 1, "Preparing explicit schema migration")
+	defer diagnostics.Time(ctx, "explicit schema migration")()
 	result, err := databaseGate(ctx, cfg, nil, upgradegate.Migrate)
 	if err != nil {
 		return err
 	}
+	diagnostics.Printf(ctx, 1, "Schema migration finished")
+	diagnostics.Printf(ctx, 2, "Migration result: maintenance=%t schema_only=%t", result.State.Maintenance, result.SchemaOnly)
 	log.Info("verified schema application complete", "phase", result.State.Pending.Phase, "maintenance", result.State.Maintenance)
 	return nil
 }
@@ -235,10 +240,12 @@ func (g *bootGuard) disarm() {
 // resource guard so every error after datastore acquisition closes it exactly
 // once.
 func openKeyed(ctx context.Context, cfg *config.Config, log *slog.Logger, sc store.Config, resources bootResources, guard *bootGuard) (*store.DB, *crypto.Keyring, error) {
+	diagnostics.Printf(ctx, 2, "Hardening process before key access")
 	if err := crypto.HardenProcess(); err != nil {
 		return nil, nil, err
 	}
 
+	diagnostics.Printf(ctx, 1, "Loading root key from configured custody")
 	root, err := resolveRootKey(cfg, log)
 	if err != nil {
 		return nil, nil, err
@@ -248,16 +255,24 @@ func openKeyed(ctx context.Context, cfg *config.Config, log *slog.Logger, sc sto
 		crypto.Zero(root)
 		return nil, nil, err
 	}
+	diagnostics.Printf(ctx, 1, "Opening admitted datastore")
+	opened := diagnostics.Time(ctx, "open admitted datastore")
 	db, err := resources.openDatabase(ctx, sc, admitted.Admission)
+	opened()
 	if err != nil {
 		crypto.Zero(root)
 		return nil, nil, err
 	}
 	guard.add(func() error { return resources.closeDatabase(db) })
 	logDatastorePoolSizes(log, db)
+	limits := db.ConnectionPoolLimits()
+	diagnostics.Printf(ctx, 2, "Datastore pools: primary=%d read_only=%d", limits.Primary, limits.ReadOnly)
 
 	// LoadKeyring consumes root: it is zeroed before this returns.
+	diagnostics.Printf(ctx, 1, "Loading encryption keyring")
+	keyed := diagnostics.Time(ctx, "load encryption keyring")
 	kr, err := crypto.LoadKeyring(ctx, &keyring.Store{DB: db}, root)
+	keyed()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -296,6 +311,8 @@ func Boot(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Server, e
 }
 
 func boot(ctx context.Context, cfg *config.Config, log *slog.Logger, resources bootResources) (*Server, error) {
+	diagnostics.Printf(ctx, 1, "Resolving server upgrade selection")
+	defer diagnostics.Time(ctx, "server boot")()
 	var selectionErr error
 	cfg, selectionErr = resolveSelectedUpgrade(ctx, cfg, deploymentSelectionDirectory)
 	if selectionErr != nil {
@@ -315,6 +332,7 @@ func boot(ctx context.Context, cfg *config.Config, log *slog.Logger, resources b
 	db, kr, err := openKeyed(ctx, cfg, log, sc, resources, guard)
 	if err != nil {
 		if errors.Is(err, upgradegate.ErrRestoreRequired) || errors.Is(err, upgradegate.ErrNextBinary) {
+			diagnostics.Printf(ctx, 1, "Preparing maintenance-only server for upgrade recovery")
 			return bootMaintenance(cfg, log, resources)
 		}
 		return nil, fmt.Errorf("boot: refusing to serve: %w", err)
@@ -329,7 +347,10 @@ func boot(ctx context.Context, cfg *config.Config, log *slog.Logger, resources b
 	if configureDeployment == nil {
 		configureDeployment = configureBootstrapDeployment
 	}
+	diagnostics.Printf(ctx, 1, "Resolving managed deployment configuration")
+	configured := diagnostics.Time(ctx, "resolve deployment configuration")
 	selfConfig.Deployment, err = configureDeployment(ctx, cfg, db, kr)
+	configured()
 	if err != nil {
 		return nil, fmt.Errorf("boot: deployment enrollment unavailable")
 	}
@@ -353,6 +374,7 @@ func boot(ctx context.Context, cfg *config.Config, log *slog.Logger, resources b
 		return nil, fmt.Errorf("boot: managed configuration is invalid: %w", err)
 	}
 	cfg = effective
+	diagnostics.Printf(ctx, 2, "Validating HTTP API contract")
 	if err := resources.warmOpenAPI(); err != nil {
 		return nil, fmt.Errorf("boot: refusing to serve: OpenAPI contract: %w", err)
 	}
@@ -366,11 +388,15 @@ func boot(ctx context.Context, cfg *config.Config, log *slog.Logger, resources b
 	if err != nil {
 		return nil, err
 	}
+	diagnostics.Printf(ctx, 1, "Preparing public and operational listeners")
+	listened := diagnostics.Time(ctx, "prepare server listeners")
 	endpoints, err := owner.prepareEndpoints(cfg, certificate)
+	listened()
 	if err != nil {
 		return nil, fmt.Errorf("boot: listeners: %w", err)
 	}
 	endpoints.activate(owner)
+	diagnostics.Printf(ctx, 2, "Public and operational sockets are bound")
 	guard.add(func() error { return resources.closeListener(srv.publicLn) })
 	guard.add(func() error { return resources.closeListener(srv.operationalLn) })
 	if cfg.Store.PostgresPoolMax != bootstrap.Store.PostgresPoolMax {
@@ -386,6 +412,7 @@ func boot(ctx context.Context, cfg *config.Config, log *slog.Logger, resources b
 	}
 	selfConfig.Budget = owner.budget
 	if cfg.HA {
+		diagnostics.Printf(ctx, 1, "Configuring high-availability coordination")
 		installedStamp := ""
 		if selfConfig.Deployment != nil {
 			installedStamp = selfConfig.Deployment.Identity().TemplateStamp
@@ -396,7 +423,10 @@ func boot(ctx context.Context, cfg *config.Config, log *slog.Logger, resources b
 		}
 		kr.SetHAFreshness(true)
 	}
+	diagnostics.Printf(ctx, 1, "Preparing runtime services and providers")
+	provided := diagnostics.Time(ctx, "prepare runtime services and providers")
 	graph, err := owner.prepareGeneration(ctx, cfg)
+	provided()
 	if err != nil {
 		return nil, err
 	}
@@ -414,6 +444,7 @@ func boot(ctx context.Context, cfg *config.Config, log *slog.Logger, resources b
 			return nil, err
 		}
 	}
+	diagnostics.Printf(ctx, 1, "Activating managed runtime configuration")
 	if err := selfConfig.LoadRuntime(ctx); err != nil && !(missingNode && errors.Is(err, runtimeconfig.ErrNodeNotConfigured)) {
 		if !sourcesPending {
 			return nil, fmt.Errorf("boot: self-configuration: %w", err)
@@ -430,6 +461,7 @@ func boot(ctx context.Context, cfg *config.Config, log *slog.Logger, resources b
 	// Ownership transfers only after the Server is complete. Nothing remains
 	// between disarm and return, so Server.Close is now the sole owner.
 	guard.disarm()
+	diagnostics.Printf(ctx, 1, "Server boot finished; listeners prepared")
 	return srv, nil
 }
 

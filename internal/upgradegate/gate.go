@@ -14,6 +14,7 @@ import (
 	"github.com/Hikyo-Org/hikyo/internal/backupreceipt"
 	"github.com/Hikyo-Org/hikyo/internal/buildcompat"
 	"github.com/Hikyo-Org/hikyo/internal/crypto"
+	"github.com/Hikyo-Org/hikyo/internal/diagnostics"
 	"github.com/Hikyo-Org/hikyo/internal/releaseidentity"
 	"github.com/Hikyo-Org/hikyo/internal/releasetrust"
 	"github.com/Hikyo-Org/hikyo/internal/store/upgrade"
@@ -98,6 +99,9 @@ func run(ctx context.Context, request Request, build []byte, domain upgrade.Trus
 	if request.Mode == Boot && len(request.RootKey) != crypto.KeySize {
 		return Result{}, crypto.ErrRootKeyFormat
 	}
+	diagnostics.Printf(ctx, 1, "Inspecting installed schema and release trust")
+	diagnostics.Printf(ctx, 2, "Datastore admission: engine=%s mode=%s auto_migrate=%t", request.Store.Engine, request.Mode, request.AllowMigrations)
+	defer diagnostics.Time(ctx, "verify schema and release admission")()
 	root := bytes.Clone(request.RootKey)
 	defer crypto.Zero(root)
 	control, err := upgrade.InspectControl(ctx, request.Store)
@@ -113,6 +117,7 @@ func run(ctx context.Context, request Request, build []byte, domain upgrade.Trus
 		}
 		floor = control.Floor
 	}
+	diagnostics.Printf(ctx, 1, "Verifying signed release bundle and embedded migrations")
 	bundle, err := upgradebundle.Load(ctx, request.BundleDirectory, request.Pinned, floor)
 	if err != nil {
 		return Result{}, err
@@ -151,6 +156,7 @@ func run(ctx context.Context, request Request, build []byte, domain upgrade.Trus
 		}
 	}
 	var result Result
+	diagnostics.Printf(ctx, 2, "Acquiring exclusive migration lock")
 	err = upgrade.WithLock(ctx, request.Store, func(session *upgrade.Session) error {
 		current, readErr := session.Read(ctx)
 		if absent {
@@ -427,9 +433,14 @@ func execute(ctx context.Context, session *upgrade.Session, request Request, nod
 		request.observe(boundaryWriteStarted)
 	}
 	if state.Pending.Phase == upgrade.SchemaWriteStarted {
-		if err := session.ApplyMigrations(ctx, state, request.Migrations, request.MigrationDirectory); err != nil {
-			return fmt.Errorf("schema write did not complete; maintenance retained: %w", err)
+		diagnostics.Printf(ctx, 1, "Applying schema migrations")
+		applied := diagnostics.Time(ctx, "apply schema migrations")
+		applyErr := session.ApplyMigrations(ctx, state, request.Migrations, request.MigrationDirectory)
+		applied()
+		if applyErr != nil {
+			return fmt.Errorf("schema write did not complete; maintenance retained: %w", applyErr)
 		}
+		diagnostics.Printf(ctx, 1, "Verifying migrated schema")
 		request.observe(boundarySQLComplete)
 		if err := verifyCatalog(ctx, session, node, request.Store.Engine); err != nil {
 			return err

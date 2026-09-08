@@ -64,6 +64,56 @@ or schema-applied targets can continue. An uncertain or failed schema change
 leaves the service stopped and requires explicit operator recovery; the command
 never automatically rolls back the database or starts an older binary.
 
+## Progress and disk use
+
+Use repeatable global verbosity options before the command or its other options:
+
+```sh
+sudo hikyo -v upgrade       # phases, selected releases, route and cleanup
+sudo hikyo -vv upgrade      # also artifact sizes, cache removals and HTTP status
+sudo hikyo -vvv upgrade     # also operation and download timings
+```
+
+`--verbose --verbose` is equivalent to `-vv`. Verbosity follows the verified
+coordinator handoff. Diagnostic lines go to stderr, keeping stdout usable for
+command results. Request headers, bodies, URL credentials and query strings are
+not printed. Arguments after `--` belong to the child command and remain untouched.
+
+The directories have distinct ownership and lifetimes:
+
+| Default path under `/var/lib` | Contents and access |
+| --- | --- |
+| `hikyo` | Live application data, owned by the runtime user. |
+| `hikyo-installation` | Persistent installation custody, owned by the runtime user. |
+| `hikyo-upgrade` | Root-staged verification bundles readable by the runtime, private backup exports and recovery proof. |
+| `hikyo-upgrade-candidates` | Root-owned executables staged for installation. |
+| `hikyo-upgrader` | Root-only download cache, operation journal and generated runtime configuration. |
+
+The similarly named `hikyo-upgrade` and `hikyo-upgrader` separate service-readable
+verification evidence from privileged coordinator state. They are not duplicate
+application data directories.
+
+The coordinator prunes obsolete downloads before fetching a release, and again
+on completion, including an already-installed result. It retains the latest
+observed release for handoff and retry, plus an explicitly pinned target when
+needed. Installed executables and the service's public verification bundle are
+independent copies. Superseded private route bundles are discarded during
+preparation; cache hits reverify existing bytes without writing a second full
+release copy. Anti-rollback trust state is never pruned.
+
+After an interruption, exact downloaded releases and candidate executables stay
+available for the unfinished route. Disposable private bundles and abandoned
+assembly files are removed and rebuilt as needed. The journal, public recovery
+evidence, retained encrypted backup and operator keys remain protected. Cleanup
+errors are reported; cleanup after a completed upgrade does not stop the healthy
+service. A later invocation retries cleanup.
+
+Full signed inventories still include artifacts for every published platform.
+A long route therefore needs temporary space for its releases, assembled bundle,
+candidate executables and backup drill. `-v` reports available space after initial
+cleanup; `-vv` shows individual artifact sizes. Do not delete these directories
+manually during an unfinished upgrade.
+
 ## Release channels
 
 `stable` follows signed production releases. `nightly` follows signed GitHub

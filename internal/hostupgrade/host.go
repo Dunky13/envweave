@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Hikyo-Org/hikyo/internal/diagnostics"
 	"github.com/Hikyo-Org/hikyo/internal/filedurability"
 )
 
@@ -577,7 +578,7 @@ func (h *Host) PruneCandidates() error {
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		if entry.IsDir() || (!strings.HasPrefix(name, "hikyo-") && !strings.HasPrefix(name, ".hikyo-binary-")) {
+		if entry.IsDir() || (!(strings.HasPrefix(name, "hikyo-") && validDigest(strings.TrimPrefix(name, "hikyo-"))) && !strings.HasPrefix(name, ".hikyo-binary-")) {
 			continue
 		}
 		if err := os.Remove(filepath.Join(h.config.CandidateDirectory, name)); err != nil {
@@ -745,6 +746,8 @@ func (h *Host) Complete(ctx context.Context) error {
 }
 
 func (h *Host) systemctl(ctx context.Context, args ...string) ([]byte, error) {
+	diagnostics.Printf(ctx, 2, "systemd operation %s", args[0])
+	defer diagnostics.Time(ctx, "systemd "+args[0])()
 	bounded, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
 	output, err := h.run(bounded, command{path: "/usr/bin/systemctl", args: append([]string{"--no-pager", "--no-ask-password"}, args...), env: []string{"PATH=/usr/bin:/bin", "LANG=C"}})

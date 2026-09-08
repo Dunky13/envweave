@@ -1,11 +1,14 @@
 package selfupdate
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
+	"github.com/Hikyo-Org/hikyo/internal/diagnostics"
 	"github.com/Hikyo-Org/hikyo/internal/filedurability"
 	"github.com/Hikyo-Org/hikyo/internal/releaseidentity"
 	"github.com/gofrs/flock"
@@ -17,7 +20,18 @@ import (
 // with intermediate hops multiplies that, so the cache is trimmed after each
 // completed upgrade. The trust state and lock files are never touched: the
 // state carries the rollback floor and the highest observed release.
-func (i *Installer) PruneNightlyCache(keep ...releaseidentity.Identity) (err error) {
+func (i *Installer) PruneNightlyCache(ctx context.Context, keep ...releaseidentity.Identity) error {
+	return i.pruneNightlyCache(ctx, false, keep...)
+}
+
+// PruneNightlyScratch keeps all verified releases and executables while an
+// unfinished journal may still require their exact bytes to resume.
+// Derived private bundles can be rebuilt from those retained releases.
+func (i *Installer) PruneNightlyScratch(ctx context.Context) error {
+	return i.pruneNightlyCache(ctx, true)
+}
+
+func (i *Installer) pruneNightlyCache(ctx context.Context, scratchOnly bool, keep ...releaseidentity.Identity) (err error) {
 	if i == nil || i.config.StateDir == "" {
 		return errors.New("selfupdate: installer is not configured")
 	}
@@ -36,6 +50,15 @@ func (i *Installer) PruneNightlyCache(keep ...releaseidentity.Identity) (err err
 		return errors.New("selfupdate: another nightly verification is running")
 	}
 	defer func() { err = errors.Join(err, lock.Unlock()) }()
+	// Preserve the most recently observed release for target handoff/retry.
+	// Reading malformed trust state fails closed before deleting anything.
+	known, err := readNightlyState(filepath.Join(i.config.StateDir, "nightly-trust.json"))
+	if err != nil {
+		return err
+	}
+	if known.Release.Validate() == nil {
+		keep = append(keep, known.Release)
+	}
 	retained := map[string]bool{}
 	for _, identity := range keep {
 		if identity.Validate() != nil {
@@ -44,6 +67,36 @@ func (i *Installer) PruneNightlyCache(keep ...releaseidentity.Identity) (err err
 		retained["nightly-"+string(identity.ManifestSHA256)] = true
 		retained["executable-"+string(identity.ManifestSHA256)+"-"] = true
 	}
+	return i.pruneNightlyEntries(ctx, func(name string) bool {
+		if scratchOnly && (strings.HasPrefix(name, "nightly-") || strings.HasPrefix(name, "executable-")) {
+			return false
+		}
+		return generatedNightlyEntry(name) && !retained[name] && !retainedExecutable(retained, name)
+	})
+}
+
+var nightlyCacheName = regexp.MustCompile(`^(nightly-[0-9a-f]{64}|bundle-[0-9a-f]{64}-[0-9a-f]{64}|executable-[0-9a-f]{64}-[a-z0-9]+-[a-z0-9]+)$`)
+
+func generatedNightlyEntry(name string) bool {
+	if nightlyCacheName.MatchString(name) {
+		return true
+	}
+	for _, prefix := range []string{".nightly-download-", ".nightly-bundle-inputs-", ".nightly-executable-", ".nightly-trust-", ".hikyo-upgrade-assembly-"} {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// Called while the nightly trust lock is held. Root-relative removal never
+// follows a symlink outside the cache; unrelated names and trust state survive.
+func (i *Installer) pruneNightlyEntries(ctx context.Context, remove func(string) bool) error {
+	root, err := os.OpenRoot(i.config.StateDir)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
 	entries, err := os.ReadDir(i.config.StateDir)
 	if err != nil {
 		return err
@@ -51,14 +104,11 @@ func (i *Installer) PruneNightlyCache(keep ...releaseidentity.Identity) (err err
 	removed := 0
 	for _, entry := range entries {
 		name := entry.Name()
-		generated := strings.HasPrefix(name, "nightly-") || strings.HasPrefix(name, "bundle-") || strings.HasPrefix(name, "executable-") || strings.HasPrefix(name, ".nightly-")
-		if !generated || name == "nightly-trust.json" || name == "nightly-trust.lock" {
+		if !remove(name) {
 			continue
 		}
-		if retained[name] || retainedExecutable(retained, name) {
-			continue
-		}
-		if err := os.RemoveAll(filepath.Join(i.config.StateDir, name)); err != nil {
+		diagnostics.Printf(ctx, 2, "Removing cached artifact %s", name)
+		if err := root.RemoveAll(name); err != nil {
 			return err
 		}
 		removed++
@@ -66,8 +116,19 @@ func (i *Installer) PruneNightlyCache(keep ...releaseidentity.Identity) (err err
 	if removed == 0 {
 		return nil
 	}
-	i.progress("  Removed %d cached nightly artifacts no longer needed.", removed)
+	diagnostics.Printf(ctx, 1, "Removed %d cached nightly artifacts no longer needed.", removed)
 	return filedurability.SyncDirectory(i.config.StateDir)
+}
+
+// pruneOtherBundles runs under the nightly trust lock, only for the private
+// automatic coordinator cache. Public runtime and manual staging are separate.
+func (i *Installer) pruneOtherBundles(ctx context.Context, keep string) error {
+	if !i.config.TransientBundles {
+		return nil
+	}
+	return i.pruneNightlyEntries(ctx, func(name string) bool {
+		return strings.HasPrefix(name, "bundle-") && nightlyCacheName.MatchString(name) && name != filepath.Base(keep)
+	})
 }
 
 // retainedExecutable matches executable-<manifest>-<os>-<arch> against the

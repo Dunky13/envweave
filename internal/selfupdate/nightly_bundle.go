@@ -4,17 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/Hikyo-Org/hikyo/internal/upgradecompat"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/Hikyo-Org/hikyo/internal/definitions"
+	"github.com/Hikyo-Org/hikyo/internal/diagnostics"
 	"github.com/Hikyo-Org/hikyo/internal/releaseidentity"
 	"github.com/Hikyo-Org/hikyo/internal/releasetrust"
 	"github.com/Hikyo-Org/hikyo/internal/upgradeassembly"
 	"github.com/Hikyo-Org/hikyo/internal/upgradebundle"
+	"github.com/Hikyo-Org/hikyo/internal/upgradecompat"
 )
 
 // assembleNightlyBundle retains the already authenticated snapshot and fetches
@@ -25,6 +26,7 @@ func (i *Installer) assembleNightlyBundle(ctx context.Context, nightly string, m
 }
 
 func (i *Installer) assembleNightlyEvidence(ctx context.Context, evidence []PreparedNightly, material releasetrust.SnapshotMaterial, snapshot releasetrust.Snapshot, pinned releasetrust.PinnedTrust) (string, error) {
+	defer diagnostics.Time(ctx, "assemble nightly evidence")()
 	if len(evidence) == 0 || len(evidence) > upgradecompat.MaxReleases {
 		return "", errors.New("selfupdate: nightly route exceeds release bound")
 	}
@@ -63,8 +65,11 @@ func (i *Installer) assembleNightlyEvidence(ctx context.Context, evidence []Prep
 				return "", err
 			}
 		}
-		return destination, nil
+		return destination, i.pruneOtherBundles(ctx, destination)
 	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	if err := i.pruneOtherBundles(ctx, destination); err != nil {
 		return "", err
 	}
 	stage, err := os.MkdirTemp(i.config.StateDir, ".nightly-bundle-inputs-")

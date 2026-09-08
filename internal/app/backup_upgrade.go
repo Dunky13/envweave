@@ -16,6 +16,7 @@ import (
 	"github.com/Hikyo-Org/hikyo/internal/backupreceipt"
 	"github.com/Hikyo-Org/hikyo/internal/config"
 	"github.com/Hikyo-Org/hikyo/internal/crypto"
+	"github.com/Hikyo-Org/hikyo/internal/diagnostics"
 	"github.com/Hikyo-Org/hikyo/internal/domain"
 	"github.com/Hikyo-Org/hikyo/internal/filedurability"
 	"github.com/Hikyo-Org/hikyo/internal/releaseidentity"
@@ -72,13 +73,18 @@ func runUpgradeExport(ctx context.Context, cfg *config.Config, args []string, ou
 	if _, err := options.UpgradeRecipientFingerprints(); err != nil {
 		return err
 	}
+	diagnostics.Printf(ctx, 1, "upgrade backup: verifying release bundle")
+	bundleDone := diagnostics.Time(ctx, "upgrade backup release verification")
 	bundle, err := upgradebundle.Load(ctx, *bundleDir, trust.Pinned, trust.Floor)
+	bundleDone()
 	if err != nil {
 		return err
 	}
 	database := storeConfig(cfg)
 	sourceConfig := upgrade.Config{Engine: releaseidentity.Engine(database.Engine), Path: database.Path, DSN: database.DSN}
+	diagnostics.Printf(ctx, 1, "upgrade backup: waiting for datastore lock")
 	return upgrade.WithLock(ctx, sourceConfig, func(session *upgrade.Session) error {
+		diagnostics.Printf(ctx, 1, "upgrade backup: validating installed source and export authority")
 		plan, err := inspectBackupPlan(ctx, sourceConfig, bundle, trust.Target, trust.OperatorPin.InstanceID())
 		if err != nil {
 			return err
@@ -100,13 +106,19 @@ func runUpgradeExport(ctx context.Context, cfg *config.Config, args []string, ou
 			}
 			proposal = &value
 		}
+		diagnostics.Printf(ctx, 2, "upgrade backup: recipients=%d", len(options.Recipients))
+		diagnostics.Printf(ctx, 1, "upgrade backup: exporting encrypted snapshot and receipt")
+		exportDone := diagnostics.Time(ctx, "upgrade backup snapshot export and encryption")
 		exported, err := service.ExportPreparedUpgrade(ctx, db, options, *dir, plan, proposal)
+		exportDone()
 		if err != nil {
 			return err
 		}
 		if exported.Receipt == nil || exported.Receipt.Snapshot.InstanceID != trust.OperatorPin.InstanceID() {
 			return errors.New("exported source differs from current installation operator pin")
 		}
+		diagnostics.Printf(ctx, 2, "upgrade backup: encrypted_bytes=%d engine=%s schema=%d", exported.Bytes, exported.Manifest.Engine, exported.Manifest.SchemaVersion)
+		diagnostics.Printf(ctx, 1, "upgrade backup: export complete")
 		if *jsonOutput {
 			return json.NewEncoder(out).Encode(struct {
 				Ciphertext string `json:"ciphertext"`
@@ -154,6 +166,7 @@ func runUpgradeDrill(ctx context.Context, args []string, out io.Writer, trust Tr
 	if fs.NArg() != 0 || *bundleDir == "" || *source == "" || *receiptFile == "" || *identityFile == "" || *rootFile == "" || *dir == "" || *signingKey == "" || (*sqlitePath == "") == (*postgresFile == "") {
 		return errors.New("upgrade-drill requires bundle, archive, receipt, separate custody files, signer, output and exactly one empty scratch target")
 	}
+	diagnostics.Printf(ctx, 1, "upgrade drill: verifying release bundle and receipt")
 	bundle, err := upgradebundle.Load(ctx, *bundleDir, trust.Pinned, trust.Floor)
 	if err != nil {
 		return err
@@ -183,7 +196,10 @@ func runUpgradeDrill(ctx context.Context, args []string, out io.Writer, trust Tr
 	if !plan.Valid() {
 		return errors.New("receipt source absent from authenticated bundle")
 	}
+	diagnostics.Printf(ctx, 1, "upgrade drill: pinning encrypted archive")
+	pinDone := diagnostics.Time(ctx, "upgrade drill archive pinning")
 	pinned, err := backupreceipt.PinCiphertext(ctx, *source, "")
+	pinDone()
 	if err != nil {
 		return err
 	}
@@ -212,14 +228,19 @@ func runUpgradeDrill(ctx context.Context, args []string, out io.Writer, trust Tr
 	if err != nil {
 		return err
 	}
+	diagnostics.Printf(ctx, 1, "upgrade drill: signing recovery attestation")
+	signDone := diagnostics.Time(ctx, "upgrade drill attestation signing")
 	signature, err := signUpgradeStatement(ctx, *signer, *signingKey, result.Attestation, trust.OperatorPin)
+	signDone()
 	if err != nil {
 		return err
 	}
+	diagnostics.Printf(ctx, 1, "upgrade drill: publishing signed attestation")
 	statementPath, signaturePath, err := publishUpgradeAttestation(*dir, result.Attestation, signature)
 	if err != nil {
 		return err
 	}
+	diagnostics.Printf(ctx, 1, "upgrade drill: signed recovery proof complete")
 	_, err = fmt.Fprintf(out, "hierarchy: verified existing wrappers\nsecret: %s\ncredential: %s\nattestation: %s\nsignature: %s\n", result.SecretProof, result.CredentialProof, statementPath, signaturePath)
 	return err
 }

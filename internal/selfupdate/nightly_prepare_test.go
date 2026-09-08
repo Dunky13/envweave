@@ -7,6 +7,7 @@ import (
 	"compress/gzip"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -158,57 +159,65 @@ func TestPrepareExactOlderNightlyPreservesHighestAndChecksIdentity(t *testing.T)
 }
 
 func TestNightlyRouteReauthenticatesAllExactEvidence(t *testing.T) {
-	installer, status, _, trust, _, _ := preparedNightlyFixture(t, nil)
-	target, err := installer.PrepareNightly(t.Context(), status)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, declaration, err := buildcompat.Development()
-	if err != nil {
-		t.Fatal(err)
-	}
-	declaration.Profile, declaration.Version, declaration.Sequence, declaration.Commit = releaseidentity.NightlyV1, "1.0.0-nightly.1", 1, strings.Repeat("a", 40)
-	claim := testfixture.JSON(t, declaration)
-	material := trust.SignNightly(claim, declaration.Version, declaration.Sequence)
-	source := PreparedNightly{Directory: t.TempDir(), Identity: releaseidentity.Identity{Profile: declaration.Profile, Version: declaration.Version, Sequence: declaration.Sequence, Commit: declaration.Commit, CompatibilitySHA256: releaseidentity.Hash(claim), ManifestSHA256: releaseidentity.Hash(material.Manifest)}}
-	for name, reader := range material.Artifacts {
-		raw, err := io.ReadAll(reader)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(source.Directory, name), raw, 0600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for name, raw := range map[string][]byte{"release-manifest.json": material.Manifest, "release-manifest.sigstore.json": material.Bundle} {
-		if err := os.WriteFile(filepath.Join(source.Directory, name), raw, 0600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	directory, err := installer.AssembleNightlyRoute(t.Context(), target, []PreparedNightly{source})
-	if err != nil {
-		t.Fatal(err)
-	}
-	bundle, err := upgradebundle.Load(t.Context(), directory, trust.Pinned, releaseidentity.SnapshotFloor{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, identity := range []releaseidentity.Identity{target.Identity, source.Identity} {
-		if _, err := bundle.Release(identity); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := installer.AssembleNightlyRoute(t.Context(), target, []PreparedNightly{target}); err == nil {
-		t.Fatal("duplicate route inventory accepted")
-	}
-	if _, err := installer.AssembleNightlyRoute(t.Context(), target, make([]PreparedNightly, upgradecompat.MaxReleases)); err == nil {
-		t.Fatal("unbounded route accepted")
-	}
-	if err := os.WriteFile(filepath.Join(source.Directory, "checksums.txt"), []byte("tampered"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := installer.AssembleNightlyRoute(t.Context(), target, []PreparedNightly{source}); err == nil {
-		t.Fatal("modified source accepted through cached route")
+	for _, transient := range []bool{false, true} {
+		t.Run(fmt.Sprintf("transient=%t", transient), func(t *testing.T) {
+			installer, status, _, trust, _, _ := preparedNightlyFixture(t, nil)
+			installer.config.TransientBundles = transient
+			target, err := installer.PrepareNightly(t.Context(), status)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, declaration, err := buildcompat.Development()
+			if err != nil {
+				t.Fatal(err)
+			}
+			declaration.Profile, declaration.Version, declaration.Sequence, declaration.Commit = releaseidentity.NightlyV1, "1.0.0-nightly.1", 1, strings.Repeat("a", 40)
+			claim := testfixture.JSON(t, declaration)
+			material := trust.SignNightly(claim, declaration.Version, declaration.Sequence)
+			source := PreparedNightly{Directory: t.TempDir(), Identity: releaseidentity.Identity{Profile: declaration.Profile, Version: declaration.Version, Sequence: declaration.Sequence, Commit: declaration.Commit, CompatibilitySHA256: releaseidentity.Hash(claim), ManifestSHA256: releaseidentity.Hash(material.Manifest)}}
+			for name, reader := range material.Artifacts {
+				raw, err := io.ReadAll(reader)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(source.Directory, name), raw, 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for name, raw := range map[string][]byte{"release-manifest.json": material.Manifest, "release-manifest.sigstore.json": material.Bundle} {
+				if err := os.WriteFile(filepath.Join(source.Directory, name), raw, 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			directory, err := installer.AssembleNightlyRoute(t.Context(), target, []PreparedNightly{source})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(target.BundleDirectory); transient != os.IsNotExist(err) {
+				t.Fatalf("superseded bundle retention: transient=%t err=%v", transient, err)
+			}
+			bundle, err := upgradebundle.Load(t.Context(), directory, trust.Pinned, releaseidentity.SnapshotFloor{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, identity := range []releaseidentity.Identity{target.Identity, source.Identity} {
+				if _, err := bundle.Release(identity); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := installer.AssembleNightlyRoute(t.Context(), target, []PreparedNightly{target}); err == nil {
+				t.Fatal("duplicate route inventory accepted")
+			}
+			if _, err := installer.AssembleNightlyRoute(t.Context(), target, make([]PreparedNightly, upgradecompat.MaxReleases)); err == nil {
+				t.Fatal("unbounded route accepted")
+			}
+			if err := os.WriteFile(filepath.Join(source.Directory, "checksums.txt"), []byte("tampered"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := installer.AssembleNightlyRoute(t.Context(), target, []PreparedNightly{source}); err == nil {
+				t.Fatal("modified source accepted through cached route")
+			}
+		})
 	}
 }
 
@@ -303,5 +312,41 @@ func TestNightlyExtractorRejectsHardlinks(t *testing.T) {
 	}
 	if _, err := extractNightlyBinary("release.tar.gz", out.Bytes()); err == nil {
 		t.Fatal("hardlink accepted as regular executable")
+	}
+}
+
+func TestAutomaticCacheCleanupKeepsTargetAndReauthenticatesWithoutDownload(t *testing.T) {
+	installer, status, _, _, _, responses := preparedNightlyFixture(t, nil)
+	installer.config.TransientBundles = true
+	prepared, err := installer.PrepareNightly(t.Context(), status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	statePath := filepath.Join(installer.config.StateDir, "nightly-trust.json")
+	before, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := installer.PruneNightlyCache(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(statePath)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatal("cleanup modified anti-rollback state", err)
+	}
+	if _, err := os.Stat(prepared.BundleDirectory); !os.IsNotExist(err) {
+		t.Fatal("retained private bundle", err)
+	}
+	for _, asset := range status.Assets {
+		responses[asset.URL] = nil
+	}
+	if _, err := installer.PrepareNightly(t.Context(), status); err != nil {
+		t.Fatal("cache retry downloaded release again", err)
+	}
+	if err := os.WriteFile(filepath.Join(prepared.Directory, status.Assets[0].Name), []byte("tampered"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := installer.PrepareNightly(t.Context(), status); err == nil {
+		t.Fatal("cache retry skipped authentication")
 	}
 }

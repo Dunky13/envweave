@@ -10,6 +10,7 @@ import (
 	"github.com/Hikyo-Org/hikyo/internal/backupreceipt"
 	"github.com/Hikyo-Org/hikyo/internal/buildcompat"
 	"github.com/Hikyo-Org/hikyo/internal/config"
+	"github.com/Hikyo-Org/hikyo/internal/diagnostics"
 	"github.com/Hikyo-Org/hikyo/internal/domain"
 	"github.com/Hikyo-Org/hikyo/internal/releaseidentity"
 	"github.com/Hikyo-Org/hikyo/internal/service"
@@ -200,6 +201,7 @@ func withReconciliation(ctx context.Context, cfg *config.Config, fn func(reconci
 }
 
 func restoreOrdinaryPostgres(ctx context.Context, cfg *config.Config, sc store.Config, plain io.ReadSeeker, manifest store.Manifest, now time.Time) error {
+	defer diagnostics.Time(ctx, "restore data publication")()
 	return withBackupOperatorCustody(ctx, cfg, func(_ *upgradegate.OperatorCustody) error {
 		return restoreOrdinaryPostgresWithCustody(ctx, cfg, sc, plain, manifest, now)
 	})
@@ -265,6 +267,7 @@ func backupRestorePlans(ctx context.Context, cfg *config.Config, sc store.Config
 	return plans, nil
 }
 func restoreOrdinarySQLite(ctx context.Context, cfg *config.Config, sc store.Config, plain io.ReadSeeker, manifest store.Manifest, now time.Time) error {
+	defer diagnostics.Time(ctx, "restore data publication")()
 	return withBackupOperatorCustody(ctx, cfg, func(_ *upgradegate.OperatorCustody) error {
 		return restoreOrdinarySQLiteWithCustody(ctx, cfg, sc, plain, manifest, now)
 	})

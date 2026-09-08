@@ -24,6 +24,7 @@ import (
 	"github.com/Hikyo-Org/hikyo/internal/cli"
 	"github.com/Hikyo-Org/hikyo/internal/config"
 	"github.com/Hikyo-Org/hikyo/internal/console"
+	"github.com/Hikyo-Org/hikyo/internal/diagnostics"
 	"github.com/Hikyo-Org/hikyo/internal/disclose"
 	"github.com/Hikyo-Org/hikyo/internal/hostupgrade"
 	"github.com/Hikyo-Org/hikyo/internal/importer"
@@ -64,11 +65,12 @@ func run() int {
 	if handled, code := importer.RunInternalSubprocess(os.Args[1:], os.Stdout); handled {
 		return code
 	}
-	if len(os.Args) < 2 {
+	arguments, verbosity := cli.ParseVerbosity(os.Args[1:])
+	if len(arguments) == 0 {
 		usage(os.Stderr)
 		return 2
 	}
-	invocation, handled, code := runHelp(os.Args[1:], os.Stdout, os.Stderr)
+	invocation, handled, code := runHelp(arguments, os.Stdout, os.Stderr)
 	if handled {
 		return code
 	}
@@ -90,6 +92,11 @@ func run() int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	ctx = diagnostics.With(ctx, verbosity, os.Stderr)
+	if slices.Contains([]string{"server", "operator", "config-rollout", "updater", "migrate", "upgrade", "admin", "backup", "escrow", "restore"}, cmd) && !cli.HelpRequested(args) {
+		diagnostics.Printf(ctx, 1, "starting %s", cmd)
+		defer diagnostics.Time(ctx, cmd)()
+	}
 	if shouldCheckForUpdate(cmd) {
 		terminalSession, terminalError := disclose.OpenTerminalSession()
 		updated := cli.NotifyUpdate(ctx, updateIO(terminalSession, terminalError, builtChannel))
@@ -273,14 +280,17 @@ func shouldCheckForUpdate(command string) bool {
 }
 
 func runServer(ctx context.Context, args []string) int {
+	loaded := diagnostics.Time(ctx, "load bootstrap configuration")
 	cfg, warnings, err := config.LoadBootstrap("server", args, os.Getenv, os.Environ())
 	if errors.Is(err, flag.ErrHelp) {
 		return 0
 	}
+	loaded()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "hikyo server:", err)
 		return 1
 	}
+	diagnostics.Printf(ctx, 1, "Bootstrap configuration loaded")
 	log := app.Logger(cfg.Dev)
 	for _, w := range warnings {
 		log.Warn(w)
@@ -419,7 +429,9 @@ func runOperatorThroughDeployment(ctx context.Context, name string, args []strin
 		fmt.Fprintf(os.Stderr, "hikyo %s: %v\n", name, err)
 		return 2, true
 	}
-	err = host.RunOperator(ctx, append([]string{name}, args...), os.Stdin, os.Stdout, os.Stderr)
+	diagnostics.Printf(ctx, 1, "running operator command through host deployment")
+	operatorArgs := cli.WithVerbosityArguments(append([]string{name}, args...), diagnostics.Level(ctx))
+	err = host.RunOperator(ctx, operatorArgs, os.Stdin, os.Stdout, os.Stderr)
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {
 		return exit.ExitCode(), true
@@ -440,14 +452,17 @@ func workdir() string {
 }
 
 func runMigrate(ctx context.Context, args []string) int {
+	loaded := diagnostics.Time(ctx, "load bootstrap configuration")
 	cfg, warnings, err := config.Load("migrate", args, os.Getenv, os.Environ())
 	if errors.Is(err, flag.ErrHelp) {
 		return 0
 	}
+	loaded()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "hikyo migrate:", err)
 		return 1
 	}
+	diagnostics.Printf(ctx, 1, "Bootstrap configuration loaded")
 	log := app.Logger(cfg.Dev)
 	for _, w := range warnings {
 		log.Warn(w)
@@ -479,7 +494,8 @@ func runUpgradeOperator(ctx context.Context, args []string) int {
 				fmt.Fprintln(os.Stderr, "hikyo upgrade:", err)
 				return 1
 			}
-			command := exec.CommandContext(ctx, handoff.Executable, handoff.Arguments...)
+			diagnostics.Printf(ctx, 1, "handing upgrade to verified candidate")
+			command := exec.CommandContext(ctx, handoff.Executable, cli.WithVerbosityArguments(handoff.Arguments, diagnostics.Level(ctx))...)
 			command.Stdin, command.Stdout, command.Stderr = os.Stdin, os.Stdout, os.Stderr
 			command.Env = []string{"PATH=/usr/bin:/bin", "LANG=C.UTF-8"}
 			err = command.Run()
@@ -508,7 +524,8 @@ func runUpgradeOperator(ctx context.Context, args []string) int {
 
 func usage(w io.Writer) {
 	fmt.Fprint(w, usageText)
-	fmt.Fprintf(w, "client verbs (hikyo help client prints the full reference):\n%s\n", wrapWords(cli.Verbs, 2, 78))
+	fmt.Fprint(w, cli.VerbosityHelp())
+	fmt.Fprintf(w, "\nclient verbs (hikyo help client prints the full reference):\n%s\n", wrapWords(cli.Verbs, 2, 78))
 }
 
 // usageText is the multicall help. cmd/hikyo's TestUsage keeps it aligned
