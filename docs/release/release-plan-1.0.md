@@ -21,8 +21,8 @@ criterion's status; this plan only sequences the remaining work.
   activation under the online-custody exception in
   `release/trust/BOOTSTRAP.md`, not by the offline ceremony in
   `signing.md`. Step 10 below decides what to do with that.
-- Six GitHub security advisories are still drafts while their fixes have been
-  public on `main` since the fork merge on 2026-09-05. Step 9 closes that gap.
+- The six GitHub security advisories for the 2026-09-05 fork merge are
+  published (2026-09-08); CVE assignment is pending with GitHub.
 - Since the last acceptance refresh (main `549726d9`), 28 further PRs merged
   (upgrade lane, self-configuration, privacy controls, UI audit follow-ups).
   The candidate that gets tagged must be re-accepted at its own commit;
@@ -60,12 +60,14 @@ criterion's status; this plan only sequences the remaining work.
 
 ## Phase C: owner-only steps before the tag
 
-9. **Publish the six draft advisories.** GHSA-8h6m-jpwj-v83p,
-   GHSA-2qjg-h73x-x9j4, GHSA-xv87-mmx6-hw25, GHSA-hqjh-jg7p-qr2m,
-   GHSA-wxjf-x869-pfh4, GHSA-p29g-pjgc-jqmv. Their remediation is on `main`
-   and in every nightly since 2026-09-05; the advisories should name the
-   first nightly (or 1.0.0) as the fixed version. Do this before 1.0 so the
-   release notes can reference them.
+9. **Publish the six draft advisories.** Done 2026-09-08 07:39 UTC on the
+   owner's instruction: GHSA-8h6m-jpwj-v83p, GHSA-2qjg-h73x-x9j4,
+   GHSA-xv87-mmx6-hw25, GHSA-hqjh-jg7p-qr2m, GHSA-wxjf-x869-pfh4 and
+   GHSA-p29g-pjgc-jqmv are published with affected range
+   `<= 0.0.1-nightly.20260905.23.g907e2f41` and patched version
+   `0.0.1-nightly.20260906.24.g90b4ca6a` (the first nightly containing fix
+   commit `3700a0ef`). CVE IDs were requested for all six; GitHub assigns
+   them asynchronously. The 1.0.0 release notes should list them.
 10. **Decide the signing root custody (Q5 in the decision log).**
     Options: (a) accept the existing `recovery-1` / `primary-1` root, generated
     online under the documented exception, for 1.0; (b) run the offline
