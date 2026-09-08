@@ -7,11 +7,10 @@ on:
       - "!v*-nightly.*"
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: stable-release
   cancel-in-progress: false
 
 env:
@@ -44,8 +43,12 @@ jobs:
           PUBLIC_POSTHOG_PROJECT_TOKEN: ${{ vars.PUBLIC_POSTHOG_PROJECT_TOKEN }}
         run: ./scripts/ci/verify-docs.sh
 
-  build-unsigned-draft:
+  build-signed-draft:
     needs: [docs, floor-bench]
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
     runs-on: ubuntu-latest
     services:
       release-schema:
@@ -98,6 +101,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ./scripts/release/check-tag.sh "$REPOSITORY" "$TAG" "$TAG_SHA"
+          ./scripts/release/require-signed-tag.sh "$REPOSITORY" "$TAG" "$TAG_SHA"
+          test "$(git rev-parse HEAD)" = "$TAG_SHA"
           HIKYO_ALLOW_IMMUTABLE_TAG_PROBE=YES \
             ./scripts/release/probe-tag-move.sh "$REPOSITORY" v-ruleset-probe "$TAG_SHA"
           image=$(printf 'ghcr.io/%s' "$REPOSITORY" | tr '[:upper:]' '[:lower:]')
@@ -108,26 +113,15 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
           COMMIT: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
         run: |
-          test -f release/trust/root.json
-          test -f release/trust/metadata.json
-          test -f release/trust/metadata.sigstore.json
-          recovery=$(jq -r '.recovery.public_key' release/trust/root.json)
-          test -f "release/trust/$recovery"
-          recovery_sha=$(jq -r '.recovery.sha256' release/trust/root.json)
-          actual_sha=$(sha256sum "release/trust/$recovery" | awk '{print $1}')
-          test "$actual_sha" = "$recovery_sha"
-          cosign verify-blob --insecure-ignore-tlog \
-            --key "release/trust/$recovery" \
-            --bundle release/trust/metadata.sigstore.json \
-            release/trust/metadata.json
-          jq -r '.primary_keys[].public_key' release/trust/metadata.json | while IFS= read -r key; do
-            test -f "release/trust/$key"
-          done
+          go run ./scripts/release/stable preflight --trust release/trust
+          ./scripts/release/require-synced-trust.sh "$REPOSITORY" release/trust/metadata.json
           version=${TAG#v}
           candidate="$RUNNER_TEMP/release-candidate.json"
-          ./scripts/release/resolve-candidate.sh \
-            release/trust/metadata.json "$version" "$COMMIT" pending >"$candidate"
+          go run ./scripts/release/stable candidate --trust release/trust \
+            --version "$version" --commit "$COMMIT" --out "$candidate"
           candidate_sha256=$(sha256sum "$candidate" | awk '{print $1}')
           resolved_version=$(jq -r '.version' "$candidate")
           resolved_commit=$(jq -r '.commit' "$candidate")
@@ -306,19 +300,24 @@ jobs:
           version=$(jq -r '.version' "$CANDIDATE")
           chart_dir="$RUNNER_TEMP/hikyo-chart"
           cp -R chart/hikyo "$chart_dir"
-          active_key=$(jq -r '.public_key' "$CANDIDATE")
           cp release/trust/root.json "$chart_dir/files/release/trust/root.json"
-          cp "release/trust/$active_key" "$chart_dir/files/release/trust/primary.pub"
+          cp release/trust/stable-policy.json release/trust/stable-policy.sigstore.json \
+            "$chart_dir/files/release/trust/"
+          sed -i 's/mode: keyed/mode: keyless/' "$chart_dir/values.yaml"
           sed -i "s|repository: ghcr.io/hikyo-org/hikyo|repository: $IMAGE|" "$chart_dir/values.yaml"
           sed -i "s|sha256:RELEASE_IMAGE_DIGEST|$IMAGE_DIGEST|" "$chart_dir/values.yaml"
           grep -Fx "  repository: $IMAGE" "$chart_dir/values.yaml"
           grep -Fx "  digest: $IMAGE_DIGEST" "$chart_dir/values.yaml"
           helm lint "$chart_dir" --set database.existingSecret=hikyo-database \
             --set rootKey.existingSecret=hikyo-root-key \
+            --set upgrade.existingClaim=hikyo-upgrade-bundle \
+            --set upgrade.stateExistingClaim=hikyo-upgrade-state \
             --set externalOrigin=https://hikyo.example.com \
             --set 'network.trustedProxyCIDRs={10.42.0.0/16}'
           helm template fixture "$chart_dir" --set database.existingSecret=hikyo-database \
             --set rootKey.existingSecret=hikyo-root-key \
+            --set upgrade.existingClaim=hikyo-upgrade-bundle \
+            --set upgrade.stateExistingClaim=hikyo-upgrade-state \
             --set externalOrigin=https://hikyo.example.com \
             --set 'network.trustedProxyCIDRs={10.42.0.0/16}' >/dev/null
           helm package "$chart_dir" --version "$version" --app-version "$version" --destination dist
@@ -330,7 +329,7 @@ jobs:
           printf '%s\n' "$chart_digest" | grep -Eq '^sha256:[0-9a-f]{64}$'
           printf 'chart=%s\nchart_digest=%s\n' "$chart" "$chart_digest" >>"$GITHUB_OUTPUT"
 
-      - name: Prepare offline OCI signing payloads
+      - name: Prepare OCI signing payloads
         env:
           IMAGE: ${{ steps.identity.outputs.image }}
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
@@ -340,6 +339,20 @@ jobs:
           cosign generate "$IMAGE@$IMAGE_DIGEST" >dist/image-index.oci-payload.json
           cosign generate "$CHART@$CHART_DIGEST" >dist/chart-index.oci-payload.json
 
+      - name: Build installer verifiers from the same source
+        run: |
+          for goos in linux darwin windows; do
+            for goarch in amd64 arm64; do
+              case "$goos" in linux) platform=Linux ;; darwin) platform=Darwin ;; windows) platform=Windows ;; esac
+              arch=$goarch
+              if [ "$goarch" = amd64 ]; then arch=x86_64; fi
+              suffix=
+              if [ "$goos" = windows ]; then suffix=.exe; fi
+              CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -trimpath \
+                -o "dist/hikyo-release-verifier_${platform}_${arch}${suffix}" ./scripts/release/stable
+            done
+          done
+
       - name: Render installer with pinned trust root
         env:
           CANDIDATE: ${{ steps.candidate.outputs.path }}
@@ -348,7 +361,7 @@ jobs:
           ./scripts/release/check-candidate.sh "$CANDIDATE" "$CANDIDATE_SHA256"
           version=$(jq -r '.version' "$CANDIDATE")
           ./scripts/release/render-installer.sh "$version" \
-            release/trust/root.json scripts/release/verify-bundle.sh dist/install.sh
+            release/trust/root.json scripts/release/verify-bundle.sh dist/install.sh dist
 
       - name: Build release manifest
         env:
@@ -365,11 +378,26 @@ jobs:
           cp "$CANDIDATE" dist/release-candidate.json
           test "$(sha256sum "$COMPATIBILITY" | awk '{print $1}')" = "$COMPATIBILITY_SHA256"
           cp "$COMPATIBILITY" dist/upgrade-compatibility.json
+          cp release/trust/stable-policy.json release/trust/stable-policy.sigstore.json \
+            release/trust/stable-trusted-root.json dist/
+          printf '%s\n' "$IMAGE_DIGEST" >dist/image-index.digest
+          printf '%s\n' "$CHART_DIGEST" >dist/chart-index.digest
+          ./scripts/release/create-build-provenance.sh dist dist/release-candidate.json
           ./scripts/release/create-manifest.sh dist/release-candidate.json \
             "$IMAGE" "$IMAGE_DIGEST" "$CHART" "$CHART_DIGEST" \
             dist
 
-      - name: Create unsigned draft release
+      - name: Sign draft and provenance with the tag workflow identity
+        run: |
+          draft="$RUNNER_TEMP/stable-draft"
+          mkdir "$draft"
+          cp dist/release-manifest.json "$draft/"
+          while IFS= read -r name; do
+            cp "dist/$name" "$draft/$name"
+          done < <(jq -r '.artifacts[].name' dist/release-manifest.json)
+          ./scripts/release/sign-stable-draft.sh release/trust "$draft"
+
+      - name: Stage signed draft for human review
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
@@ -379,9 +407,16 @@ jobs:
             prerelease=(--prerelease)
           fi
           gh release create "$TAG" --verify-tag --draft "${prerelease[@]}" \
-            --title "$TAG" --notes "Unsigned draft. Publish only after the offline signing ceremony."
-          assets=(dist/release-manifest.json)
-          while IFS= read -r name; do
-            assets+=("dist/$name")
-          done < <(jq -r '.artifacts[].name' dist/release-manifest.json)
-          gh release upload "$TAG" "${assets[@]}"
+            --title "$TAG" --notes "Signed draft. Review version, source commit, provenance and manifest SHA-256 before publishing from the local online ceremony."
+          gh release upload "$TAG" "$RUNNER_TEMP/stable-draft/"*
+          downloaded="$RUNNER_TEMP/staged-release"
+          mkdir "$downloaded"
+          gh release download "$TAG" --dir "$downloaded"
+          go run ./scripts/release/stable verify --trust release/trust --directory "$downloaded" \
+            --version "${TAG#v}" --commit "$GITHUB_SHA" --published
+          {
+            printf '### Signed draft awaiting publication\n\n'
+            printf 'Tag: %s\n\nCommit: %s\n\n' "$TAG" "$GITHUB_SHA"
+            printf 'Review manifest SHA-256: %s\n' "$(sha256sum "$downloaded/release-manifest.json" | awk '{print $1}')"
+            printf 'Use the local online ceremony publish command from current clean main with this version and digest after review.\n'
+          } >>"$GITHUB_STEP_SUMMARY"

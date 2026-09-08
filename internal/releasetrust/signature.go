@@ -14,6 +14,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/Hikyo-Org/hikyo/internal/definitions"
@@ -43,6 +44,13 @@ func decodeDocument(raw []byte, value any) error {
 // pinned public key. This does not authorize a release, route or migration;
 // the corresponding closed schema and trust-policy checks remain mandatory.
 func VerifyKeySignature(publicKeyPEM, bundleRaw, payload []byte) error {
+	return VerifyKeySignatureReader(publicKeyPEM, bundleRaw, bytes.NewReader(payload))
+}
+
+func VerifyKeySignatureReader(publicKeyPEM, bundleRaw []byte, payload io.Reader) error {
+	if payload == nil {
+		return errors.New("missing signature payload")
+	}
 	var bundle LegacyBundle
 	if err := decodeDocument(bundleRaw, &bundle); err != nil || bundle.Base64Signature == "" {
 		return errors.New("invalid key-based Cosign bundle")
@@ -59,7 +67,7 @@ func VerifyKeySignature(publicKeyPEM, bundleRaw, payload []byte) error {
 	if err != nil {
 		return fmt.Errorf("load maintained signature verifier: %w", err)
 	}
-	if err := verifier.VerifySignature(bytes.NewReader(sig), bytes.NewReader(payload)); err != nil {
+	if err := verifier.VerifySignature(bytes.NewReader(sig), payload); err != nil {
 		return fmt.Errorf("signature verification failed: %w", err)
 	}
 	return nil

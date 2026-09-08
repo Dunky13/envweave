@@ -210,7 +210,7 @@ jobs:
       - name: Changed-path classifier fixture
         run: ./scripts/ci/classify-changed-paths_test.sh
       - name: CI job registry and workflow bijection fixture
-        run: go test -count=1 ./scripts/ci -run '^(TestCIJobRegistry|TestReleaseFloorBench)'
+        run: go test -count=1 ./scripts/ci -run '^(TestCIJobRegistry|TestReleaseFloorBench|TestStableSigningAndPublication)'
       - name: Chart check fixture
         run: ./scripts/ci/check-chart_test.sh
       - name: Trusted CI scripts fixture
@@ -231,6 +231,12 @@ jobs:
         run: ./scripts/release/probe-tag-move_test.sh
       - name: Release-tag guard fixture
         run: ./scripts/release/check-tag_test.sh
+      - name: Stable signing and reviewed publication fixture
+        run: ./scripts/release/stable-workflow_test.sh
+      - name: Online stable ceremony refusal and retry fixture
+        run: ./scripts/release/stable-ceremony_test.sh
+      - name: Stable installer verifier routing fixture
+        run: ./scripts/release/verify-bundle-stable_test.sh
       - name: Nightly release fixture
         run: ./scripts/ci/check-nightly-release_test.sh
       - name: OCI version guard fixture

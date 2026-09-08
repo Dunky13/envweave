@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/Hikyo-Org/hikyo/internal/definitions"
 	"github.com/Hikyo-Org/hikyo/internal/releaseidentity"
 	"github.com/Hikyo-Org/hikyo/internal/releasetrust"
 )
@@ -37,7 +38,22 @@ func (r *documentReader) release(snapshot releasetrust.Snapshot, entry ReleaseEn
 		if err != nil {
 			return releasetrust.VerifiedRelease{}, nil, err
 		}
-		release, err = releasetrust.VerifyStable(snapshot, releasetrust.StableMaterial{Manifest: manifest, ManifestSignature: signature, Candidate: candidate, Compatibility: compatibility})
+		var provenance, provenanceSignature []byte
+		var claim releasetrust.Manifest
+		if err := definitions.DecodeStrict(manifest, &claim); err != nil {
+			return releasetrust.VerifiedRelease{}, nil, err
+		}
+		if claim.SigningKeyID == releasetrust.StableWorkflowSigner {
+			provenance, err = r.read(dir + "build-provenance.json")
+			if err != nil {
+				return releasetrust.VerifiedRelease{}, nil, err
+			}
+			provenanceSignature, err = r.read(dir + "build-provenance.json.sigstore.json")
+			if err != nil {
+				return releasetrust.VerifiedRelease{}, nil, err
+			}
+		}
+		release, err = releasetrust.VerifyStable(snapshot, releasetrust.StableMaterial{Manifest: manifest, ManifestSignature: signature, Candidate: candidate, Compatibility: compatibility, Provenance: provenance, ProvenanceSignature: provenanceSignature})
 		if err != nil {
 			return releasetrust.VerifiedRelease{}, nil, fmt.Errorf("authenticate offline stable release: %w", err)
 		}

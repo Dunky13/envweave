@@ -49,7 +49,13 @@ func Assemble(ctx context.Context, o Options) error {
 		return errors.New("require snapshot, keys, output and releases with bounded inventories")
 	}
 	pinned, floor := o.Pinned, o.Floor
-	snapshotFiles, err := readExact(o.SnapshotDirectory, []string{"metadata.json", "metadata.sigstore.json", "catalog.json", "catalog.sigstore.json"})
+	snapshotNames := []string{"metadata.json", "metadata.sigstore.json", "catalog.json", "catalog.sigstore.json"}
+	if _, err := os.Lstat(filepath.Join(o.SnapshotDirectory, "stable-policy.json")); err == nil {
+		snapshotNames = append(snapshotNames, "stable-policy.json", "stable-policy.sigstore.json", "stable-trusted-root.json")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	snapshotFiles, err := readExact(o.SnapshotDirectory, snapshotNames)
 	if err != nil {
 		return err
 	}
@@ -78,7 +84,7 @@ func Assemble(ctx context.Context, o Options) error {
 	for _, key := range metadata.PrimaryKeys {
 		keys[key.ID] = keyFiles[key.PublicKey]
 	}
-	material := releasetrust.SnapshotMaterial{Metadata: snapshotFiles["metadata.json"], MetadataSignature: snapshotFiles["metadata.sigstore.json"], Catalog: snapshotFiles["catalog.json"], CatalogSignature: snapshotFiles["catalog.sigstore.json"], PrimaryKeys: keys, NightlyPolicy: o.NightlyPolicy}
+	material := releasetrust.SnapshotMaterial{Metadata: snapshotFiles["metadata.json"], MetadataSignature: snapshotFiles["metadata.sigstore.json"], Catalog: snapshotFiles["catalog.json"], CatalogSignature: snapshotFiles["catalog.sigstore.json"], PrimaryKeys: keys, NightlyPolicy: o.NightlyPolicy, StablePolicy: snapshotFiles["stable-policy.json"], StablePolicySignature: snapshotFiles["stable-policy.sigstore.json"], StableTrustedRoot: snapshotFiles["stable-trusted-root.json"]}
 	snapshot, err := releasetrust.VerifySnapshot(pinned, material, floor)
 	if err != nil {
 		return fmt.Errorf("authenticate trust snapshot: %w", err)

@@ -159,6 +159,14 @@ func decimalID(value string) bool {
 }
 
 func verifyNightlyEnvelope(policy NightlyPolicy, trustedRoot, rawBundle, artifact []byte, commit string) error {
+	return verifyWorkflowEnvelope(policy, trustedRoot, rawBundle, artifact, commit, policy.ProtectedRef)
+}
+
+func verifyWorkflowEnvelope(policy NightlyPolicy, trustedRoot, rawBundle, artifact []byte, commit, ref string) error {
+	return verifyWorkflowEnvelopeReader(policy, trustedRoot, rawBundle, bytes.NewReader(artifact), commit, ref)
+}
+
+func verifyWorkflowEnvelopeReader(policy NightlyPolicy, trustedRoot, rawBundle []byte, artifact io.Reader, commit, ref string) error {
 	if len(rawBundle) == 0 || len(rawBundle) > MaxDocumentBytes {
 		return errors.New("complete offline nightly Sigstore bundle required")
 	}
@@ -182,7 +190,7 @@ func verifyNightlyEnvelope(policy NightlyPolicy, trustedRoot, rawBundle, artifac
 	if len(entries) != 1 || entries[0].GetIntegratedTime() <= 0 || len(entries[0].GetInclusionPromise().GetSignedEntryTimestamp()) == 0 || entries[0].GetInclusionProof().GetCheckpoint().GetEnvelope() == "" {
 		return errors.New("nightly requires same-entry signed integrated time and inclusion proof/checkpoint")
 	}
-	workflowURI := policy.RepositoryURI + "/" + policy.WorkflowPath + "@" + policy.ProtectedRef
+	workflowURI := policy.RepositoryURI + "/" + policy.WorkflowPath + "@" + ref
 	proof := entries[0].GetInclusionProof()
 	var checkpoint util.SignedCheckpoint
 	if err := checkpoint.UnmarshalText([]byte(proof.GetCheckpoint().GetEnvelope())); err != nil {
@@ -205,7 +213,7 @@ func verifyNightlyEnvelope(policy NightlyPolicy, trustedRoot, rawBundle, artifac
 	}
 	identity, err := verify.NewCertificateIdentity(san, issuer, certificate.Extensions{
 		BuildSignerURI: workflowURI, BuildSignerDigest: commit, RunnerEnvironment: policy.RunnerEnvironment,
-		SourceRepositoryURI: policy.RepositoryURI, SourceRepositoryDigest: commit, SourceRepositoryRef: policy.ProtectedRef,
+		SourceRepositoryURI: policy.RepositoryURI, SourceRepositoryDigest: commit, SourceRepositoryRef: ref,
 		SourceRepositoryIdentifier: policy.RepositoryID, SourceRepositoryOwnerURI: policy.RepositoryOwnerURI, SourceRepositoryOwnerIdentifier: policy.RepositoryOwnerID,
 		BuildConfigURI: workflowURI, BuildConfigDigest: commit,
 	})
@@ -220,6 +228,6 @@ func verifyNightlyEnvelope(policy NightlyPolicy, trustedRoot, rawBundle, artifac
 	if err != nil {
 		return err
 	}
-	_, err = verifier.Verify(&signed, verify.NewPolicy(verify.WithArtifact(bytes.NewReader(artifact)), verify.WithCertificateIdentity(identity)))
+	_, err = verifier.Verify(&signed, verify.NewPolicy(verify.WithArtifact(artifact), verify.WithCertificateIdentity(identity)))
 	return err
 }

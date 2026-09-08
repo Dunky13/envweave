@@ -42,6 +42,8 @@ type Primary struct {
 }
 
 type Metadata struct {
+	SourceCommit           string  `json:"source_commit,omitempty"`
+	ReleaseTag             string  `json:"release_tag,omitempty"`
 	Schema                 string  `json:"schema"`
 	Sequence               int64   `json:"sequence"`
 	HighestRelease         *string `json:"highest_release"`
@@ -114,7 +116,7 @@ func ValidateMetadata(root Root, metadata Metadata) error {
 	validEvents := map[string]bool{"bootstrap": true, "release-candidate": true, "release": true, "rotation": true, "revocation": true}
 	if metadata.Schema != "hikyo.dev/trust-metadata/v1" || metadata.Sequence < 1 ||
 		metadata.Recovery.ID != root.Recovery.ID || metadata.Recovery.SHA256 != root.Recovery.SHA256 ||
-		metadata.Event.SignedBy != root.Recovery.ID || !validEvents[metadata.Event.Type] || len(metadata.PrimaryKeys) == 0 ||
+		(metadata.Event.SignedBy != root.Recovery.ID && metadata.Event.SignedBy != StableWorkflowSigner) || !validEvents[metadata.Event.Type] || len(metadata.PrimaryKeys) == 0 ||
 		(metadata.HighestRelease == nil) != (metadata.HighestReleaseSequence == nil) {
 		return errors.New("selfupdate: current trust metadata is invalid")
 	}

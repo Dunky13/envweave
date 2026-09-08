@@ -6,6 +6,7 @@ version='@VERSION@'
 root_sha256='@ROOT_SHA256@'
 verifier_sha256='@VERIFIER_SHA256@'
 release_lib_sha256='@RELEASE_LIB_SHA256@'
+stable_verifiers='@STABLE_VERIFIERS@'
 base_url="https://github.com/$repository/releases/download/v$version"
 source_url="https://raw.githubusercontent.com/$repository/v$version"
 current_trust_url="https://raw.githubusercontent.com/$repository/refs/heads/main"
@@ -27,6 +28,16 @@ safe_name() {
 	case "$1" in
 		'' | */* | *..*) return 1 ;;
 		*) return 0 ;;
+	esac
+}
+
+safe_public_key_name() {
+	# Public keys share the trust directory with pinned bootstrap files. Never
+	# let unauthenticated metadata select an executable or JSON document path.
+	case "$1" in
+		'' | *[!A-Za-z0-9._-]* | *..*) return 1 ;;
+		*.pub) return 0 ;;
+		*) return 1 ;;
 	esac
 }
 
@@ -67,14 +78,35 @@ chmod +x "$scratch/scripts/release/verify-bundle.sh"
 
 download "$current_trust_url/release/trust/metadata.json" "$scratch/metadata.json"
 download "$current_trust_url/release/trust/metadata.sigstore.json" "$scratch/metadata.sigstore.json"
+if [ "$stable_verifiers" != '{}' ]; then
+	for trust_file in stable-policy.json stable-policy.sigstore.json stable-trusted-root.json catalog.json catalog.sigstore.json; do
+		download "$current_trust_url/release/trust/$trust_file" "$scratch/$trust_file"
+	done
+	platform="${os}_${arch}"
+	stable_verifier_sha=$(printf '%s' "$stable_verifiers" | jq -er --arg platform "$platform" '.[$platform] | select(test("^[0-9a-f]{64}$"))') \
+		|| fail 'missing pinned stable verifier for this platform'
+	download "$base_url/hikyo-release-verifier_$platform" "$scratch/stable-verifier"
+	[ "$(sha256_file "$scratch/stable-verifier")" = "$stable_verifier_sha" ] || fail 'pinned stable verifier hash mismatch'
+	chmod +x "$scratch/stable-verifier"
+	HIKYO_STABLE_VERIFIER="$scratch/stable-verifier"
+	export HIKYO_STABLE_VERIFIER
+fi
 jq -r '[.recovery.public_key, .bootstrap_primary.public_key] | unique[]' "$scratch/root.json" |
 while IFS= read -r key_name; do
-	safe_name "$key_name" || fail "unsafe public-key name $key_name"
+	safe_public_key_name "$key_name" || fail "unsafe public-key name $key_name"
 	download "$source_url/release/trust/$key_name" "$scratch/$key_name"
 done
+recovery_name=$(jq -er '.recovery.public_key' "$scratch/root.json")
+jq -e '.primary_keys as $keys | ($keys | type == "array" and length > 0 and length <= 256) and
+	([$keys[].public_key] | unique | length) == ($keys | length)' "$scratch/metadata.json" >/dev/null \
+	|| fail 'invalid or duplicate public-key inventory'
 jq -r '.primary_keys[].public_key' "$scratch/metadata.json" | sort -u |
 while IFS= read -r key_name; do
-	safe_name "$key_name" || fail "unsafe public-key name $key_name"
+	safe_public_key_name "$key_name" || fail "unsafe public-key name $key_name"
+	[ "$key_name" != "$recovery_name" ] || fail 'primary key cannot replace recovery key'
+	# Keep the bootstrap primary fetched from the pinned source. Its hash is
+	# checked by the verifier; metadata cannot overwrite those trusted bytes.
+	[ ! -e "$scratch/$key_name" ] || continue
 	download "$current_trust_url/release/trust/$key_name" "$scratch/$key_name"
 done
 
@@ -82,10 +114,17 @@ bundle="$scratch/bundle"
 mkdir -p "$bundle" "$state_dir"
 download "$base_url/release-manifest.json" "$bundle/release-manifest.json"
 download "$base_url/release-manifest.sigstore.json" "$bundle/release-manifest.sigstore.json"
+if [ "$stable_verifiers" != '{}' ]; then
+	for trust_file in metadata.json metadata.sigstore.json catalog.json catalog.sigstore.json; do
+		download "$base_url/$trust_file" "$bundle/$trust_file"
+	done
+fi
 jq -r '.artifacts[].name' "$bundle/release-manifest.json" | while IFS= read -r name; do
 	safe_name "$name" || fail "unsafe artifact name $name"
 	download "$base_url/$name" "$bundle/$name"
-	download "$base_url/$name.sigstore.json" "$bundle/$name.sigstore.json"
+	if [ "$stable_verifiers" = '{}' ] || { [ "$name" != stable-policy.json ] && [ "$name" != stable-policy.sigstore.json ]; }; then
+		download "$base_url/$name.sigstore.json" "$bundle/$name.sigstore.json"
+	fi
 done
 
 "$scratch/scripts/release/verify-bundle.sh" \

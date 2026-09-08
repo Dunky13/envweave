@@ -364,7 +364,7 @@ func TestReleaseFloorBenchBlocksArtifactConstruction(t *testing.T) {
 		t.Fatal("release must call the actual floor measurement workflow")
 	}
 	var needs []string
-	draft := release.Jobs["build-unsigned-draft"]
+	draft := release.Jobs["build-signed-draft"]
 	if err := draft.Needs.Decode(&needs); err != nil {
 		t.Fatal(err)
 	}
@@ -375,6 +375,6 @@ func TestReleaseFloorBenchBlocksArtifactConstruction(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatal("unsigned draft construction does not wait for the floor gate")
+		t.Fatal("signed draft construction does not wait for the floor gate")
 	}
 }

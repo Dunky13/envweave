@@ -3,6 +3,13 @@ set -eu
 
 script_dir=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
 repo_root=$(CDPATH='' cd -- "$script_dir/../.." && pwd)
+if [ "${HIKYO_CEREMONY_SOURCE_ONLY:-}" != true ]; then
+	case "${1:-}" in
+		--offline) shift ;;
+		--dry-run) ;; # Retained for explicit legacy ceremony fixture inspection.
+		*) exec "$script_dir/stable-ceremony.sh" "$@" ;;
+	esac
+fi
 # shellcheck disable=SC1091
 . "$script_dir/../lib/release.sh"
 
