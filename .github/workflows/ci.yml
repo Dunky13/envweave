@@ -128,10 +128,19 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # GitHub sets the PR actor from the authenticated opener; it cannot be
+          # spoofed by commit metadata. Only then do we exempt Dependabot's
+          # author identity from the sign-off requirement (it cannot produce a
+          # parseable trailer). Any other opener gets the full check, even for
+          # commits that forge Dependabot's git author header.
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
           trusted_dco="$RUNNER_TEMP/check-dco.sh"
           git show "$BASE_SHA:scripts/ci/check-dco.sh" >"$trusted_dco"
           chmod +x "$trusted_dco"
+          if [ "$PR_AUTHOR" = "dependabot[bot]" ]; then
+            export DCO_EXEMPT_AUTHOR='dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>'
+          fi
           "$trusted_dco" "$BASE_SHA" "$HEAD_SHA"
 
   supply-chain-checks:

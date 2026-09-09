@@ -20,15 +20,38 @@ base=$(git -C "$repo" merge-base "$base" "$head") \
 commits=$(git -C "$repo" rev-list --no-merges --reverse "$base..$head")
 [ -n "$commits" ] || { printf 'DCO check: empty commit range\n' >&2; exit 2; }
 
+# A single author identity may be exempted from the sign-off requirement via the
+# DCO_EXEMPT_AUTHOR env var. This exists for Dependabot, which cannot produce a
+# parseable Signed-off-by (its messages place the sign-off after the "---"
+# metadata separator, which git interpret-trailers treats as the end of the
+# trailer block) and for which the DCO — a human-contributor attestation — is
+# meaningless. The git author header is attacker-controlled, so this is NOT a
+# trust decision: the caller must set DCO_EXEMPT_AUTHOR only after verifying
+# non-spoofable provenance (the GitHub PR actor), and leave it empty otherwise.
+# Default-closed — an unset var exempts nobody.
+exempt_author=${DCO_EXEMPT_AUTHOR:-}
+
 failed=0
+signed=0
+exempt=0
 for commit in $commits; do
 	identity=$(git -C "$repo" show -s --format='%an <%ae>' "$commit")
+	if [ -n "$exempt_author" ] && [ "$identity" = "$exempt_author" ]; then
+		exempt=$((exempt + 1))
+		continue
+	fi
 	trailers=$(git -C "$repo" show -s --format='%B' "$commit" | git -C "$repo" interpret-trailers --parse)
 	if ! printf '%s\n' "$trailers" | grep -F -i -x "Signed-off-by: $identity" >/dev/null; then
 		printf 'DCO check: %s missing Signed-off-by: %s\n' "$commit" "$identity" >&2
 		failed=1
+	else
+		signed=$((signed + 1))
 	fi
 done
 
 [ "$failed" -eq 0 ] || exit 1
-printf 'DCO check: %s commits signed\n' "$(printf '%s\n' "$commits" | wc -l | tr -d ' ')"
+if [ "$exempt" -gt 0 ]; then
+	printf 'DCO check: %s commits signed, %s exempt (%s)\n' "$signed" "$exempt" "$exempt_author"
+else
+	printf 'DCO check: %s commits signed\n' "$signed"
+fi
