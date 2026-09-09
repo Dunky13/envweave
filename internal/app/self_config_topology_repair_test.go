@@ -211,20 +211,21 @@ func TestSingletonHARestoreBootRetainsCoordinationThroughSourceRepair(t *testing
 			if err := wrong.owner.haCoord.UpsertNode(t.Context(), store.HANode{NodeID: cfg.NodeID, StartedAt: now, HeartbeatAt: now}); err == nil {
 				t.Fatal("restored-away template renewed heartbeat")
 			}
-			// A fresh independent limiter must observe the actual owner's consumption.
-			// A local-only repair graph would allow the extra request below.
-			_, peerLimiter, err := AuthComponents(graph.cfg)
-			if err != nil {
-				t.Fatal(err)
-			}
-			peerLimiter.UseShared(coordinator, testLogger())
+			// Observe the real owner's durable consumption across all minute windows.
+			// A local-only repair graph would leave no shared counter rows.
 			for range admission.MetaPerIPPerMinute {
 				if !graph.limiter.AllowDiscovery("192.0.2.87") {
 					t.Fatal("shared admission refused before its allowance")
 				}
 			}
-			if peerLimiter.AllowDiscovery("192.0.2.87") {
-				t.Fatal("repaired owner did not retain shared admission")
+			var hits int64
+			if err := restored.db.PG().QueryRow(t.Context(),
+				`SELECT COALESCE(SUM(hits), 0) FROM admission_counters WHERE bucket = $1 AND subject = $2`,
+				"meta", "192.0.2.87").Scan(&hits); err != nil {
+				t.Fatal(err)
+			}
+			if hits != admission.MetaPerIPPerMinute {
+				t.Fatalf("repaired owner shared admission hits = %d, want %d", hits, admission.MetaPerIPPerMinute)
 			}
 		})
 	}
