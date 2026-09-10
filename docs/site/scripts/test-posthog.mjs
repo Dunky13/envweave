@@ -6,15 +6,24 @@ import { fileURLToPath } from 'node:url';
 const dist = resolve(fileURLToPath(new URL('../dist/', import.meta.url)));
 const landingPage = await readFile(resolve(dist, 'index.html'), 'utf8');
 const docsPage = await readFile(resolve(dist, 'docs/index.html'), 'utf8');
-const postHogBuilt = /\/static\/array\.js/.test(landingPage);
+// The bootstrap now ships as a hoisted, minified module, so `data-posthog-host`
+// on the rendered consent element (never emitted on disabled builds) is the
+// authoritative "analytics is on" signal. The scoped consent stylesheet inlines
+// even when the component is not rendered, so a bare `data-posthog-consent`
+// substring is not a reliable gate.
+const postHogBuilt = /data-posthog-host=/.test(landingPage);
 
 if (!postHogBuilt) {
   assert.notEqual(process.env.POSTHOG_REQUIRED, 'true', 'required PostHog build omitted analytics');
-  assert.doesNotMatch(docsPage, /\/static\/array\.js/, 'documentation analytics differs from landing page');
-  assert.doesNotMatch(landingPage, /data-posthog-consent/, 'disabled analytics rendered consent controls');
+  assert.doesNotMatch(landingPage, /\/static\/array\.js/, 'disabled analytics still ships the PostHog bootstrap');
+  assert.doesNotMatch(docsPage, /data-posthog-host=/, 'documentation analytics differs from landing page');
   console.log('PostHog gate: analytics disabled because deploy configuration is not required');
   process.exit(0);
 }
+
+// Minification rewrites `true`/`false` to `!0`/`!1`, so accept either form.
+const enabled = (key) => new RegExp(`${key}:\\s*(?:true|!0)\\b`);
+const disabled = (key) => new RegExp(`${key}:\\s*(?:false|!1)\\b`);
 
 assert.match(landingPage, /\/static\/array\.js/, 'landing page does not initialize PostHog');
 assert.match(docsPage, /\/static\/array\.js/, 'documentation pages do not initialize PostHog');
@@ -26,14 +35,14 @@ assert.match(
 );
 assert.doesNotMatch(landingPage, /your_posthog_project_token_here/, 'PostHog token is still a placeholder');
 for (const page of [landingPage, docsPage]) {
-  assert.match(page, /data-posthog-consent/, 'analytics consent control is missing');
+  assert.match(page, /data-posthog-host=/, 'analytics consent control is missing');
   assert.match(page, /Only this choice is saved/, 'consent persistence disclosure is missing');
-  assert.match(page, /disable_persistence:\s*true/, 'browser persistence is not disabled');
-  assert.match(page, /autocapture:\s*false/, 'autocapture is not disabled');
-  assert.match(page, /disable_session_recording:\s*true/, 'session recording is not disabled');
-  assert.match(page, /disable_surveys:\s*true/, 'surveys are not disabled');
-  assert.match(page, /advanced_disable_flags:\s*true/, 'remote config and feature flags are not disabled');
-  assert.match(page, /capture_exceptions:\s*false/, 'exception capture is not disabled');
+  assert.match(page, enabled('disable_persistence'), 'browser persistence is not disabled');
+  assert.match(page, disabled('autocapture'), 'autocapture is not disabled');
+  assert.match(page, enabled('disable_session_recording'), 'session recording is not disabled');
+  assert.match(page, enabled('disable_surveys'), 'surveys are not disabled');
+  assert.match(page, enabled('advanced_disable_flags'), 'remote config and feature flags are not disabled');
+  assert.match(page, disabled('capture_exceptions'), 'exception capture is not disabled');
 }
 
 console.log('PostHog gate: bootstrap and landing-page conversion events passed');
