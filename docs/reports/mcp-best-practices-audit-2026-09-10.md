@@ -50,31 +50,31 @@ is fixed by the locked mcp-server ADR.
 | Practice | Source | Bucket | Evidence |
 | --- | --- | --- | --- |
 | Single POST endpoint; GET and DELETE return 405 with `Allow: POST` | S1 `#earlier-streamable-http-revisions` SHOULD | Met | `handler.go:157` delegates non-POST to the stateless SDK; `handler_test.go:260` asserts status and `Allow` |
-| `Origin` validated, 403 on invalid | S1 `#security--endpoint` MUST | Met, exceeds | SDK v1.7.0 performs no Origin check by default (S18). Hikyo checks first: `handler.go:153` and `validOrigin` at `handler.go:461`; exact allowlist, `null` and `*` refused at construction `handler.go:107`; `handler_test.go:272`, `:343` |
-| Host validated against configured authority, not learned from request | S18 (DNS rebinding, GHSA-xw59-hvm2-8pj6) | Met, exceeds | `validHost` at `handler.go:445` compares to `HIKYO_EXTERNAL_ORIGIN`; trusted-proxy forwarded authority must be single and exact; `handler_test.go:297`. SDK loopback protection left enabled |
+| `Origin` validated, 403 on invalid | S1 `#security--endpoint` MUST | Met, exceeds | SDK v1.7.0 performs no Origin check by default (S18). Hikyo checks first: `handler.go:153` and `validOrigin` at `handler.go:472`; exact allowlist, `null` and `*` refused at construction `handler.go:107`; `handler_test.go:272`, `:343` |
+| Host validated against configured authority, not learned from request | S18 (DNS rebinding, GHSA-xw59-hvm2-8pj6) | Met, exceeds | `validHost` at `handler.go:456` compares to `HIKYO_EXTERNAL_ORIGIN`; trusted-proxy forwarded authority must be single and exact; `handler_test.go:297`. SDK loopback protection left enabled |
 | `MCP-Protocol-Version` header required; mismatch with `_meta` is 400 and -32020 | S1 `#protocol-version-header`, `#server-validation` MUST | Met | `handler.go:188`; probe confirmed a header-less request gets 400 -32020; `handler_test.go:357`. Stricter than the SDK default, which accepts a header-less request as 2025-03-26 |
-| Unsupported version is 400 and -32022 with `supported` list | S1, S6 MUST | Met | `handler.go:217` and `:223`; `handler_test.go:558` sends `2025-11-25` |
+| Unsupported version is 400 and -32022 with `supported` list | S1, S6 MUST | Met | `handler.go:220` and `:226`; `handler_test.go:558` sends `2025-11-25` |
 | `Mcp-Method` and `Mcp-Name` required and must match body | S1 `#standard-request-headers` REQUIRED | Met | `handler.go:194`; `handler_test.go:357` |
 | `=?base64?...?=` sentinel decoded before header comparison | S1 `#server-validation` MUST | Met (finding B, fixed) | `decodeHeaderSentinel` in `handler.go` decodes `Mcp-Name` and writes the decoded value back so the SDK validator (which does not decode `Mcp-Name`, `streamable_headers.go:380`) sees it; `handler_test.go` `TestBase64SentinelMcpNameIsDecodedBeforeComparison`. See finding B |
 | `Mcp-Param-*` headers with invalid characters rejected | S1 `#server-behavior-for-custom-headers` MUST | Met | No tool marks `x-mcp-header`, so no param headers are expected; the SDK validator rejects malformed ones after Hikyo's checks pass |
 | No `x-mcp-header` on sensitive parameters | S7 `#x-mcp-header` SHOULD NOT | Met | Not used anywhere in `tools.go` |
-| Unknown method is 404 and -32601 | S1 MUST | Met | `handler.go:230`; `handler_test.go:558` |
-| Notification returns 202 with no body; a malformed notification returns an HTTP error | S1 `#sending-messages` MUST | Met | `serveValidatedStaticNotification` at `handler.go:279`; `handler_test.go:525`. A `tools/call` without an id is refused with 400 before the bearer is read, so missing and presented bearers are identical there too (`TestToolCallNotificationIsRefusedBeforeBearerHandling`) |
-| No `Mcp-Session-Id` minted, echoed, or accepted | S1 SHOULD, S12 (SEP-2567) | Met, exceeds | `Stateless: true`; presented session id refused at `handler.go:234`; `handler_test.go:160`, `:679` |
+| Unknown method is 404 and -32601 | S1 MUST | Met | `handler.go:233`; `handler_test.go:558` |
+| Notification returns 202 with no body; a malformed notification returns an HTTP error | S1 `#sending-messages` MUST | Met | `serveValidatedStaticNotification` at `handler.go:290`; `handler_test.go:525`. A `tools/call` without an id is refused with 400 before the bearer is read, so missing and presented bearers are identical there too (`TestToolCallNotificationIsRefusedBeforeBearerHandling`) |
+| No `Mcp-Session-Id` minted, echoed, or accepted | S1 SHOULD, S12 (SEP-2567) | Met, exceeds | `Stateless: true`; presented session id refused at `handler.go:237`; `handler_test.go:160`, `:679` |
 | `Content-Type` and `Accept` enforced | S1 MUST | Met | `handler.go:161` then SDK 415 and 400 paths |
 | Request body bounded | S18 | Met | 256 KiB at `handler.go:26`, enforced at `handler.go:166` before parsing and again via SDK `MaxRequestBodyBytes` |
-| Client disconnect cancels work | S1 `#cancellation` SHOULD | Met | `PropagateRequestCancellation: true` at `handler.go:128`; 30 s deadline at `handler.go:270`; `handler_test.go:636` proves cancellation reaches the operation |
+| Client disconnect cancels work | S1 `#cancellation` SHOULD | Met | `PropagateRequestCancellation: true` at `handler.go:128`; 30 s deadline at `handler.go:281`; `handler_test.go:636` proves cancellation reaches the operation |
 | TLS in front; plain HTTP only for loopback in dev mode | S4 `#communication-security`, S26 | Met | ADR Decision section; `deploy/mcp/nginx.conf`; `scripts/ci/check-mcp-deployment.sh` |
-| JSON messages are UTF-8, one message per POST, no batches | S2 | Met | `decodeOne` at `handler.go:413` rejects trailing values; batch arrays fail envelope decode |
+| JSON messages are UTF-8, one message per POST, no batches | S2 | Met | `decodeOne` at `handler.go:424` rejects trailing values; batch arrays fail envelope decode |
 
 ### Authorization (S3, S4, S13, S19)
 
 | Practice | Source | Bucket | Evidence |
 | --- | --- | --- | --- |
-| Token only in `Authorization: Bearer`; never query string, cookie, or body | S3 `#token-requirements` MUST | Met | `parseBearer` at `handler.go:393` is the only source; exactly one header; 4 KiB bound; `handler_test.go:473` |
+| Token only in `Authorization: Bearer`; never query string, cookie, or body | S3 `#token-requirements` MUST | Met | `parseBearer` at `handler.go:404` is the only source; exactly one header; 4 KiB bound; `handler_test.go:473` |
 | Only tokens issued for this server are accepted; no passthrough or transit | S3 `#token-handling`, S4, S13 `#token-passthrough` MUST | Met | Only `hikyo-token` service-account artifacts resolve; no outbound calls; `registry_test.go:116` proves no store, SQL, or crypto import; `Bearer` type redacts on format `registry.go:53`, `handler_test.go:695` |
 | Token verified on every request; revocation immediate | S3 MUST | Met, exceeds | No caching; each page re-resolves and re-authorizes in a fresh transaction (`mcp_admission.go:37` then the page service); `mcp_e2e_test.go:428` proves revoked token is refused on the next call |
-| Missing token is 401 with `WWW-Authenticate` | S3 `#error-handling` MUST | Met | `handler.go:265` |
+| Missing token is 401 with `WWW-Authenticate` | S3 `#error-handling` MUST | Met | `handler.go:276` |
 | Invalid or expired token is 401 | S3 `#token-handling` MUST when the OAuth framework is adopted; otherwise REST parity and client ergonomics | Met (finding A, fixed) | Uniform 401 via `markUnauthenticated` in `registry.go` and `writeUnauthorized` in `handler.go`; `handler_test.go` `TestUnauthenticatedBearerUsesUniformHTTP401`; `mcp_e2e_test.go` asserts invalid, missing, and revoked are byte-identical 401s |
 | Insufficient permission is 403 or an equivalent safe refusal | S3 `#error-handling` | Deliberate deviation | ADR "Threat-model controls": unauthorized is indistinguishable from nonexistent, so an ungranted principal receives the same safe tool error. A 403 would confirm scope existence. Accepted |
 | RFC 9728 protected-resource metadata and `resource_metadata` challenge | S3, S5 MUST when the OAuth framework is adopted | Deliberate deviation | Authorization is OPTIONAL (S3 `#protocol-requirements`); Hikyo uses its own bearer scheme, which S9 `#auth` permits. OAuth necessity is tracked in #631. `docs/site/.../mcp.mdx:14` tells operators that OAuth buttons will not work |
@@ -95,9 +95,9 @@ is fixed by the locked mcp-server ADR.
 | Serialized JSON mirrored into a `TextContent` block | S7 `#structured-content` SHOULD | Deliberate deviation | ADR "Pagination and output bounds": 4 KiB summary only, never a duplicate row set. Rationale is token economy and a single bound. Pre-SEP-2106 clients cannot recover data from text; all named clients in `mcp.mdx` read `structuredContent` |
 | Tool execution errors carry `isError: true` with actionable text; protocol errors use JSON-RPC codes; internals not leaked | S7 `#error-handling`, S28, S30 | Met | Named safe errors (`invalid_cursor`, `invalid_argument`, `traversal_limit_reached`, `result_item_too_large`) at `cursor.go:33`; everything else collapses to `Hikyo operation refused` at `registry.go:213`; `handler_test.go:595` |
 | Outputs sanitised: no secrets, env, tokens, paths | S7 MUST, S23 CVE-2026-67357, S24 | Met, exceeds | `mapConfiguration` at `tools.go:498` and `mapPending` keep plaintext only for `config` classification; canary secret fixture in `mcp_e2e_test.go:167`, `mcp_pagination_test.go:190`, `tools_test.go:284` |
-| Rate limiting on `tools/call` | S7 MUST, S21, S26 | Met, exceeds | Datastore-coordinated token bucket 60/min, burst 20, concurrency 4 per principal, 8 per org, 64 per instance (`mcp_admission.go:62`); uniform 429 with `Retry-After` (`handler.go:325`); per-IP admission on discovery (`handler.go:243`); `tools_test.go:245`, `handler_test.go:411`, `:615` |
+| Rate limiting on `tools/call` | S7 MUST, S21, S26 | Met, exceeds | Datastore-coordinated token bucket 60/min, burst 20, concurrency 4 per principal, 8 per org, 64 per instance (`mcp_admission.go:62`); uniform 429 with `Retry-After` (`handler.go:336`); per-IP admission on discovery (`handler.go:246`); `tools_test.go:245`, `handler_test.go:411`, `:615` |
 | Rate limiting charged only after authorization, so guessed ids cannot occupy tenant budgets | ADR, S21 | Met | `MCPAdmission.Acquire` authorizes before claiming capacity; `mcp_e2e_test.go:305` proves an unauthorized principal consumes zero buckets |
-| Pre-authentication flood on `tools/call` with a bogus bearer | S7, S21 | Met, parity with REST | Bounded by the 64 instance slots (`handler.go:257`), the 30 s deadline, and the global 512-request cap. Token lookup is a hash-verifier read, not a KDF (`machine.go:66`), so the cost per probe is one indexed read. REST applies its per-IP `Enter` limiter only to password and factor paths, so MCP matches the REST bearer path exactly |
+| Pre-authentication flood on `tools/call` with a bogus bearer | S7, S21 | Met, parity with REST | Bounded by the 64 instance slots (`handler.go:268`), the 30 s deadline, and the global 512-request cap. Token lookup is a hash-verifier read, not a KDF (`machine.go:66`), so the cost per probe is one indexed read. REST applies its per-IP `Enter` limiter only to password and factor paths, so MCP matches the REST bearer path exactly |
 | Cross-call handles are random, opaque, bound, expiring | S13 `#state-handle-hijacking`, S7 `#stateful-tools` | Met, exceeds | Cursors are AEAD-sealed under a keyring-derived key, bound to tool, scope ids, and page size, expire in 15 minutes without renewal, and carry no bearer or principal (`cursor.go:88`); `tools_test.go:193`, `:210`, `:223`, `cursor_test.go` |
 | Human in the loop is a client obligation; server keeps read-only tools genuinely read-only | S7 `#user-interaction-model` | Met | Registry refuses non-read operations at construction |
 | Untrusted tenant text in outputs stays typed data, never instructions | S25, S20 | Met | ADR "Secret and model-context boundary": descriptions and notes are structured fields, never concatenated into `instructions`; no `instructions` field is served |
@@ -115,8 +115,8 @@ is fixed by the locked mcp-server ADR.
 
 | Practice | Source | Bucket | Evidence |
 | --- | --- | --- | --- |
-| `server/discover` implemented with `supportedVersions` | S10 MUST | Met | `handler.go:344` forces the pinned list; `handler_test.go:160` |
-| Missing `_meta` fields produce 400 and -32602 | S9 `#_meta` MUST | Met | `handler.go:210` hands the SDK the schema check; `handler_test.go:396` |
+| `server/discover` implemented with `supportedVersions` | S10 MUST | Met | `handler.go:355` forces the pinned list; `handler_test.go:160` |
+| Missing `_meta` fields produce 400 and -32602 | S9 `#_meta` MUST | Met | `handler.go:213` hands the SDK the schema check; `handler_test.go:396` |
 | `resultType` and `serverInfo` in every result | S9 MUST and SHOULD | Met | Probe confirmed both on discover, list, and call |
 | No emission of -32002, -32042, or private codes outside the defined set | S9 `#error-codes` MUST NOT | Met | Hikyo emits only -32020, -32022, -32601; SDK v1.7.0 maps resource-not-found to -32602 by default |
 | JSON Schema 2020-12; no network `$ref`; bounded complexity | S9 | Met | Schemas are inferred from Go structs at boot and contain no `$ref` |
@@ -150,7 +150,7 @@ finding.
 ### A. Invalid or expired bearer returns 200 with a tool error instead of 401
 
 **What happens.** A `tools/call` with a missing bearer gets 401 with
-`WWW-Authenticate: Bearer` (`handler.go:265`). A `tools/call` with a present
+`WWW-Authenticate: Bearer` (`handler.go:276`). A `tools/call` with a present
 but invalid, expired, or revoked bearer reaches the service, fails
 `domain.ErrUnauthenticated` inside the transaction, and is collapsed to the
 tool-level `Hikyo operation refused` with HTTP 200 and `isError: true`
@@ -197,7 +197,7 @@ the probe has a negative test that rejects the old tool-error denial.
 - A2 (recommended): map `domain.ErrUnauthenticated` from the tool handler to a
   uniform 401 with `WWW-Authenticate: Bearer` and no body detail, using the
   same `callState` mechanism that already turns `ErrRateLimited` into a
-  uniform 429 (`handler.go:74`, `:325`). Revoked and invalid stay
+  uniform 429 (`handler.go:74`, `:336`). Revoked and invalid stay
   byte-identical, now both 401. Requires an ADR amendment sentence and updates
   to the two e2e assertions.
 
@@ -220,16 +220,19 @@ not a bypass.
 **Resolution (2026-09-10): B1 implemented.** `decodeHeaderSentinel` in
 `handler.go` mirrors the SDK's `decodeHeaderValue` rule and the decoded name is
 written back to the request header before the SDK validator runs. Upstream
-omission for `Mcp-Name` still to be filed against go-sdk.
+fixed the same omission in go-sdk #1242 (2026-09-06) and #1246 (2026-09-07),
+after v1.8.0-pre.2; no release carries it yet, so nothing needs filing. The
+adapter keeps its own decode because its mirror check runs before the SDK.
 
 **Options considered.**
 
 - B1 (recommended): decode the sentinel in `handler.go` before the `Mcp-Name`
   comparison, mirroring the SDK's `decodeHeaderValue` rule (strict base64,
   reject on decode failure), and add one test with an encoded name. Roughly
-  ten lines. File the `Mcp-Name` omission upstream against go-sdk.
+  ten lines.
 - B2: accept and track; revisit when go-sdk v1.8.0 stabilises and check
-  whether the upstream validator gained the decode.
+  whether the upstream validator gained the decode (it did, on `main`, in
+  #1242).
 
 ## Follow-ups that are not findings
 

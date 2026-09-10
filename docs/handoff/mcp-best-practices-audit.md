@@ -49,8 +49,10 @@ limits, and output sanitisation. Two findings, both fixed in this branch.
 
 ## Open items
 
-- File the `Mcp-Name` sentinel omission upstream against
-  `modelcontextprotocol/go-sdk` (v1.7.0 decodes only `Mcp-Param-*`).
+- The `Mcp-Name` sentinel omission is already fixed upstream on go-sdk
+  `main` (#1242, #1246, 2026-09-06/07) but is in no release as of
+  v1.8.0-pre.2. Nothing to file. Hikyo's own decode stays because its mirror
+  check runs before the SDK validator.
 - When go-sdk v1.8.0 goes stable, re-run conformance and interop per the ADR
   upgrade rule; consider a non-zero `ttlMs` on the static catalog via
   `SetCacheable`.
