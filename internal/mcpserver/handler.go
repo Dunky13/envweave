@@ -254,6 +254,14 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(envelope.ID) == 0 {
+		// tools/call is a request. As a notification it is malformed, and it
+		// is refused here, before the slot and the bearer, so a missing and a
+		// presented bearer receive the same response and no tool ever runs.
+		writeRPCError(w, http.StatusBadRequest, nil, -32600, "tools/call requires a request id", nil)
+		return
+	}
+
 	select {
 	case h.slots <- struct{}{}:
 		defer func() { <-h.slots }()

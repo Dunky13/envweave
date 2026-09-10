@@ -159,6 +159,19 @@ func run(opts options, client *http.Client) error {
 	if err := requireUnauthenticated("invalid credential", invalid); err != nil {
 		return err
 	}
+	missing, err := invokeRaw(client, opts.endpoint, "tools/call", mcpserver.ToolListDefinitions, args, "")
+	if err != nil {
+		return fmt.Errorf("missing-token probe: %w", err)
+	}
+	if err := requireStateless("missing-token denial", missing.sessionID); err != nil {
+		return err
+	}
+	if err := requireUnauthenticated("missing credential", missing); err != nil {
+		return err
+	}
+	if err := requireSameDenial("missing credential", missing, invalid); err != nil {
+		return err
+	}
 
 	deadline := time.Now().Add(opts.revocationTimeout)
 	for {
@@ -173,11 +186,7 @@ func run(opts options, client *http.Client) error {
 			if err := requireUnauthenticated("revoked credential", rotated); err != nil {
 				return err
 			}
-			if !bytes.Equal(bytes.TrimSpace(invalid.body), bytes.TrimSpace(rotated.body)) ||
-				rotated.header.Get("WWW-Authenticate") != invalid.header.Get("WWW-Authenticate") {
-				return errors.New("revoked credential denial differed from the invalid-token denial")
-			}
-			return nil
+			return requireSameDenial("revoked credential", rotated, invalid)
 		}
 		decoded, err := rotated.rpc()
 		if err != nil || decoded.Error != nil || !successfulToolResult(decoded.Result, opts.orgID, opts.projectID) {
@@ -292,13 +301,28 @@ func (r rawResponse) rpc() (rpcResponse, error) {
 	return decodeRPCResponse(r.body)
 }
 
-// requireUnauthenticated asserts the one authentication-failure disposition:
-// HTTP 401 with a bare Bearer challenge and no JSON-RPC envelope, identical
-// for a missing, invalid, expired, or revoked bearer.
+// unauthorizedBody is the exact plain-text body of the uniform 401.
+const unauthorizedBody = "Unauthorized\n"
+
+// requireUnauthenticated asserts the one authentication-failure disposition
+// exactly: HTTP 401, exactly one bare Bearer challenge, and the fixed
+// plain-text body. It is the same bytes for a missing, invalid, expired, or
+// revoked bearer, and it is never a JSON-RPC envelope.
 func requireUnauthenticated(subject string, response rawResponse) error {
-	if response.status != http.StatusUnauthorized || response.header.Get("WWW-Authenticate") != "Bearer" ||
-		bytes.Contains(response.body, []byte("jsonrpc")) {
+	challenges := response.header.Values("WWW-Authenticate")
+	if response.status != http.StatusUnauthorized || len(challenges) != 1 || challenges[0] != "Bearer" ||
+		string(response.body) != unauthorizedBody {
 		return fmt.Errorf("%s did not receive the exact uniform 401 denial", subject)
+	}
+	return nil
+}
+
+// requireSameDenial asserts two authentication failures are byte-identical
+// on the wire: status, challenge, and untrimmed body.
+func requireSameDenial(subject string, a, b rawResponse) error {
+	if a.status != b.status || !bytes.Equal(a.body, b.body) ||
+		!slices.Equal(a.header.Values("WWW-Authenticate"), b.header.Values("WWW-Authenticate")) {
+		return fmt.Errorf("%s denial differed from the invalid-token denial", subject)
 	}
 	return nil
 }

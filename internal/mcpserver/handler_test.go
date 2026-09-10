@@ -664,6 +664,31 @@ func TestUnauthenticatedBearerUsesUniformHTTP401(t *testing.T) {
 	}
 }
 
+func TestToolCallNotificationIsRefusedBeforeBearerHandling(t *testing.T) {
+	registry, seen := testRegistry(t, "echo")
+	h := testHandler(t, registry)
+	body := bytes.Replace(modernBody(1, "tools/call", "echo", `{"value":"x"}`), []byte(`"id":1,`), nil, 1)
+
+	withBearer := request(http.MethodPost, "https://hikyo.example.com/mcp", "tools/call", "echo", body)
+	withBearer.Header.Set("Authorization", "Bearer not-a-live-token")
+	bearerRec := serve(t, h, withBearer)
+	missingRec := serve(t, h, request(http.MethodPost, "https://hikyo.example.com/mcp", "tools/call", "echo", body))
+	if bearerRec.Code != http.StatusBadRequest || !strings.Contains(bearerRec.Body.String(), `"code":-32600`) ||
+		!strings.Contains(bearerRec.Body.String(), `"id":null`) {
+		t.Fatalf("tools/call notification = %d %q, want 400 -32600", bearerRec.Code, bearerRec.Body.String())
+	}
+	if missingRec.Code != bearerRec.Code || missingRec.Body.String() != bearerRec.Body.String() ||
+		missingRec.Header().Get("WWW-Authenticate") != "" || bearerRec.Header().Get("WWW-Authenticate") != "" {
+		t.Fatalf("missing bearer = %d %q, presented bearer = %d %q: must be identical and pre-auth",
+			missingRec.Code, missingRec.Body.String(), bearerRec.Code, bearerRec.Body.String())
+	}
+	select {
+	case bearer := <-seen:
+		t.Fatalf("tool ran for a notification with bearer %q", bearer)
+	default:
+	}
+}
+
 func TestBase64SentinelMcpNameIsDecodedBeforeComparison(t *testing.T) {
 	registry, seen := testRegistry(t, "echo")
 	h := testHandler(t, registry)

@@ -1,6 +1,6 @@
 # Hikyo MCP phase 1 (ADR, locked 2026-09-04)
 
-> **Declared amendment (2026-09-10, [mcp-best-practices-audit-2026-09-10.md](../reports/mcp-best-practices-audit-2026-09-10.md), per the [oss-mechanics.md](./oss-mechanics.md) amendment procedure):** (a) the authentication-failure disposition is spelled out as the REST one: a `tools/call` whose presented bearer is not a live artifact (invalid, expired, or revoked) receives the same uniform HTTP `401` with `WWW-Authenticate: Bearer` and no body detail that a missing bearer receives, byte-identical across the four cases and with no audit row; a live artifact that is refused (wrong class, or no grant) keeps the indistinguishable safe tool error. (b) The `Mcp-Name` mirror comparison decodes the protocol's `=?base64?...?=` sentinel before comparing, as the pinned protocol requires; the pinned SDK does not, so the adapter owns that decode. Everything else stands unamended.
+> **Declared amendment (2026-09-10, [mcp-best-practices-audit-2026-09-10.md](../reports/mcp-best-practices-audit-2026-09-10.md), per the [oss-mechanics.md](./oss-mechanics.md) amendment procedure):** (a) the authentication-failure disposition is spelled out as the REST one: a `tools/call` whose presented bearer is not a live artifact (invalid, expired, or revoked) receives the same uniform HTTP `401` with `WWW-Authenticate: Bearer` and no body detail that a missing bearer receives, byte-identical across the four cases and with no audit row, and a `tools/call` sent as a notification is refused with `400` before the bearer is read; a live artifact that is refused (wrong class, or no grant) keeps the indistinguishable safe tool error. (b) The `Mcp-Name` mirror comparison decodes the protocol's `=?base64?...?=` sentinel before comparing, as the pinned protocol requires; the pinned SDK does not, so the adapter owns that decode. Everything else stands unamended.
 
 Context: the implementation research in
 [hikyo-mcp-server.md](../research/hikyo-mcp-server.md) established that Hikyo
@@ -59,8 +59,12 @@ Transport is Streamable HTTP with these fixed properties:
 - One JSON-RPC request or notification per POST. Protocol headers and body
   metadata must match exactly as required by the pinned protocol, including
   decoding the `=?base64?...?=` header sentinel before comparison.
-- Notifications return `202` without a body. Unsupported versions, missing or
-  mismatched headers, and unknown methods use the pinned MCP error contract.
+- A validated `server/discover` or `tools/list` notification returns `202`
+  without a body. `tools/call` is a request; sent without an id it is malformed
+  and is refused with `400` before any bearer is read, so no tool runs and a
+  missing and a presented bearer receive the same response. Unsupported
+  versions, missing or mismatched headers, and unknown methods use the pinned
+  MCP error contract.
 - Client disconnect and request cancellation cancel service work and the
   transaction. No handler starts detached work.
 

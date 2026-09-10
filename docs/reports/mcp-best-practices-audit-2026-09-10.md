@@ -59,7 +59,7 @@ is fixed by the locked mcp-server ADR.
 | `Mcp-Param-*` headers with invalid characters rejected | S1 `#server-behavior-for-custom-headers` MUST | Met | No tool marks `x-mcp-header`, so no param headers are expected; the SDK validator rejects malformed ones after Hikyo's checks pass |
 | No `x-mcp-header` on sensitive parameters | S7 `#x-mcp-header` SHOULD NOT | Met | Not used anywhere in `tools.go` |
 | Unknown method is 404 and -32601 | S1 MUST | Met | `handler.go:230`; `handler_test.go:558` |
-| Notification returns 202 with no body | S1 `#sending-messages` MUST | Met | `serveValidatedStaticNotification` at `handler.go:279`; `handler_test.go:525` |
+| Notification returns 202 with no body; a malformed notification returns an HTTP error | S1 `#sending-messages` MUST | Met | `serveValidatedStaticNotification` at `handler.go:279`; `handler_test.go:525`. A `tools/call` without an id is refused with 400 before the bearer is read, so missing and presented bearers are identical there too (`TestToolCallNotificationIsRefusedBeforeBearerHandling`) |
 | No `Mcp-Session-Id` minted, echoed, or accepted | S1 SHOULD, S12 (SEP-2567) | Met, exceeds | `Stateless: true`; presented session id refused at `handler.go:234`; `handler_test.go:160`, `:679` |
 | `Content-Type` and `Accept` enforced | S1 MUST | Met | `handler.go:161` then SDK 415 and 400 paths |
 | Request body bounded | S18 | Met | 256 KiB at `handler.go:26`, enforced at `handler.go:166` before parsing and again via SDK `MaxRequestBodyBytes` |
@@ -186,7 +186,7 @@ unauthorized-equals-nonexistent property and it is correct.
 **Resolution (2026-09-10): A2 implemented.** `domain.ErrUnauthenticated` from
 a tool handler now sets the call state and the transport writes the same
 uniform 401 a missing bearer receives. Revoked, expired, unknown, and missing
-are byte-identical. ADR amended by banner. The public smoke probe
+are byte-identical (the e2e suite mints an actually expired credential). ADR amended by banner. The public smoke probe
 (`scripts/mcp-public-smoke`) and the e2e suite assert the new disposition and
 the probe has a negative test that rejects the old tool-error denial.
 

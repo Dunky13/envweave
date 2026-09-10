@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Hikyo-Org/hikyo/internal/domain"
 	"github.com/Hikyo-Org/hikyo/internal/mcpserver"
@@ -143,6 +144,29 @@ func mintMCPAutomation(t *testing.T, db *store.DB, auth *service.Auth, scope dom
 		}
 	}
 	minted, err := identities.MintCredential(t.Context(), service.LocalPrincipal(custodian), scope, sa.ID, service.MintRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return machineCredential{Principal: sa.Principal, AccountID: sa.ID, CredentialID: minted.Credential.ID, token: minted.Value}
+}
+
+// mintExpiredMCPAutomation mints a granted automation credential whose finite
+// lifetime already elapsed: the identities clock is moved into the past, so
+// the row is ordinary and live-shaped except for its expiry.
+func mintExpiredMCPAutomation(t *testing.T, db *store.DB, auth *service.Auth, scope domain.Scope, name string) machineCredential {
+	t.Helper()
+	identities := &service.Identities{DB: db, Auth: auth, Now: func() time.Time { return time.Now().UTC().Add(-2 * time.Hour) }}
+	sa, err := identities.CreateServiceAccount(t.Context(), service.LocalPrincipal(custodian), scope, name, domain.ClassAutomation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grants := &service.Grants{DB: db, Auth: auth}
+	if _, err := grants.Create(t.Context(), service.LocalPrincipal(domain.PrincipalID("usr_orgadmin")), service.GrantSpec{
+		Target: sa.Principal, Capability: domain.CapRead, Scope: scope,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	minted, err := identities.MintCredential(t.Context(), service.LocalPrincipal(custodian), scope, sa.ID, service.MintRequest{Lifetime: time.Hour})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,20 +349,28 @@ func TestMCPToolsEndToEndCanaryAndDenial(t *testing.T) {
 		// An invalid bearer is the silent, non-enumerating authentication failure:
 		// the REST disposition (uniform HTTP 401, no detail) and no audit row of
 		// any kind. It is byte-identical to a missing bearer.
+		expiredCredential := mintExpiredMCPAutomation(t, db, auth, domain.Scope{Org: "org_a", Project: "prj_a1"}, "mcp-expired")
 		beforeInvalid := queryInt(t, db, `SELECT COUNT(*) FROM audit_tenant_events`) + queryInt(t, db, `SELECT COUNT(*) FROM audit_instance_events`)
 		invalid := mcpCall(t, handler, "not-a-real-token", mcpserver.ToolInspectConfiguration,
 			`{"org_id":"org_a","project_id":"prj_a1","environment_id":"env_a1"}`)
 		missing := mcpCall(t, handler, "", mcpserver.ToolInspectConfiguration,
 			`{"org_id":"org_a","project_id":"prj_a1","environment_id":"env_a1"}`)
+		expired := mcpCall(t, handler, expiredCredential.token, mcpserver.ToolInspectConfiguration,
+			`{"org_id":"org_a","project_id":"prj_a1","environment_id":"env_a1"}`)
 		if invalid.Code != http.StatusUnauthorized || invalid.Header().Get("WWW-Authenticate") != "Bearer" ||
-			strings.Contains(invalid.Body.String(), "jsonrpc") ||
-			missing.Code != invalid.Code || missing.Body.String() != invalid.Body.String() {
-			t.Fatalf("invalid bearer = %d %q, missing bearer = %d %q: want identical uniform 401",
-				invalid.Code, invalid.Body.String(), missing.Code, missing.Body.String())
+			invalid.Body.String() != "Unauthorized\n" {
+			t.Fatalf("invalid bearer = %d %q: want the uniform 401", invalid.Code, invalid.Body.String())
+		}
+		for name, rec := range map[string]*httptest.ResponseRecorder{"missing": missing, "expired": expired} {
+			if rec.Code != invalid.Code || rec.Body.String() != invalid.Body.String() ||
+				rec.Header().Get("WWW-Authenticate") != invalid.Header().Get("WWW-Authenticate") {
+				t.Fatalf("%s bearer = %d %q, invalid bearer = %d %q: want identical uniform 401",
+					name, rec.Code, rec.Body.String(), invalid.Code, invalid.Body.String())
+			}
 		}
 		afterInvalid := queryInt(t, db, `SELECT COUNT(*) FROM audit_tenant_events`) + queryInt(t, db, `SELECT COUNT(*) FROM audit_instance_events`)
 		if afterInvalid != beforeInvalid {
-			t.Fatalf("invalid bearer wrote %d audit rows, want 0", afterInvalid-beforeInvalid)
+			t.Fatalf("invalid, missing, and expired bearers wrote %d audit rows, want 0", afterInvalid-beforeInvalid)
 		}
 		for _, table := range []string{"audit_tenant_events", "audit_instance_events"} {
 			if leaked := queryInt(t, db, `SELECT COUNT(*) FROM `+table+` WHERE CAST(payload AS TEXT) LIKE '%`+mcpCanaryPlaintext+`%'`); leaked != 0 {

@@ -30,6 +30,9 @@ limits, and output sanitisation. Two findings, both fixed in this branch.
 - **B1, `Mcp-Name` sentinel.** `handler.go` decodes `=?base64?...?=` before
   comparing `Mcp-Name` to the body and writes the decoded value back so the
   pinned SDK validator (which does not decode `Mcp-Name`) agrees.
+- A `tools/call` sent as a notification (no id) is refused with 400 before
+  the bearer is read, so missing and presented bearers cannot be told apart
+  on that path either (Codex R1 finding).
 - `internal/server/metrics.go` reads the tool label after the adapter runs so
   an encoded name lands on the right label.
 - `scripts/mcp-public-smoke` now asserts the 401 disposition and has a
