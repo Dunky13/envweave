@@ -50,7 +50,18 @@ const PRE_META_ALLOWED = new Set([
 // mistaken for a live one. (A live script body containing "<!--" would be
 // mangled here and fail its hash match -- fail-closed, which trips the gate
 // rather than passing it.)
-const stripComments = (html) => html.replace(/<!--[\s\S]*?-->/g, '');
+//
+// Applied to a fixpoint: a single pass can splice text that reforms a new
+// "<!--" (e.g. "<!--<!-- -->-->" leaves "<!--" + "-->"), so repeat until the
+// string stops changing and no comment sequence survives.
+const stripComments = (html) => {
+  let prev;
+  do {
+    prev = html;
+    html = html.replace(/<!--[\s\S]*?-->/g, '');
+  } while (html !== prev);
+  return html;
+};
 
 // Parse an open-tag's attributes into a map. Browsers keep the FIRST occurrence
 // of a duplicated attribute and ignore the rest, so first-wins here too:
@@ -156,6 +167,11 @@ const findCspMetas = (html) => {
   assert.equal(gov('type=" APPLICATION/LD+JSON "'), false, 'inert match is trimmed + case-insensitive');
   const commented = stripComments('<!-- <meta http-equiv="content-security-policy" content="x"> -->');
   assert.equal([...commented.matchAll(metaPattern)].length, 0, 'CSP meta inside a comment must not count');
+  assert.doesNotMatch(
+    stripComments('<!--<!-- -->-->'),
+    /<!--[\s\S]*?-->/,
+    'stripComments reaches a fixpoint: no complete comment survives, even reformed ones',
+  );
   const truncation = '<script type="a>b" type="text/javascript">alert(1)</script>';
   const open = [...truncation.matchAll(scriptOpenPattern)][0];
   assert.ok(open && isGovernedInlineScript(parseAttrs(open[1])), 'quoted ">" must not truncate the tag scan');
