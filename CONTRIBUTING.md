@@ -1,11 +1,13 @@
 # Contributing to Hikyo
 
 Open an issue and get maintainer agreement before starting a large change.
+Security vulnerabilities are the exception: never open them as public issues.
+Report them privately through the [security policy](./SECURITY.md).
 
 ## Developer Certificate of Origin
 
 Every commit in a pull request must carry a Developer Certificate of Origin
-sign-off. Add it with:
+(DCO) sign-off. Add it with:
 
 ```sh
 git commit -s
@@ -13,8 +15,8 @@ git commit -s
 
 The sign-off certifies the [Developer Certificate of Origin 1.1](https://developercertificate.org/).
 CI checks the pull request's commit history; a sign-off added only to a squash
-message does not satisfy the gate. Hikyo uses DCO, never a CLA, so contributors
-retain their copyright.
+message does not satisfy the gate. Hikyo uses the DCO, never a Contributor
+License Agreement (CLA), so contributors retain their copyright.
 
 ## Security-sensitive contributions
 
@@ -23,8 +25,8 @@ delivery paths require maintainer security review. Maintainer-authored changes
 use adversarial cross-model review until a second maintainer exists; this is a
 compensating check, not independent human review.
 
-Do not report vulnerabilities in public issues. Use the private channels in
-[SECURITY.md](./SECURITY.md).
+Do not report vulnerabilities in public issues. Use the private channels in the
+[security policy](./SECURITY.md).
 
 ## Design decisions
 
@@ -32,23 +34,54 @@ The locked architecture decision records live in [`docs/adr/`](./docs/adr/README
 and the build-ready specification set in [`docs/spec/`](./docs/spec/README.md).
 Code comments cite them by file stem ("the encryption-model ADR" is
 `docs/adr/encryption-model.md`); `docs/adr/README.md` maps every short name to
-its file. A change that contradicts a locked ADR reopens the ADR (amendment
-banner) rather than silently diverging — see
-[`oss-mechanics.md`](./docs/adr/oss-mechanics.md) § Governance.
+its file. A change that contradicts a locked ADR reopens it under the
+[amendment procedure](./GOVERNANCE.md#amendment-procedure) rather than silently
+diverging. See the [OSS mechanics ADR](./docs/adr/oss-mechanics.md), section
+Governance, for the full mechanism.
 
 ## Local verification
 
-Run the checks relevant to the changed package and the full test suite before
-requesting review. CI is the source of truth for the complete release gates.
-CI also runs the race detector over every package except `./internal/isolation/`
-(which runs race-instrumented on the weekly `race-isolation` workflow), a bounded
-fuzz pass over every `Fuzz*` target, and `govulncheck`. To fuzz one target
-locally: `go test -run='^$' -fuzz='^FuzzParseHeader$' -fuzztime=30s ./internal/crypto/`.
+Before you request review, run the checks for what you touched:
 
-When fuzzing finds a failure, CI retains the minimized corpus file for 30 days
-and replays it against the pull request's trusted base. A finding that does not
-reproduce on the base is added to the pull request with its replay command; a
-finding that also fails on the base creates or updates a standalone bug issue.
-Either result leaves `fuzz` and the aggregate `ci-required` gate red until fixed.
-Commit the minimized corpus file with the fix so `go test ./...` keeps it as a
-regression case.
+- Go changes: `go test ./<changed-package>/...`, plus `go test ./...` for
+  anything cross-cutting. Add or update tests for the behaviour you change.
+  There is no numeric coverage gate, so reviewers, not an automated threshold,
+  judge whether the tests cover the change.
+- `web/` changes: `node --run typecheck` and `node --run test` in `web/`.
+- Run the formatter and linters so the `lint` gate does not bounce the pull
+  request.
+
+You do not need to reproduce the full release gate locally; CI is the source of
+truth for that.
+
+## Continuous integration
+
+Every pull request runs the complete gate. The aggregate `ci-required` check
+stays red, and blocks merge, until all of these pass:
+
+- `lint`, `test`, and the sharded isolation suites;
+- `race`, the race detector over every package except `./internal/isolation/`
+  (that suite runs race-instrumented on the weekly `race-isolation` workflow);
+- `fuzz` (see below);
+- `govulncheck` for known vulnerabilities, plus the supply-chain, web, compose,
+  and Kubernetes end-to-end checks.
+
+You do not run these by hand as a rule; open the pull request and let CI report.
+
+### Fuzzing
+
+Fuzzing feeds a function randomised inputs to surface crashes and panics that
+example-based tests miss. CI runs a bounded fuzz pass over every `Fuzz*` target
+on every pull request, so you never have to fuzz manually. To reproduce or
+extend one target locally:
+
+```sh
+go test -run='^$' -fuzz='^FuzzParseHeader$' -fuzztime=30s ./internal/crypto/
+```
+
+When fuzzing finds a failure, CI keeps the minimised input for 30 days and
+replays it against the pull request's trusted base. A finding that does not
+reproduce on the base is added to the pull request with its replay command; one
+that also fails on the base opens or updates a standalone bug issue. Either way,
+`fuzz` and `ci-required` stay red until it is fixed. Commit the minimised input
+with the fix so `go test ./...` keeps it as a regression case.

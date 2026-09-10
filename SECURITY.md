@@ -2,7 +2,15 @@
 
 Do not report vulnerabilities in public issues. Use GitHub Private Vulnerability
 Reporting or, when GitHub is unavailable or inaccessible, the independently
-hosted fallback address below.
+hosted fallback address below. The repository's New Issue page links straight to
+private reporting, so this is the default path.
+
+If a vulnerability is nonetheless filed as a public issue, the maintainer locks
+the issue and redacts the exploitation details, then opens a private advisory to
+coordinate the fix. Because the report is already public, the disclosure is
+treated as public: mitigation guidance, the fix, and the advisory are
+fast-tracked ahead of any milestone, exactly as for active exploitation. The
+reporter is still credited unless they opt out.
 
 ## Reporting a vulnerability
 
@@ -49,6 +57,13 @@ guidance, the fix, and the advisory are fast-tracked ahead of any milestone when
 exploitation is active.
 
 ## Advisories and CVEs
+
+A security advisory is the record of a vulnerability: what was affected, the
+impact, and the fixed version. It starts as a private draft used to coordinate
+the fix and becomes the public record once the patched release ships. GitHub
+assigns each advisory a GHSA (GitHub Security Advisory) identifier; a CVE (Common
+Vulnerabilities and Exposures) is the cross-industry identifier for the same
+issue.
 
 A CVE is requested through the private GitHub advisory before publication. CVE
 assignment is never release-blocking: an urgent fix may ship under its GHSA,

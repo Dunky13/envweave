@@ -2,11 +2,11 @@
 dist/
 node_modules/
 public/upgrade-nightly.sh
-src/content/docs/security.md
-src/content/docs/support.md
-src/content/docs/governance.md
-src/content/docs/implementation-status.md
-src/content/docs/trademark.md
-src/content/docs/contributing.md
+src/content/docs/security.mdx
+src/content/docs/support.mdx
+src/content/docs/governance.mdx
+src/content/docs/implementation-status.mdx
+src/content/docs/trademark.mdx
+src/content/docs/contributing.mdx
 src/content/docs/license.md
 src/content/docs/release/
