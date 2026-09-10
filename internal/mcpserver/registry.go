@@ -15,6 +15,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/Hikyo-Org/hikyo/internal/authz"
+	"github.com/Hikyo-Org/hikyo/internal/domain"
 	"github.com/Hikyo-Org/hikyo/internal/operation"
 )
 
@@ -197,6 +198,9 @@ func Register[In, Out any](registry *Registry, spec ToolSpec, handler func(conte
 					var zero Out
 					if errors.Is(err, ErrRateLimited) {
 						markRateLimited(ctx)
+					}
+					if errors.Is(err, domain.ErrUnauthenticated) {
+						markUnauthenticated(ctx)
 					}
 					// Named cursor, bound, and argument errors are tenant-safe,
 					// so their exact token crosses the transport; every other

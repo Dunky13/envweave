@@ -323,12 +323,18 @@ func TestMCPToolsEndToEndCanaryAndDenial(t *testing.T) {
 		}
 
 		// An invalid bearer is the silent, non-enumerating authentication failure:
-		// no audit row of any kind.
+		// the REST disposition (uniform HTTP 401, no detail) and no audit row of
+		// any kind. It is byte-identical to a missing bearer.
 		beforeInvalid := queryInt(t, db, `SELECT COUNT(*) FROM audit_tenant_events`) + queryInt(t, db, `SELECT COUNT(*) FROM audit_instance_events`)
 		invalid := mcpCall(t, handler, "not-a-real-token", mcpserver.ToolInspectConfiguration,
 			`{"org_id":"org_a","project_id":"prj_a1","environment_id":"env_a1"}`)
-		if !strings.Contains(invalid.Body.String(), mcpserver.SafeOperationError) {
-			t.Fatalf("invalid bearer call not the safe error: %q", invalid.Body.String())
+		missing := mcpCall(t, handler, "", mcpserver.ToolInspectConfiguration,
+			`{"org_id":"org_a","project_id":"prj_a1","environment_id":"env_a1"}`)
+		if invalid.Code != http.StatusUnauthorized || invalid.Header().Get("WWW-Authenticate") != "Bearer" ||
+			strings.Contains(invalid.Body.String(), "jsonrpc") ||
+			missing.Code != invalid.Code || missing.Body.String() != invalid.Body.String() {
+			t.Fatalf("invalid bearer = %d %q, missing bearer = %d %q: want identical uniform 401",
+				invalid.Code, invalid.Body.String(), missing.Code, missing.Body.String())
 		}
 		afterInvalid := queryInt(t, db, `SELECT COUNT(*) FROM audit_tenant_events`) + queryInt(t, db, `SELECT COUNT(*) FROM audit_instance_events`)
 		if afterInvalid != beforeInvalid {
@@ -429,8 +435,9 @@ func TestMCPToolsEndToEndCanaryAndDenial(t *testing.T) {
 			`{"org_id":"org_a","project_id":"prj_a1"}`)
 		invalidAfterRevoke := mcpCall(t, other, "not-a-real-token", mcpserver.ToolListDefinitions,
 			`{"org_id":"org_a","project_id":"prj_a1"}`)
-		if revoked.Code != http.StatusOK || revoked.Body.String() != invalidAfterRevoke.Body.String() ||
-			!strings.Contains(revoked.Body.String(), mcpserver.SafeOperationError) {
+		if revoked.Code != http.StatusUnauthorized || revoked.Code != invalidAfterRevoke.Code ||
+			revoked.Body.String() != invalidAfterRevoke.Body.String() ||
+			revoked.Header().Get("WWW-Authenticate") != "Bearer" {
 			t.Fatalf("revoked result differs from invalid-token result: revoked=%d %q invalid=%d %q",
 				revoked.Code, revoked.Body.String(), invalidAfterRevoke.Code, invalidAfterRevoke.Body.String())
 		}

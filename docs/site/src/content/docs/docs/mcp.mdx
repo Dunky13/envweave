@@ -301,7 +301,7 @@ hikyo sa credential revoke \
 The check proves unauthenticated discovery, the closed tool catalog, one
 authorized safe read, invalid-token denial, immediate revoked-token denial,
 and absence of an MCP session ID. Invalid and revoked credentials must return
-the same tenant-safe result.
+the same uniform `401`.
 
 ## Conformance, replicas, and shutdown
 
@@ -341,8 +341,8 @@ duration. Trace and log exporters must not capture request headers or bodies.
 | Symptom | Cause and fix |
 | --- | --- |
 | `404` at `/mcp` | `HIKYO_MCP_ENABLED` is false, or the proxy rewrote the path. Enable it and forward exact `POST /mcp`. |
-| `401` with `WWW-Authenticate: Bearer` | The tool call supplied no single bearer header. Repair the client's runtime secret channel. |
-| `Hikyo operation refused` | The token is invalid, expired, revoked, the wrong principal class, or lacks scope. Check credential metadata and grants without logging the bearer. |
+| `401` with `WWW-Authenticate: Bearer` | The tool call supplied no single bearer header, or the token is invalid, expired, or revoked. Repair the client's runtime secret channel or rotate the credential. |
+| `Hikyo operation refused` | The token is live but is the wrong principal class or lacks scope. Check credential metadata and grants without logging the bearer. |
 | `unsupported protocol version` | The client did not negotiate `2026-07-28`. Upgrade it to the pinned profile. |
 | `protocol mirror headers do not match request` | A proxy or client removed or changed the modern MCP mirror headers. Preserve all three headers. |
 

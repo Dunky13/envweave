@@ -1,5 +1,7 @@
 # Hikyo MCP phase 1 (ADR, locked 2026-09-04)
 
+> **Declared amendment (2026-09-10, [mcp-best-practices-audit-2026-09-10.md](../reports/mcp-best-practices-audit-2026-09-10.md), per the [oss-mechanics.md](./oss-mechanics.md) amendment procedure):** (a) the authentication-failure disposition is spelled out as the REST one: a `tools/call` whose presented bearer is not a live artifact (invalid, expired, or revoked) receives the same uniform HTTP `401` with `WWW-Authenticate: Bearer` and no body detail that a missing bearer receives, byte-identical across the four cases and with no audit row; a live artifact that is refused (wrong class, or no grant) keeps the indistinguishable safe tool error. (b) The `Mcp-Name` mirror comparison decodes the protocol's `=?base64?...?=` sentinel before comparing, as the pinned protocol requires; the pinned SDK does not, so the adapter owns that decode. Everything else stands unamended.
+
 Context: the implementation research in
 [hikyo-mcp-server.md](../research/hikyo-mcp-server.md) established that Hikyo
 can expose a useful remote Model Context Protocol surface without another
@@ -55,7 +57,8 @@ Transport is Streamable HTTP with these fixed properties:
 - `JSONResponse: true`. Ordinary replies are JSON, not SSE. Request-scoped SSE,
   resumability, and server-initiated streams are out.
 - One JSON-RPC request or notification per POST. Protocol headers and body
-  metadata must match exactly as required by the pinned protocol.
+  metadata must match exactly as required by the pinned protocol, including
+  decoding the `=?base64?...?=` header sentinel before comparison.
 - Notifications return `202` without a body. Unsupported versions, missing or
   mismatched headers, and unknown methods use the pinned MCP error contract.
 - Client disconnect and request cancellation cancel service work and the
@@ -115,8 +118,13 @@ reviewed disposition for a proof-scoped pure read. An authenticated
 authorization refusal emits the existing `grant.denied` event with the exact
 operation and formula, now carrying `origin=mcp`. Invalid or missing bearer
 presentations, including expired or revoked service-account credentials, retain
-the existing silent, non-enumerating authentication-failure disposition. A
-valid bearer of a disallowed class emits existing
+the existing silent, non-enumerating authentication-failure disposition: the
+uniform HTTP `401` with `WWW-Authenticate: Bearer` and no body detail that the
+REST surface returns for `domain.ErrUnauthenticated`, byte-identical whether the
+bearer is missing, malformed, unknown, expired, or revoked, and with no audit
+row. It is a transport status, never a JSON-RPC result, so an MCP client can
+surface an authentication problem instead of handing the model a retryable tool
+error. A valid bearer of a disallowed class emits existing
 `auth.artifact_class_refused` with `origin=mcp`. Thus authentication failure is
 silent, artifact-class refusal is `auth.artifact_class_refused`, and capability
 denial is `grant.denied`.
@@ -245,7 +253,10 @@ length-bounded, wrapped in the existing redacting artifact type, never copied
 into structured telemetry, never returned, and never forwarded. Transport
 metadata and tool annotations cannot select a principal or capability. Missing,
 invalid, expired, revoked, wrong-class, and unauthorized artifacts disclose no
-tenant fact. Cookies never authenticate MCP. Token passthrough to a downstream
+tenant fact. The first four share one uniform `401`, which says only that the
+presented credential is not live, a fact its presenter already controls; the
+last two share one safe tool error, so a live credential learns nothing about
+scopes it cannot read. Cookies never authenticate MCP. Token passthrough to a downstream
 service, another Hikyo endpoint, a callback, a tool result, or an error is
 forbidden.
 

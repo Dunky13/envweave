@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -66,12 +67,25 @@ type bearerContextKey struct{}
 type callStateContextKey struct{}
 
 type callState struct {
-	rateLimited atomic.Bool
+	rateLimited     atomic.Bool
+	unauthenticated atomic.Bool
 }
 
 func markRateLimited(ctx context.Context) {
 	if state, ok := ctx.Value(callStateContextKey{}).(*callState); ok {
 		state.rateLimited.Store(true)
+	}
+}
+
+// markUnauthenticated records that the presented bearer is not a live
+// artifact. The transport then answers with the same uniform 401 a missing
+// bearer receives, which is the REST disposition for domain.ErrUnauthenticated
+// and lets an MCP client surface an authentication problem instead of handing
+// the model a retryable tool error. Authorization denial for a live artifact
+// is not routed here; it stays the indistinguishable safe tool error.
+func markUnauthenticated(ctx context.Context) {
+	if state, ok := ctx.Value(callStateContextKey{}).(*callState); ok {
+		state.unauthenticated.Store(true)
 	}
 }
 
@@ -178,10 +192,20 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	methodHeaders := r.Header.Values("Mcp-Method")
 	nameHeaders := r.Header.Values("Mcp-Name")
 	if len(methodHeaders) != 1 || methodHeaders[0] != envelope.Method ||
-		(envelope.Method == "tools/call" && (len(nameHeaders) != 1 || nameHeaders[0] != requestedName)) ||
+		(envelope.Method == "tools/call" && len(nameHeaders) != 1) ||
 		(envelope.Method != "tools/call" && len(nameHeaders) != 0) {
 		writeRPCError(w, http.StatusBadRequest, envelope.ID, -32020, "protocol mirror headers do not match request", nil)
 		return
+	}
+	if envelope.Method == "tools/call" {
+		decodedName, ok := decodeHeaderSentinel(nameHeaders[0])
+		if !ok || decodedName != requestedName {
+			writeRPCError(w, http.StatusBadRequest, envelope.ID, -32020, "protocol mirror headers do not match request", nil)
+			return
+		}
+		// The pinned SDK validator compares Mcp-Name without decoding, so it
+		// must see the decoded value this check accepted.
+		r.Header.Set("Mcp-Name", decodedName)
 	}
 	if requestedVersion == "" {
 		// Missing modern request metadata is an invalid-params error. The SDK
@@ -240,8 +264,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	bearer, ok := parseBearer(r.Header.Values("Authorization"))
 	if !ok {
-		w.Header().Set("WWW-Authenticate", "Bearer")
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		writeUnauthorized(w)
 		return
 	}
 	ctx, cancel := context.WithTimeout(ctx, ToolExecutionTimeout)
@@ -304,6 +327,10 @@ func (h *handler) serveSDK(w http.ResponseWriter, r *http.Request, method string
 		http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
 		return
 	}
+	if state != nil && state.unauthenticated.Load() {
+		writeUnauthorized(w)
+		return
+	}
 	body := capture.body.Bytes()
 	if len(body) > 0 && baseMediaType(capture.header.Get("Content-Type")) == "application/json" {
 		var response map[string]json.RawMessage
@@ -329,6 +356,38 @@ func (h *handler) serveSDK(w http.ResponseWriter, r *http.Request, method string
 	w.Header().Del("Content-Length")
 	w.WriteHeader(capture.status)
 	_, _ = w.Write(body)
+}
+
+// writeUnauthorized is the one authentication-failure response: a missing
+// bearer and a presented bearer that is not live are byte-identical.
+func writeUnauthorized(w http.ResponseWriter) {
+	w.Header().Set("WWW-Authenticate", "Bearer")
+	http.Error(w, "Unauthorized", http.StatusUnauthorized)
+}
+
+const (
+	headerSentinelPrefix = "=?base64?"
+	headerSentinelSuffix = "?="
+)
+
+// decodeHeaderSentinel applies the pinned protocol's Base64 sentinel rule to
+// one mirror header value: a value wrapped in =?base64?...?= is decoded with
+// strict standard Base64, and any other value is used as presented. A wrapped
+// value that does not decode is a mirror-header failure, never a match.
+func decodeHeaderSentinel(value string) (string, bool) {
+	encoded, ok := strings.CutPrefix(value, headerSentinelPrefix)
+	if !ok {
+		return value, true
+	}
+	encoded, ok = strings.CutSuffix(encoded, headerSentinelSuffix)
+	if !ok {
+		return "", false
+	}
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return "", false
+	}
+	return string(decoded), true
 }
 
 func parseBearer(values []string) (string, bool) {

@@ -157,7 +157,12 @@ func TestMCPMetricsAndAccessLogsUseOnlyClosedLabels(t *testing.T) {
 	metrics := server.NewMetrics(nil)
 	var logs bytes.Buffer
 	log := slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	handler := metrics.ObserveMCP(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := metrics.ObserveMCP(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The adapter rewrites a validated Base64-sentinel Mcp-Name to its
+		// decoded value in place; the label must be read after that.
+		if r.Header.Get("Mcp-Name") == "=?base64?aGlreW9fbGlzdF9kZWZpbml0aW9ucw==?=" {
+			r.Header.Set("Mcp-Name", "hikyo_list_definitions")
+		}
 		w.WriteHeader(http.StatusOK)
 	}), log, []string{"hikyo_list_definitions"})
 
@@ -167,6 +172,7 @@ func TestMCPMetricsAndAccessLogsUseOnlyClosedLabels(t *testing.T) {
 	}{
 		{method: "server/discover"},
 		{method: "tools/call", tool: "hikyo_list_definitions"},
+		{method: "tools/call", tool: "=?base64?aGlreW9fbGlzdF9kZWZpbml0aW9ucw==?="},
 		{method: "tools/call", tool: "CANARY-SECRET-TOOL"},
 	} {
 		req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
@@ -187,7 +193,7 @@ func TestMCPMetricsAndAccessLogsUseOnlyClosedLabels(t *testing.T) {
 	mustContain(t, body, "# TYPE "+server.MetricMCPRequestsInFlight+" gauge")
 	mustContain(t, body, "# TYPE "+server.MetricMCPRequestDuration+" histogram")
 	mustContain(t, body, server.MetricMCPRequestsTotal+`{method="server/discover",status="2xx",tool="none"} 1`)
-	mustContain(t, body, server.MetricMCPRequestsTotal+`{method="tools/call",status="2xx",tool="hikyo_list_definitions"} 1`)
+	mustContain(t, body, server.MetricMCPRequestsTotal+`{method="tools/call",status="2xx",tool="hikyo_list_definitions"} 2`)
 	mustContain(t, body, server.MetricMCPRequestsTotal+`{method="tools/call",status="2xx",tool="other"} 1`)
 	if strings.Contains(body, "CANARY") || strings.Contains(logs.String(), "CANARY") {
 		t.Fatalf("MCP telemetry leaked request-controlled or bearer material\nmetrics:\n%s\nlogs:\n%s", body, logs.String())
