@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Hikyo-Org/hikyo/internal/domain"
 	"github.com/Hikyo-Org/hikyo/internal/operation"
 )
 
@@ -630,6 +631,87 @@ func TestAuthenticatedRateLimitUsesUniformHTTPResponse(t *testing.T) {
 	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") != "60" ||
 		strings.Contains(rec.Body.String(), "CANARY-RATE-DETAIL") {
 		t.Fatalf("rate response = %d Retry-After %q body %q", rec.Code, rec.Header().Get("Retry-After"), rec.Body.String())
+	}
+}
+
+func TestUnauthenticatedBearerUsesUniformHTTP401(t *testing.T) {
+	registry := NewRegistry()
+	err := Register(registry, ToolSpec{
+		Name: "unauthenticated", Description: "Refuse an invalid bearer.", ServiceOperation: "service.Keys.List",
+		Contract: testContract(t, "unauthenticated"), AuditDisposition: AuditDispositionNone, SecretPolicy: SecretPolicyNoSecretMaterial,
+	}, func(context.Context, Bearer, echoInput) (echoOutput, error) {
+		return echoOutput{}, fmt.Errorf("CANARY-AUTH-DETAIL: %w", domain.ErrUnauthenticated)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := testHandler(t, registry)
+	req := request(http.MethodPost, "https://hikyo.example.com/mcp", "tools/call", "unauthenticated", modernBody(1, "tools/call", "unauthenticated", `{"value":"x"}`))
+	req.Header.Set("Authorization", "Bearer not-a-live-token")
+	rec := serve(t, h, req)
+	// The presented artifact is not live. That is the REST disposition for
+	// domain.ErrUnauthenticated (HTTP 401, no detail), so an MCP client can
+	// surface an authentication problem instead of retrying a tool error.
+	if rec.Code != http.StatusUnauthorized || rec.Header().Get("WWW-Authenticate") != "Bearer" ||
+		strings.Contains(rec.Body.String(), "CANARY-AUTH-DETAIL") || strings.Contains(rec.Body.String(), "jsonrpc") {
+		t.Fatalf("unauthenticated response = %d WWW-Authenticate %q body %q", rec.Code, rec.Header().Get("WWW-Authenticate"), rec.Body.String())
+	}
+	missing := request(http.MethodPost, "https://hikyo.example.com/mcp", "tools/call", "unauthenticated", modernBody(1, "tools/call", "unauthenticated", `{"value":"x"}`))
+	missingRec := serve(t, h, missing)
+	if missingRec.Code != rec.Code || missingRec.Body.String() != rec.Body.String() ||
+		missingRec.Header().Get("WWW-Authenticate") != rec.Header().Get("WWW-Authenticate") {
+		t.Fatalf("missing bearer = %d %q, invalid bearer = %d %q: must be identical", missingRec.Code, missingRec.Body.String(), rec.Code, rec.Body.String())
+	}
+}
+
+func TestToolCallNotificationIsRefusedBeforeBearerHandling(t *testing.T) {
+	registry, seen := testRegistry(t, "echo")
+	h := testHandler(t, registry)
+	body := bytes.Replace(modernBody(1, "tools/call", "echo", `{"value":"x"}`), []byte(`"id":1,`), nil, 1)
+
+	withBearer := request(http.MethodPost, "https://hikyo.example.com/mcp", "tools/call", "echo", body)
+	withBearer.Header.Set("Authorization", "Bearer not-a-live-token")
+	bearerRec := serve(t, h, withBearer)
+	missingRec := serve(t, h, request(http.MethodPost, "https://hikyo.example.com/mcp", "tools/call", "echo", body))
+	if bearerRec.Code != http.StatusBadRequest || !strings.Contains(bearerRec.Body.String(), `"code":-32600`) ||
+		!strings.Contains(bearerRec.Body.String(), `"id":null`) {
+		t.Fatalf("tools/call notification = %d %q, want 400 -32600", bearerRec.Code, bearerRec.Body.String())
+	}
+	if missingRec.Code != bearerRec.Code || missingRec.Body.String() != bearerRec.Body.String() ||
+		missingRec.Header().Get("WWW-Authenticate") != "" || bearerRec.Header().Get("WWW-Authenticate") != "" {
+		t.Fatalf("missing bearer = %d %q, presented bearer = %d %q: must be identical and pre-auth",
+			missingRec.Code, missingRec.Body.String(), bearerRec.Code, bearerRec.Body.String())
+	}
+	select {
+	case bearer := <-seen:
+		t.Fatalf("tool ran for a notification with bearer %q", bearer)
+	default:
+	}
+}
+
+func TestBase64SentinelMcpNameIsDecodedBeforeComparison(t *testing.T) {
+	registry, seen := testRegistry(t, "echo")
+	h := testHandler(t, registry)
+	encoded := "=?base64?" + base64.StdEncoding.EncodeToString([]byte("echo")) + "?="
+	req := request(http.MethodPost, "https://hikyo.example.com/mcp", "tools/call", encoded, modernBody(1, "tools/call", "echo", `{"value":"ok"}`))
+	req.Header.Set("Authorization", "Bearer token")
+	rec := serve(t, h, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"value":"ok"`) {
+		t.Fatalf("encoded Mcp-Name = %d %q", rec.Code, rec.Body.String())
+	}
+	<-seen
+
+	for _, bad := range []string{
+		"=?base64?" + base64.StdEncoding.EncodeToString([]byte("other")) + "?=",
+		"=?base64?not*base64?=",
+		"=?base64?" + base64.StdEncoding.EncodeToString([]byte("echo")),
+	} {
+		req := request(http.MethodPost, "https://hikyo.example.com/mcp", "tools/call", bad, modernBody(1, "tools/call", "echo", `{"value":"ok"}`))
+		req.Header.Set("Authorization", "Bearer token")
+		rec := serve(t, h, req)
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"code":-32020`) {
+			t.Fatalf("Mcp-Name %q = %d %q, want 400 -32020", bad, rec.Code, rec.Body.String())
+		}
 	}
 }
 

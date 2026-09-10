@@ -43,10 +43,9 @@ func TestRunProvesPublicProfileWithoutPersistingCredentials(t *testing.T) {
 			} else if r.Header.Get("Authorization") == "Bearer rot-token" && rotatingCalls.Add(1) == 1 {
 				result = successfulDefinitionsResult()
 			} else {
-				result = map[string]any{
-					"isError": true,
-					"content": []map[string]string{{"type": "text", "text": mcpserver.SafeOperationError}},
-				}
+				w.Header().Set("WWW-Authenticate", "Bearer")
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
 			}
 		default:
 			http.Error(w, "unknown method", http.StatusNotFound)
@@ -80,6 +79,54 @@ func successfulDefinitionsResult() map[string]any {
 
 func populatedDefinitionsResult() string {
 	return `{"content":[{"type":"text","text":"Hikyo returned structured data."}],"structuredContent":{"org_id":"org_test","project_id":"prj_test","schema_revision":1,"definitions":[{"name":"DATABASE_URL","description":"Database endpoint","classification":"secret","deprecated":false,"declaration":{"rule":{"type":"string"}},"presence":{"required_in":{"mode":"none"},"forbidden_in":{"mode":"none"}}}]}}`
+}
+
+func TestRunRefusesToolErrorAsAuthenticationDenial(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		method := r.Header.Get("Mcp-Method")
+		var result map[string]any
+		switch method {
+		case "server/discover":
+			result = map[string]any{
+				"supportedVersions": []string{mcpserver.ProtocolVersion},
+				"capabilities":      map[string]any{"tools": map[string]any{}},
+			}
+		case "tools/list":
+			tools := make([]map[string]string, 0, len(mcpserver.ProductionToolNames()))
+			for _, name := range mcpserver.ProductionToolNames() {
+				tools = append(tools, map[string]string{"name": name})
+			}
+			result = map[string]any{"tools": tools}
+		case "tools/call":
+			if r.Header.Get("Authorization") == "Bearer live-runtime-token" || r.Header.Get("Authorization") == "Bearer rot-token" {
+				result = successfulDefinitionsResult()
+			} else {
+				// The superseded disposition: a tool error instead of HTTP 401.
+				result = map[string]any{
+					"isError": true,
+					"content": []map[string]string{{"type": "text", "text": mcpserver.SafeOperationError}},
+				}
+			}
+		default:
+			http.Error(w, "unknown method", http.StatusNotFound)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": 1, "result": modernResult(result, method != "tools/call")})
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("TEST_MCP_LIVE", "live-runtime-token")
+	t.Setenv("TEST_MCP_ROTATING", "rot-token")
+
+	err := run(options{
+		endpoint: server.URL + mcpserver.Path,
+		tokenEnv: "TEST_MCP_LIVE", rotatingTokenEnv: "TEST_MCP_ROTATING",
+		orgID: "org_test", projectID: "prj_test",
+		revocationTimeout: time.Second,
+	}, server.Client())
+	if err == nil || !strings.Contains(err.Error(), "invalid credential did not receive the exact uniform 401 denial") {
+		t.Fatalf("tool-error denial accepted: %v", err)
+	}
 }
 
 func TestRunRefusesRedirectBeforeBearerCanReachDowngradedTarget(t *testing.T) {

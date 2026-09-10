@@ -339,14 +339,18 @@ func (m *Metrics) ObserveMCP(next http.Handler, log *slog.Logger, toolNames []st
 	m.initializeMCPMetrics(toolNames)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		method := mcpMetricMethod(r.Header.Get("Mcp-Method"))
-		tool := "none"
-		if method == "tools/call" {
+		// The tool label is read after the adapter has run: the adapter
+		// decodes a Base64-sentinel Mcp-Name in place once it has validated
+		// the mirror, so the label reflects the routed tool, not its encoding.
+		toolLabel := func() string {
+			if method != "tools/call" {
+				return "none"
+			}
 			candidate := r.Header.Get("Mcp-Name")
 			if _, ok := knownTools[candidate]; ok {
-				tool = candidate
-			} else {
-				tool = "other"
+				return candidate
 			}
+			return "other"
 		}
 		sw := newResponseWriter(w)
 		start := time.Now()
@@ -361,6 +365,7 @@ func (m *Metrics) ObserveMCP(next http.Handler, log *slog.Logger, toolNames []st
 			}
 			m.mcpInFlight.Dec()
 			duration := time.Since(start)
+			tool := toolLabel()
 			status := statusNames[bucketForStatus(sw.status)]
 			m.mcpRequests.WithLabelValues(method, tool, status).Inc()
 			m.mcpDurations.WithLabelValues(method, tool).Observe(duration.Seconds())

@@ -149,34 +149,47 @@ func run(opts options, client *http.Client) error {
 	if err != nil {
 		return err
 	}
-	invalid, sessionID, err := invoke(client, opts.endpoint, "tools/call", mcpserver.ToolListDefinitions, args, invalidToken)
+	invalid, err := invokeRaw(client, opts.endpoint, "tools/call", mcpserver.ToolListDefinitions, args, invalidToken)
 	if err != nil {
 		return fmt.Errorf("invalid-token probe: %w", err)
 	}
-	if err := requireStateless("invalid-token denial", sessionID); err != nil {
+	if err := requireStateless("invalid-token denial", invalid.sessionID); err != nil {
 		return err
 	}
-	invalidMessage := safeToolError(invalid.Result)
-	if invalidMessage != mcpserver.SafeOperationError {
-		return errors.New("invalid credential did not receive the exact tenant-safe denial")
+	if err := requireUnauthenticated("invalid credential", invalid); err != nil {
+		return err
+	}
+	missing, err := invokeRaw(client, opts.endpoint, "tools/call", mcpserver.ToolListDefinitions, args, "")
+	if err != nil {
+		return fmt.Errorf("missing-token probe: %w", err)
+	}
+	if err := requireStateless("missing-token denial", missing.sessionID); err != nil {
+		return err
+	}
+	if err := requireUnauthenticated("missing credential", missing); err != nil {
+		return err
+	}
+	if err := requireSameDenial("missing credential", missing, invalid); err != nil {
+		return err
 	}
 
 	deadline := time.Now().Add(opts.revocationTimeout)
 	for {
-		rotated, sessionID, err := invoke(client, opts.endpoint, "tools/call", mcpserver.ToolListDefinitions, args, rotating)
+		rotated, err := invokeRaw(client, opts.endpoint, "tools/call", mcpserver.ToolListDefinitions, args, rotating)
 		if err != nil {
 			return fmt.Errorf("revocation probe: %w", err)
 		}
-		if err := requireStateless("revoked-token denial", sessionID); err != nil {
+		if err := requireStateless("revoked-token denial", rotated.sessionID); err != nil {
 			return err
 		}
-		if safeToolError(rotated.Result) == invalidMessage {
-			if !bytes.Equal(bytes.TrimSpace(invalid.Result), bytes.TrimSpace(rotated.Result)) {
-				return errors.New("revoked credential denial differed from the invalid-token denial")
+		if rotated.status == http.StatusUnauthorized {
+			if err := requireUnauthenticated("revoked credential", rotated); err != nil {
+				return err
 			}
-			return nil
+			return requireSameDenial("revoked credential", rotated, invalid)
 		}
-		if rotated.Error != nil || !successfulToolResult(rotated.Result, opts.orgID, opts.projectID) {
+		decoded, err := rotated.rpc()
+		if err != nil || decoded.Error != nil || !successfulToolResult(decoded.Result, opts.orgID, opts.projectID) {
 			return errors.New("rotating credential returned an unexpected response while waiting for revocation")
 		}
 		if !time.Now().Before(deadline) {
@@ -271,7 +284,62 @@ func validateOptions(opts options) error {
 	return nil
 }
 
+// rawResponse is one HTTP exchange before JSON-RPC decoding, so a probe can
+// assert a non-200 transport disposition (the uniform 401) as exactly as a
+// JSON-RPC result.
+type rawResponse struct {
+	status    int
+	header    http.Header
+	body      []byte
+	sessionID string
+}
+
+func (r rawResponse) rpc() (rpcResponse, error) {
+	if r.status != http.StatusOK {
+		return rpcResponse{}, fmt.Errorf("HTTP status %d", r.status)
+	}
+	return decodeRPCResponse(r.body)
+}
+
+// unauthorizedBody is the exact plain-text body of the uniform 401.
+const unauthorizedBody = "Unauthorized\n"
+
+// requireUnauthenticated asserts the one authentication-failure disposition
+// exactly: HTTP 401, exactly one bare Bearer challenge, and the fixed
+// plain-text body. It is the same bytes for a missing, invalid, expired, or
+// revoked bearer, and it is never a JSON-RPC envelope.
+func requireUnauthenticated(subject string, response rawResponse) error {
+	challenges := response.header.Values("WWW-Authenticate")
+	if response.status != http.StatusUnauthorized || len(challenges) != 1 || challenges[0] != "Bearer" ||
+		string(response.body) != unauthorizedBody {
+		return fmt.Errorf("%s did not receive the exact uniform 401 denial", subject)
+	}
+	return nil
+}
+
+// requireSameDenial asserts two authentication failures are byte-identical
+// on the wire: status, challenge, and untrimmed body.
+func requireSameDenial(subject string, a, b rawResponse) error {
+	if a.status != b.status || !bytes.Equal(a.body, b.body) ||
+		!slices.Equal(a.header.Values("WWW-Authenticate"), b.header.Values("WWW-Authenticate")) {
+		return fmt.Errorf("%s denial differed from the invalid-token denial", subject)
+	}
+	return nil
+}
+
 func invoke(client *http.Client, endpoint, method, tool string, arguments map[string]any, token string) (rpcResponse, string, error) {
+	raw, err := invokeRaw(client, endpoint, method, tool, arguments, token)
+	if err != nil {
+		return rpcResponse{}, "", err
+	}
+	decoded, err := raw.rpc()
+	if err != nil {
+		return rpcResponse{}, "", err
+	}
+	return decoded, raw.sessionID, nil
+}
+
+func invokeRaw(client *http.Client, endpoint, method, tool string, arguments map[string]any, token string) (rawResponse, error) {
 	meta := map[string]any{
 		"io.modelcontextprotocol/protocolVersion":    mcpserver.ProtocolVersion,
 		"io.modelcontextprotocol/clientCapabilities": map[string]any{},
@@ -288,11 +356,11 @@ func invoke(client *http.Client, endpoint, method, tool string, arguments map[st
 		"jsonrpc": "2.0", "id": 1, "method": method, "params": params,
 	})
 	if err != nil {
-		return rpcResponse{}, "", err
+		return rawResponse{}, err
 	}
 	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return rpcResponse{}, "", err
+		return rawResponse{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
@@ -306,24 +374,20 @@ func invoke(client *http.Client, endpoint, method, tool string, arguments map[st
 	}
 	response, err := client.Do(req)
 	if err != nil {
-		return rpcResponse{}, "", err
+		return rawResponse{}, err
 	}
 	defer response.Body.Close()
 	encoded, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
 	if err != nil {
-		return rpcResponse{}, "", err
+		return rawResponse{}, err
 	}
 	if len(encoded) > maxResponseBytes {
-		return rpcResponse{}, "", errors.New("response exceeded smoke-test bound")
+		return rawResponse{}, errors.New("response exceeded smoke-test bound")
 	}
-	if response.StatusCode != http.StatusOK {
-		return rpcResponse{}, "", fmt.Errorf("HTTP status %d", response.StatusCode)
-	}
-	decoded, err := decodeRPCResponse(encoded)
-	if err != nil {
-		return rpcResponse{}, "", err
-	}
-	return decoded, response.Header.Get("Mcp-Session-Id"), nil
+	return rawResponse{
+		status: response.StatusCode, header: response.Header.Clone(), body: encoded,
+		sessionID: response.Header.Get("Mcp-Session-Id"),
+	}, nil
 }
 
 func decodeRPCResponse(encoded []byte) (rpcResponse, error) {
@@ -350,31 +414,6 @@ func decodeRPCResponse(encoded []byte) (rpcResponse, error) {
 		}
 	}
 	return decoded, nil
-}
-
-func safeToolError(result json.RawMessage) string {
-	fields, err := profileResultFields(result, false)
-	if err != nil || len(fields) != 2 || fields["isError"] == nil || fields["content"] == nil {
-		return ""
-	}
-	var toolResult struct {
-		IsError bool `json:"isError"`
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-	}
-	if json.Unmarshal(result, &toolResult) != nil || !toolResult.IsError || len(toolResult.Content) != 1 {
-		return ""
-	}
-	var contentFields map[string]json.RawMessage
-	var contentItems []json.RawMessage
-	if json.Unmarshal(fields["content"], &contentItems) != nil || len(contentItems) != 1 ||
-		json.Unmarshal(contentItems[0], &contentFields) != nil || len(contentFields) != 2 ||
-		contentFields["type"] == nil || contentFields["text"] == nil || toolResult.Content[0].Type != "text" {
-		return ""
-	}
-	return toolResult.Content[0].Text
 }
 
 func successfulToolResult(result json.RawMessage, orgID, projectID string) bool {
