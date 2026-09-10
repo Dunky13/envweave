@@ -1,7 +1,7 @@
 # Hikyo governance
 
-Hikyo uses an honest BDFL model. The current maintainer set has one member,
-Marc Went, who is the benevolent dictator for life (BDFL). If the maintainer
+Hikyo uses an honest benevolent dictator for life (BDFL) model. The current
+maintainer set has one member, Marc Went, who is that BDFL. If the maintainer
 set grows, the BDFL retains final decision authority.
 
 ## Roles and powers
@@ -11,7 +11,7 @@ security-response authority, and authority to amend this document. Release
 authority and signing-key custody are one responsibility and are never split.
 
 Maintainers are invited after sustained, high-quality contributions. Acceptance
-includes organization 2FA and the review duties in `CONTRIBUTING.md`. A
+includes organization 2FA and the review duties in [`CONTRIBUTING.md`](./CONTRIBUTING.md). A
 maintainer may leave voluntarily or be removed by the BDFL for cause, including
 security negligence or a breach of project trust.
 
@@ -39,7 +39,8 @@ recusal quorum; disclosure in the permanent record is the control.
 
 ## Amendment procedure
 
-A locked ADR, including the OSS mechanics decision that governs this document,
+A locked architecture decision record (ADR), including the OSS mechanics
+decision that governs this document,
 may be amended only by reopening its originating ticket, running the same
 adversarial cross-model review that locked it, and recording the amendment in
 the ADR itself. Amendments to this governance document follow that procedure.
@@ -47,13 +48,14 @@ the ADR itself. Amendments to this governance document follow that procedure.
 Repository branch and tag protections are enforced and auditable. Organization-wide
 2FA enforcement and repository ownership are operational controls whose current
 verification lives under `OBL-REPOSITORY-TRANSFER` in the machine-checked
-[implementation-status ledger](./docs/status/README.md). The immutable transfer
+[implementation-status ledger](./docs/status/README.md#obl-repository-transfer). The immutable transfer
 record remains in the [historical handoff](./docs/handoff/github-org-transfer.md).
 
 ## Fully-open pledge
 
 Every capability required to run Hikyo in production is and will remain open
-source; there is no `/ee` directory and there will never be one.
+source; there is no enterprise-edition (`/ee`) directory and there will never be
+one.
 
 This includes every functional and administrative outcome: running,
 configuring, backing up, restoring, upgrading, and operating Hikyo, including

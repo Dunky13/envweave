@@ -65,6 +65,22 @@ pre {
   padding-block-start: 1.25rem;
 }
 
+/* Sidebar section labels ("Project policy", "Release trust"). Fumadocs renders
+   these separators as bare <p> at the same size, weight and colour as the
+   clickable page links, so they read as tappable links. Style them as clear
+   labels instead: smaller, uppercase, muted. Page links render as <a>, so the
+   only <p> in the sidebar are separators; `inline-flex` is their marker (the
+   spacing utility `mt-6` is deliberately not matched, since `first:mt-0` strips
+   it from a first-in-tree separator). If Fumadocs ever drops these utility
+   classes, eject the sidebar component and add a semantic marker instead. */
+:is(#nd-sidebar, #nd-sidebar-mobile) p[class~='inline-flex'] {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-fd-muted-foreground);
+}
+
 button,
 a {
   border-radius: 0.25rem;

@@ -15,4 +15,5 @@ name or confusingly similar branding. Forks remain free to thrive under a
 different name.
 
 Questions and permission requests may be opened as a public repository issue.
-Security reports must instead use the private channels in `SECURITY.md`.
+Security reports must instead use the private channels in the
+[security policy](./SECURITY.md).
