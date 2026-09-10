@@ -89,7 +89,19 @@ for (const page of pages) {
   }
   // MDX parses HTML comments as JSX and chokes on them; the generated status
   // page carries a "do not edit" note that is only meaningful on the repo source.
-  body = body.replace(/<!--[\s\S]*?-->\n?/g, '');
+  // Strip to a fixpoint: a single pass can leave a fresh `<!-- -->` behind when
+  // comment markers overlap, which CodeQL flags as incomplete multi-character
+  // sanitization.
+  let beforeStrip;
+  do {
+    beforeStrip = body;
+    body = body.replace(/<!--[\s\S]*?-->\n?/g, '');
+  } while (body !== beforeStrip);
+  // A leftover `<!--` is an unterminated/malformed comment the loop cannot
+  // remove; fail loud rather than ship MDX the build would choke on later.
+  if (body.includes('<!--')) {
+    throw new Error(`${page.source}: unterminated HTML comment (<!--) after stripping`);
+  }
   // Fail the build if any repo-relative Markdown link survived the rewrite above.
   // siteLinks is hand-maintained; without this guard a new relative link ships
   // as a 404 on the site (as ./docs/adr/oss-mechanics.md once did). Flag every
