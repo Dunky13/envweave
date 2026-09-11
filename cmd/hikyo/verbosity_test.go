@@ -4,6 +4,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/Hikyo-Org/hikyo/internal/upgradebundle"
 )
 
 func TestGlobalVerbosityKeepsVersionAndHelpContracts(t *testing.T) {
@@ -15,6 +17,7 @@ func TestGlobalVerbosityKeepsVersionAndHelpContracts(t *testing.T) {
 		stderr string
 	}{
 		{"machine version", []string{"-vvv", "--version"}, 0, version + "\n", ""},
+		{"bundle formats", []string{"--upgrade-bundle-formats"}, 0, upgradebundle.IndexFormat + "\n" + upgradebundle.PlatformIndexFormat + "\n", ""},
 		{"overview", []string{"-v", "--verbose", "--help"}, 0, "global diagnostics (stderr only):", ""},
 		{"missing command", []string{"-vvv"}, 2, "", ""},
 		{"server help", []string{"-vvv", "server", "--help"}, 0, "", "Usage of server:"},

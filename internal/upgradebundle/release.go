@@ -75,7 +75,7 @@ func (r *documentReader) release(snapshot releasetrust.Snapshot, entry ReleaseEn
 				closer.Close()
 			}
 		}()
-		release, err = releasetrust.VerifyNightly(snapshot, releasetrust.NightlyMaterial{Manifest: manifest, Bundle: signature, Policy: policy, TrustedRoot: trustedRoot, Compatibility: compatibility, Artifacts: assets})
+		release, err = releasetrust.VerifyNightly(snapshot, releasetrust.NightlyMaterial{Manifest: manifest, Bundle: signature, Policy: policy, TrustedRoot: trustedRoot, Compatibility: compatibility, Artifacts: assets, Platform: r.nightlyPlatform})
 		if err != nil {
 			return releasetrust.VerifiedRelease{}, nil, fmt.Errorf("authenticate offline nightly release: %w", err)
 		}

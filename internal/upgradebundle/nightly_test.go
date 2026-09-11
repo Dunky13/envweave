@@ -3,6 +3,8 @@ package upgradebundle
 import (
 	"context"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -38,6 +40,45 @@ func TestNightlyOfflineBundleAuthenticatesActualClosedPayloadDirectory(t *testin
 					t.Fatal(err)
 				}
 				writeFixture(t, directory, releaseDir+"payloads/"+name, raw)
+			}
+			if mutation != "wrong commit" {
+				// Assemble from a flat download on the same filesystem. Verify
+				// physical storage reuse and that cache pruning leaves a complete
+				// independently loadable bundle.
+				flat := t.TempDir()
+				for name, raw := range map[string][]byte{"release-manifest.json": nightly.Manifest, "release-manifest.sigstore.json": nightly.Bundle} {
+					writeFixture(t, flat, name, raw)
+				}
+				for name := range nightly.Artifacts {
+					raw, err := os.ReadFile(filepath.Join(directory, releaseDir, "payloads", name))
+					if err != nil {
+						t.Fatal(err)
+					}
+					writeFixture(t, flat, name, raw)
+				}
+				snapshot, err := releasetrust.VerifySnapshot(fixture.Pinned, material, releaseidentity.SnapshotFloor{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.RemoveAll(filepath.Join(directory, "releases")); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := CopyNightlyRelease(t.Context(), flat, filepath.Join(directory, "releases"), snapshot); err != nil {
+					t.Fatal(err)
+				}
+				for name := range nightly.Artifacts {
+					source, err := os.Stat(filepath.Join(flat, name))
+					if err != nil {
+						t.Fatal(err)
+					}
+					target, err := os.Stat(filepath.Join(directory, releaseDir, "payloads", name))
+					if err != nil || !os.SameFile(source, target) {
+						t.Fatalf("payload storage duplicated for %s: %v", name, err)
+					}
+				}
+				if err := os.RemoveAll(flat); err != nil {
+					t.Fatal(err)
+				}
 			}
 			if mutation == "extra" {
 				writeFixture(t, directory, releaseDir+"payloads/unsigned-extra.txt", []byte("extra"))

@@ -40,7 +40,7 @@ func (i *Installer) assembleNightlyEvidence(ctx context.Context, evidence []Prep
 		if err := realNightlyDirectory(item.Directory); err != nil {
 			return "", err
 		}
-		verified, err := upgradebundle.VerifyNightlyDirectory(ctx, item.Directory, snapshot)
+		verified, err := upgradebundle.VerifyNightlyPlatformDirectory(ctx, item.Directory, snapshot, nightlyPlatform())
 		if err != nil {
 			return "", err
 		}
@@ -50,7 +50,7 @@ func (i *Installer) assembleNightlyEvidence(ctx context.Context, evidence []Prep
 		identities = append(identities, string(item.Identity.ManifestSHA256))
 	}
 	slices.Sort(identities)
-	routeDigest := releaseidentity.Hash([]byte(strings.Join(identities, "\n")))
+	routeDigest := releaseidentity.Hash([]byte(nightlyPlatform() + "\n" + strings.Join(identities, "\n")))
 	destination := filepath.Join(i.config.StateDir, "bundle-"+string(routeDigest)+"-"+string(snapshot.Digest()))
 	if _, err := os.Lstat(destination); err == nil {
 		if err := realNightlyDirectory(destination); err != nil {
@@ -108,7 +108,7 @@ func (i *Installer) assembleNightlyEvidence(ctx context.Context, evidence []Prep
 			return "", err
 		}
 	}
-	options := upgradeassembly.Options{Pinned: pinned, Floor: snapshot.Floor(), SnapshotDirectory: filepath.Join(stage, "snapshot"), KeysDirectory: filepath.Join(stage, "keys"), OutputDirectory: destination, NightlyPolicy: material.NightlyPolicy}
+	options := upgradeassembly.Options{Pinned: pinned, Floor: snapshot.Floor(), SnapshotDirectory: filepath.Join(stage, "snapshot"), KeysDirectory: filepath.Join(stage, "keys"), OutputDirectory: destination, NightlyPolicy: material.NightlyPolicy, NightlyPlatform: nightlyPlatform()}
 	for _, item := range evidence {
 		options.Nightlies = append(options.Nightlies, item.Directory)
 	}

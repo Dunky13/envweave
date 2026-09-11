@@ -17,7 +17,7 @@ func TestPruneNightlyCacheKeepsRetainedIdentityAndTrustState(t *testing.T) {
 	state := t.TempDir()
 	keep := releaseidentity.Identity{Profile: releaseidentity.NightlyV1, Version: "1.1.0-nightly.3", Sequence: 3, Commit: strings.Repeat("b", 40), CompatibilitySHA256: releaseidentity.Hash([]byte("claim")), ManifestSHA256: releaseidentity.Hash([]byte("keep"))}
 	stale := releaseidentity.Hash([]byte("stale"))
-	for _, dir := range []string{"nightly-" + string(keep.ManifestSHA256), "nightly-" + string(stale), "bundle-" + strings.Repeat("a", 64) + "-" + strings.Repeat("b", 64), ".nightly-download-abandoned", ".nightly-bundle-inputs-abandoned"} {
+	for _, dir := range []string{nightlyCacheDirectory(keep), "nightly-" + string(stale) + "-linux-amd64", "nightly-" + string(keep.ManifestSHA256), "nightly-" + string(stale), "bundle-" + strings.Repeat("a", 64) + "-" + strings.Repeat("b", 64), ".nightly-download-abandoned", ".nightly-bundle-inputs-abandoned"} {
 		if err := os.MkdirAll(filepath.Join(state, dir, "inner"), 0700); err != nil {
 			t.Fatal(err)
 		}
@@ -41,12 +41,12 @@ func TestPruneNightlyCacheKeepsRetainedIdentityAndTrustState(t *testing.T) {
 	for _, entry := range entries {
 		names = append(names, entry.Name())
 	}
-	want := []string{"executable-" + string(keep.ManifestSHA256) + "-linux-amd64", "nightly-" + string(keep.ManifestSHA256), "nightly-trust.lock", "unrelated"}
+	want := []string{"executable-" + string(keep.ManifestSHA256) + "-linux-amd64", "nightly-" + string(keep.ManifestSHA256), nightlyCacheDirectory(keep), "nightly-trust.lock", "unrelated"}
 	slices.Sort(want)
 	if !slices.Equal(names, want) {
 		t.Fatalf("after prune: %v, want %v", names, want)
 	}
-	if !strings.Contains(progress.String(), "Removed 5 cached nightly artifacts") {
+	if !strings.Contains(progress.String(), "Removed 6 cached nightly artifacts") {
 		t.Fatalf("progress: %q", progress.String())
 	}
 	if err := installer.PruneNightlyCache(t.Context(), releaseidentity.Identity{}); err == nil {

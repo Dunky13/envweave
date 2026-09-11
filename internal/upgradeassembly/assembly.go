@@ -37,6 +37,9 @@ type Options struct {
 	// NightlyPolicy is the currently published nightly policy when the caller
 	// obtained one online; its revocations then apply to every nightly input.
 	NightlyPolicy []byte
+	// NightlyPlatform selects native binary and metadata inputs for a v2 bundle.
+	// Empty preserves complete v1 offline release assembly.
+	NightlyPlatform string
 }
 
 // Assemble verifies all input evidence before atomically publishing a new
@@ -47,6 +50,9 @@ func Assemble(ctx context.Context, o Options) error {
 	}
 	if o.SnapshotDirectory == "" || o.KeysDirectory == "" || o.OutputDirectory == "" || len(o.Releases)+len(o.Nightlies) == 0 || len(o.Releases)+len(o.Nightlies) > upgradecompat.MaxReleases || len(o.Bridges) > upgradecompat.MaxEdges {
 		return errors.New("require snapshot, keys, output and releases with bounded inventories")
+	}
+	if o.NightlyPlatform != "" && !releasetrust.ValidNightlyPlatform(o.NightlyPlatform) {
+		return errors.New("unsupported nightly platform")
 	}
 	pinned, floor := o.Pinned, o.Floor
 	snapshotNames := []string{"metadata.json", "metadata.sigstore.json", "catalog.json", "catalog.sigstore.json"}
@@ -68,6 +74,9 @@ func Assemble(ctx context.Context, o Options) error {
 	}
 	names := []string{}
 	index := upgradebundle.Index{Format: upgradebundle.IndexFormat, PrimaryKeyIDs: []string{}, Releases: []upgradebundle.ReleaseEntry{}, Bridges: []releaseidentity.Digest{}}
+	if o.NightlyPlatform != "" {
+		index.Format, index.NightlyPlatform = upgradebundle.PlatformIndexFormat, o.NightlyPlatform
+	}
 	idPattern := regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 	for _, key := range metadata.PrimaryKeys {
 		if !releaseidentity.SafeName(key.PublicKey) || !idPattern.MatchString(key.ID) {
@@ -143,7 +152,7 @@ func Assemble(ctx context.Context, o Options) error {
 		}
 	}
 	for _, directory := range o.Nightlies {
-		release, err := upgradebundle.CopyNightlyRelease(ctx, directory, filepath.Join(stage, "releases"), snapshot)
+		release, err := upgradebundle.CopyNightlyPlatformRelease(ctx, directory, filepath.Join(stage, "releases"), snapshot, o.NightlyPlatform)
 		if err != nil {
 			return err
 		}

@@ -44,6 +44,23 @@ func preparedNightlyFixture(t *testing.T, archive []byte) (*Installer, updateche
 	}
 	payloads := map[string][]byte{name: archive, "checksums.txt": responses[base+"checksums.txt"], "binary-provenance.json": []byte("{}"), "upgrade-compatibility.json": claim}
 	artifacts := []releasetrust.Artifact{{Name: name, Kind: "binary", Platform: runtime.GOOS + "/" + runtime.GOARCH}, {Name: "checksums.txt", Kind: "checksum"}, {Name: "binary-provenance.json", Kind: "binary-provenance"}, {Name: "upgrade-compatibility.json", Kind: "upgrade-compatibility"}}
+	for _, platform := range []string{"linux/amd64", "linux/arm64", "darwin/amd64", "darwin/arm64", "windows/amd64", "windows/arm64"} {
+		if platform == nightlyPlatform() {
+			continue
+		}
+		parts := strings.Split(platform, "/")
+		foreign, err := archiveName(version, parts[0], parts[1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		payloads[foreign] = []byte("foreign platform payload")
+		artifacts = append(artifacts, releasetrust.Artifact{Name: foreign, Kind: "binary", Platform: platform})
+	}
+	for _, arch := range []string{"amd64", "arm64"} {
+		name := "hikyo_" + arch + ".deb"
+		payloads[name] = []byte("unused package")
+		artifacts = append(artifacts, releasetrust.Artifact{Name: name, Kind: "package", Platform: "linux/" + arch, Format: "deb", Arch: arch})
+	}
 	trust, material, _ := testfixture.NightlyWithPayloads(t, claim, false, payloads, artifacts)
 	installer.config.TrustRootBase64 = base64.StdEncoding.EncodeToString(trust.Pinned.Root)
 	installer.config.RecoveryKeyBase64 = base64.StdEncoding.EncodeToString(trust.Pinned.RecoveryPublicKey)
@@ -173,7 +190,9 @@ func TestNightlyRouteReauthenticatesAllExactEvidence(t *testing.T) {
 			}
 			declaration.Profile, declaration.Version, declaration.Sequence, declaration.Commit = releaseidentity.NightlyV1, "1.0.0-nightly.1", 1, strings.Repeat("a", 40)
 			claim := testfixture.JSON(t, declaration)
-			material := trust.SignNightly(claim, declaration.Version, declaration.Sequence)
+			material := trust.SignNightlyWithPayloads(claim, declaration.Version, declaration.Sequence,
+				map[string][]byte{"upgrade-compatibility.json": claim, "source.tar.gz": []byte("source binary"), "binary-provenance.json": []byte("{}"), "checksums.txt": []byte("checksums")},
+				[]releasetrust.Artifact{{Name: "upgrade-compatibility.json", Kind: "upgrade-compatibility"}, {Name: "source.tar.gz", Kind: "binary", Platform: nightlyPlatform()}, {Name: "binary-provenance.json", Kind: "binary-provenance"}, {Name: "checksums.txt", Kind: "checksum"}})
 			source := PreparedNightly{Directory: t.TempDir(), Identity: releaseidentity.Identity{Profile: declaration.Profile, Version: declaration.Version, Sequence: declaration.Sequence, Commit: declaration.Commit, CompatibilitySHA256: releaseidentity.Hash(claim), ManifestSHA256: releaseidentity.Hash(material.Manifest)}}
 			for name, reader := range material.Artifacts {
 				raw, err := io.ReadAll(reader)

@@ -270,6 +270,9 @@ func RunAutomaticUpgrade(ctx context.Context, args []string, out io.Writer, read
 		if err != nil {
 			return err
 		}
+		if err := checkAutomaticBundleFormat(ctx, staged[step.Target]); err != nil {
+			return fmt.Errorf("nightly %s cannot use the platform bundle: %w", step.Target.Version, err)
+		}
 	}
 	resume := previous != nil && previous.Phase != "complete" && previous.Phase != "preparing"
 	journal := previous

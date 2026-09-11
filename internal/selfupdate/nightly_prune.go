@@ -65,6 +65,7 @@ func (i *Installer) pruneNightlyCache(ctx context.Context, scratchOnly bool, kee
 			return errors.New("selfupdate: retained nightly identity is invalid")
 		}
 		retained["nightly-"+string(identity.ManifestSHA256)] = true
+		retained[nightlyCacheDirectory(identity)] = true
 		retained["executable-"+string(identity.ManifestSHA256)+"-"] = true
 	}
 	return i.pruneNightlyEntries(ctx, func(name string) bool {
@@ -75,7 +76,7 @@ func (i *Installer) pruneNightlyCache(ctx context.Context, scratchOnly bool, kee
 	})
 }
 
-var nightlyCacheName = regexp.MustCompile(`^(nightly-[0-9a-f]{64}|bundle-[0-9a-f]{64}-[0-9a-f]{64}|executable-[0-9a-f]{64}-[a-z0-9]+-[a-z0-9]+)$`)
+var nightlyCacheName = regexp.MustCompile(`^(nightly-[0-9a-f]{64}(-[a-z0-9]+-[a-z0-9]+)?|bundle-[0-9a-f]{64}-[0-9a-f]{64}|executable-[0-9a-f]{64}-[a-z0-9]+-[a-z0-9]+)$`)
 
 func generatedNightlyEntry(name string) bool {
 	if nightlyCacheName.MatchString(name) {

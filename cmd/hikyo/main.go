@@ -32,6 +32,7 @@ import (
 	binaryupdate "github.com/Hikyo-Org/hikyo/internal/selfupdate"
 	"github.com/Hikyo-Org/hikyo/internal/updatecheck"
 	"github.com/Hikyo-Org/hikyo/internal/updater"
+	"github.com/Hikyo-Org/hikyo/internal/upgradebundle"
 )
 
 // Set by GoReleaser. Development builds deliberately identify themselves as
@@ -107,6 +108,10 @@ func run() int {
 	}
 
 	switch {
+	case cmd == "--upgrade-bundle-formats":
+		fmt.Fprintln(os.Stdout, upgradebundle.IndexFormat)
+		fmt.Fprintln(os.Stdout, upgradebundle.PlatformIndexFormat)
+		return 0
 	case cmd == "--version":
 		writeMachineVersion(os.Stdout)
 		return 0

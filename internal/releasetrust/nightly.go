@@ -47,16 +47,19 @@ type NightlyManifest struct {
 	Artifacts       []Artifact              `json:"artifacts"`
 }
 
-// Artifacts is the actual closed payload inventory, excluding only the fixed
-// release-manifest.json and release-manifest.sigstore.json envelope pair.
-// Every reader is consumed and checked. The caller must enumerate the actual
-// asset directory and keep verified staging bytes immutable until use.
+// Artifacts is the actual closed payload inventory, excluding the fixed
+// manifest/signature pair. Platform selects the native subset; empty means the
+// complete release. VerifyNightly consumes every reader. The caller enumerates
+// the actual directory and keeps verified staging bytes immutable until use.
 type NightlyMaterial struct {
 	Policy, TrustedRoot, Manifest, Bundle, Compatibility []byte
 	Artifacts                                            map[string]io.Reader
+	Platform                                             string
 }
 
-func VerifyNightly(snapshot Snapshot, material NightlyMaterial) (VerifiedRelease, error) {
+// VerifyNightlyManifest authenticates identity and signed inventory without
+// fetching payloads. Each selected artifact must still be verified before use.
+func VerifyNightlyManifest(snapshot Snapshot, material NightlyMaterial) (VerifiedRelease, error) {
 	if !snapshot.Valid() {
 		return VerifiedRelease{}, errors.New("unverified trust snapshot")
 	}
@@ -102,9 +105,6 @@ func VerifyNightly(snapshot Snapshot, material NightlyMaterial) (VerifiedRelease
 	}
 	identity := releaseidentity.Identity{Profile: manifest.Profile, Version: manifest.Version, Sequence: manifest.ReleaseSequence, Commit: manifest.SourceCommit, ManifestSHA256: manifestDigest, CompatibilitySHA256: releaseidentity.Hash(material.Compatibility)}
 	release := VerifiedRelease{state: &verifiedReleaseState{identity: identity, snapshot: snapshot.Digest(), policy: policyDigest, artifacts: slices.Clone(manifest.Artifacts)}}
-	if len(material.Artifacts) != len(manifest.Artifacts) {
-		return VerifiedRelease{}, errors.New("nightly payload inventory is incomplete or has extra assets")
-	}
 	kinds := map[string]bool{}
 	for _, artifact := range manifest.Artifacts {
 		if artifact.Name == "release-manifest.json" || artifact.Name == "release-manifest.sigstore.json" {
@@ -114,18 +114,85 @@ func VerifyNightly(snapshot Snapshot, material NightlyMaterial) (VerifiedRelease
 			return VerifiedRelease{}, errors.New("nightly executable lacks exact platform")
 		}
 		kinds[artifact.Kind] = true
-		reader, ok := material.Artifacts[artifact.Name]
-		if !ok {
-			return VerifiedRelease{}, errors.New("nightly payload missing")
-		}
-		if err := release.VerifyArtifact(artifact.Name, reader); err != nil {
-			return VerifiedRelease{}, fmt.Errorf("nightly asset %s: %w", artifact.Name, err)
-		}
 	}
 	if !kinds["binary"] || !kinds["binary-provenance"] || !kinds["checksum"] {
 		return VerifiedRelease{}, errors.New("nightly binary/provenance/checksum inventory is incomplete")
 	}
+	// These documents grant authority before any payload is downloaded.
+	for name, raw := range map[string][]byte{"nightly-policy.json": material.Policy, "sigstore-trusted-root.json": material.TrustedRoot, CompatibilityArtifact: material.Compatibility} {
+		if err := release.VerifyArtifact(name, bytes.NewReader(raw)); err != nil {
+			return VerifiedRelease{}, fmt.Errorf("nightly document %s: %w", name, err)
+		}
+	}
 	return release, nil
+}
+
+// VerifyNightly verifies the complete inventory by default. Platform requests
+// require exactly the authenticated platform selection, including its metadata.
+func VerifyNightly(snapshot Snapshot, material NightlyMaterial) (VerifiedRelease, error) {
+	release, err := VerifyNightlyManifest(snapshot, material)
+	if err != nil {
+		return VerifiedRelease{}, err
+	}
+	artifacts, err := release.NightlyArtifacts(material.Platform)
+	if err != nil {
+		return VerifiedRelease{}, err
+	}
+	if len(material.Artifacts) != len(artifacts) {
+		return VerifiedRelease{}, errors.New("nightly payload inventory is incomplete or has extra assets")
+	}
+	for _, artifact := range artifacts {
+		if err := release.VerifyArtifact(artifact.Name, material.Artifacts[artifact.Name]); err != nil {
+			return VerifiedRelease{}, fmt.Errorf("nightly asset %s: %w", artifact.Name, err)
+		}
+	}
+	return release, nil
+}
+
+// ValidNightlyPlatform recognizes the release platforms supported by the updater.
+func ValidNightlyPlatform(platform string) bool {
+	return slices.Contains([]string{"linux/amd64", "linux/arm64", "darwin/amd64", "darwin/arm64", "windows/amd64", "windows/arm64"}, platform)
+}
+
+// NightlyArtifacts selects one native binary archive and shared or matching
+// platform metadata. OS packages are not used by the binary self-updater.
+// An empty platform preserves complete offline release verification.
+func (r VerifiedRelease) NightlyArtifacts(platform string) ([]Artifact, error) {
+	if !r.Valid() || r.Identity().Profile != releaseidentity.NightlyV1 {
+		return nil, errors.New("verified nightly required for platform selection")
+	}
+	if platform == "" {
+		return r.Artifacts(), nil
+	}
+	if !ValidNightlyPlatform(platform) {
+		return nil, errors.New("unsupported nightly platform")
+	}
+	var selected []Artifact
+	binaries := 0
+	metadata := map[string]bool{}
+	for _, artifact := range r.Artifacts() {
+		if artifact.Platform != "" && artifact.Platform != platform {
+			continue
+		}
+		switch artifact.Kind {
+		case "binary":
+			binaries++
+		case "nightly-policy", "sigstore-trusted-root", "upgrade-compatibility", "binary-provenance", "checksum", "release-notes", "sbom":
+			metadata[artifact.Kind] = true
+		default:
+			continue
+		}
+		selected = append(selected, artifact)
+	}
+	if binaries != 1 {
+		return nil, errors.New("nightly requires one exact platform binary")
+	}
+	for _, kind := range []string{"nightly-policy", "sigstore-trusted-root", "upgrade-compatibility", "binary-provenance", "checksum"} {
+		if !metadata[kind] {
+			return nil, errors.New("nightly platform metadata is incomplete")
+		}
+	}
+	return selected, nil
 }
 
 func (p NightlyPolicy) Validate() error {
