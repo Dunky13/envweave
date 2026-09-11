@@ -14,7 +14,11 @@ export function Projects() {
   // The system organisation holds exactly one project, the instance's own
   // configuration; the protected profile refuses another (permission-model
   // ADR, 2026-09-06 amendment), so the form is absent rather than refused.
-  const systemOrg = useInSystemScope(activeOrgId, null) === 'system';
+  // While the answer is pending the form waits too: showing it and then
+  // taking it away would lose whatever was typed in between.
+  const scope = useInSystemScope(activeOrgId, null);
+  const systemOrg = scope === 'system';
+  const formReady = scope === 'ordinary';
 
   return (
     <div className="page page--chrome projects">
@@ -36,7 +40,7 @@ export function Projects() {
           <JumpIndex
             sections={[
               { id: 'projects-list', label: 'All projects' },
-              ...(systemOrg ? [] : [{ id: 'projects-new', label: 'New project' }]),
+              ...(formReady ? [{ id: 'projects-new', label: 'New project' }] : []),
             ]}
           />
           <Panel id="projects-list" title="Projects">
@@ -55,9 +59,9 @@ export function Projects() {
               and no other project. Create an organisation of your own under Instance settings
               for your projects.
             </p>
-          ) : (
+          ) : formReady ? (
             <NewProjectForm org={activeOrgId} />
-          )}
+          ) : null}
         </>
       )}
     </div>

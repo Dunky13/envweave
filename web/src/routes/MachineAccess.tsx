@@ -199,13 +199,13 @@ export function nextTab<T>(tabs: readonly T[], current: T, key: string): T | nul
 
 /**
  * accountsRefusalText names the listing failure without inventing a cause.
- * A 404 is the uniform "not available or not yours" answer: the capability
- * may be missing, or the project may be one where machine access is refused
- * by profile. Anything else is not a permission question at all.
+ * A 403 or 404 is the permission answer (the system scope never reaches
+ * here: gateSystemScope answers it first). Anything else is not a
+ * permission question at all, so it does not name a capability.
  */
 export function accountsRefusalText(error: unknown): string {
   if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
-    return 'The service accounts could not be listed. Listing them needs manage-identities on this project, and a project where machine access is available.';
+    return 'The service accounts could not be listed. Listing them needs manage-identities on this project.';
   }
   return 'The service accounts could not be listed. Reload to try again.';
 }
