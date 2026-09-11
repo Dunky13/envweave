@@ -118,9 +118,17 @@ manually during an unfinished upgrade.
 
 `stable` follows signed production releases. `nightly` follows signed GitHub
 prereleases built from the newest green, changed `main` commit. A stable
-`1.0.0` makes the nightly line `1.1.0-nightly.<date>.<run>.g<sha>`; after stable
-`1.1.0`, it advances to `1.2.0-nightly...`. Nightlies use the distinct
+`1.0.0` makes the nightly line `1.0.0-nightly.<date>.<run>.g<sha>`; after stable
+`1.1.0`, it advances to `1.1.0-nightly...`. Nightlies use the distinct
 recovery-authorized `nightly/v1` keyless signing policy. They remain prereleases.
+
+Nightlies may contain migrations added after their stable base. Update ordering
+therefore treats a nightly as newer than that base, unlike ordinary SemVer
+prerelease ordering. `1.1.0-nightly...` cannot update to stable `1.1.0`; only
+`1.1.1` or higher is eligible. Server transitions still require an authenticated
+forward migration route, a recovery-authorized bridge and backup/restore proof.
+Older nightlies published with next-minor names keep their original identities;
+the same conservative base-version rule applies to them.
 
 Before any stable release exists, the first line is
 `0.0.1-nightly.<date>.<run>.g<sha>`. Release discovery is paginated; a long

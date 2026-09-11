@@ -62,7 +62,7 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           COMMIT: ${{ steps.source.outputs.commit }}
         run: ./scripts/release/require-green-main.sh "$REPOSITORY" "$COMMIT"
-      - name: Resolve next-minor nightly identity
+      - name: Resolve stable-base nightly identity
         id: identity
         env:
           GH_TOKEN: ${{ github.token }}

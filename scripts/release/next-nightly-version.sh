@@ -19,9 +19,5 @@ if ! is_semver "$stable" || [ "${stable%%[-+]*}" != "$stable" ]; then
 	printf 'next nightly version: %s is not a stable SemVer version\n' "$1" >&2
 	exit 2
 fi
-major=${stable%%.*}
-remainder=${stable#*.}
-minor=${remainder%%.*}
-next_minor=$((minor + 1))
 exec "$script_dir/nightly-version.sh" \
-	"$major.$next_minor.0" "$date" "$run" "$commit"
+	"$stable" "$date" "$run" "$commit"
