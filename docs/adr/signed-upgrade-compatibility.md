@@ -93,6 +93,11 @@ verification tools; no new cryptographic verifier. Unsigned current nightlies
 cannot claim this profile. The gated server refuses an unsigned nightly upgrade
 of a populated database until a valid profile and bridge exist.
 
+Nightly-to-stable transitions require a stable version strictly greater than the
+nightly's major/minor/patch base, even when the target release sequence is newer.
+For example, `1.1.0-nightly...` cannot transition to `1.1.0`; `1.1.1` or higher
+is eligible only with the normal forward compatibility and bridge proofs.
+
 Nightly never authorizes a stable edge or stable identity. Nightly application
 is explicit CLI only; no nightly WebUI apply. A trust-profile transition or exit
 from a revoked stable source requires two proofs: a recovery-root-signed bridge

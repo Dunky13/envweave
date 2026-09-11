@@ -30,6 +30,27 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 const nightlyTestVersion = "1.0.1-nightly.20260824.1.gaaaaaaaa"
 
+func TestApplyRefusesStableAtOrBelowNightlyBaseBeforeDownload(t *testing.T) {
+	for _, version := range []string{"1.0.9", "1.1.0", "1.1.0+rebuilt"} {
+		t.Run(version, func(t *testing.T) {
+			installer := newInstaller(&http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				t.Fatal("refused transition attempted a download")
+				return nil, nil
+			})}, func() (string, error) {
+				t.Fatal("refused transition accessed executable")
+				return "", nil
+			})
+			err := installer.Apply(t.Context(), updatecheck.Status{
+				Available: true, Channel: updatecheck.ChannelStable,
+				CurrentVersion: "1.1.0-nightly.20260911.1.gaaaaaaaa", LatestVersion: version,
+			})
+			if err == nil || !strings.Contains(err.Error(), "not newer") {
+				t.Fatalf("Apply = %v; want downgrade refusal", err)
+			}
+		})
+	}
+}
+
 func (fn roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return fn(request)
 }

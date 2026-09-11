@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/Hikyo-Org/hikyo/internal/releaseidentity"
+	"github.com/Masterminds/semver/v3"
 )
 
 type BridgeStatement struct {
@@ -83,6 +84,13 @@ func VerifyBridge(snapshot Snapshot, material BridgeMaterial) (VerifiedBridge, e
 	case "hikyo.dev/recovery-bridge/v1":
 		if statement.SourceGenesis != "" || statement.Source.Validate() != nil || statement.Target.Sequence <= statement.Source.Sequence || statement.SourcePolicySHA256.Validate() != nil {
 			return VerifiedBridge{}, errors.New("invalid recovery bridge source")
+		}
+		if statement.Source.Profile == releaseidentity.NightlyV1 && statement.Target.Profile == releaseidentity.StableV1 {
+			source, _ := semver.StrictNewVersion(statement.Source.Version) // identities validated above
+			target, _ := semver.StrictNewVersion(statement.Target.Version)
+			if releaseidentity.CompareUpdateVersions(target, source) <= 0 {
+				return VerifiedBridge{}, errors.New("stable target must be newer than the nightly base version")
+			}
 		}
 	case "hikyo.dev/legacy-nightly-bridge/v1":
 		if statement.SourceGenesis != releaseidentity.LegacyGenesisV1 || statement.Source != (releaseidentity.Identity{}) || statement.SourcePolicySHA256 != "" || statement.Target.Profile != releaseidentity.NightlyV1 || len(statement.SourceMigrations.Entries) == 0 {

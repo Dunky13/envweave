@@ -8,11 +8,11 @@ commit=176e6e67379d0675e6211f0491dc965cee4f1c5c
 [ "$("$nightly_script" 0.0.1 20260824 1 "$commit")" = \
 	'0.0.1-nightly.20260824.1.g176e6e67' ]
 [ "$("$script" 1.0.0 20260824 42 "$commit")" = \
-	'1.1.0-nightly.20260824.42.g176e6e67' ]
+	'1.0.0-nightly.20260824.42.g176e6e67' ]
 [ "$("$script" v1.0.9 20261231 7 "$commit")" = \
-	'1.1.0-nightly.20261231.7.g176e6e67' ]
+	'1.0.9-nightly.20261231.7.g176e6e67' ]
 [ "$("$script" 2.14.3 20260824 1001 "$commit")" = \
-	'2.15.0-nightly.20260824.1001.g176e6e67' ]
+	'2.14.3-nightly.20260824.1001.g176e6e67' ]
 
 expect_reject() {
 	label=$1
@@ -33,4 +33,4 @@ if "$nightly_script" 0.0.1-rc.1 20260824 1 "$commit" >/dev/null 2>&1; then
 	exit 1
 fi
 
-printf 'next nightly version fixture: initial and stable next-minor tags are deterministic\n'
+printf 'next nightly version fixture: initial and stable-base tags are deterministic\n'

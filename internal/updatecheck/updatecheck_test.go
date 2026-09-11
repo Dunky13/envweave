@@ -29,7 +29,7 @@ func TestSelectSeparatesStableAndNightlyChannels(t *testing.T) {
 	}
 }
 
-func TestSelectNightlyChannelAcceptsNewStableBetweenNightlies(t *testing.T) {
+func TestSelectNightlyChannelPreservesNightlyOverSameBaseStable(t *testing.T) {
 	releases := []Release{
 		{Version: "1.1.0"},
 		{Version: "1.1.0-nightly.20260824.42.gbbbbbbbb", Prerelease: true},
@@ -39,8 +39,37 @@ func TestSelectNightlyChannelAcceptsNewStableBetweenNightlies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !status.Available || status.LatestVersion != "1.1.0" || status.Prerelease {
-		t.Fatalf("nightly status = %+v, want promoted stable 1.1.0", status)
+	if status.Available || status.LatestVersion != "1.1.0-nightly.20260824.42.gbbbbbbbb" || !status.Prerelease {
+		t.Fatalf("nightly status = %+v, want installed nightly retained", status)
+	}
+}
+
+func TestSelectStableMustExceedNightlyBase(t *testing.T) {
+	for _, channel := range []Channel{ChannelStable, ChannelNightly} {
+		for _, tc := range []struct {
+			version   string
+			available bool
+		}{
+			{"1.0.9", false}, {"1.1.0", false}, {"1.1.0+rebuilt", false},
+			{"1.1.1", true}, {"1.2.0", true}, {"2.0.0", true},
+		} {
+			t.Run(string(channel)+"/"+tc.version, func(t *testing.T) {
+				status, err := Select("1.1.0-nightly.20260911.1.gaaaaaaaa", channel, []Release{{Version: tc.version}})
+				if err != nil || status.Available != tc.available {
+					t.Fatalf("Select = %+v, %v; want available=%v", status, err, tc.available)
+				}
+			})
+		}
+	}
+}
+
+func TestSelectNightlyAfterStableBase(t *testing.T) {
+	status, err := Select("1.1.0", ChannelNightly, []Release{
+		{Version: "1.1.0-nightly.20260911.1.gaaaaaaaa", Prerelease: true},
+		{Version: "1.1.0"},
+	})
+	if err != nil || !status.Available || !status.Prerelease {
+		t.Fatalf("Select = %+v, %v; want newer nightly", status, err)
 	}
 }
 

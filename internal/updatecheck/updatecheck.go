@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Hikyo-Org/hikyo/internal/releaseidentity"
 	"github.com/Masterminds/semver/v3"
 )
 
@@ -87,7 +88,7 @@ func Select(current string, channel Channel, releases []Release) (Status, error)
 		if err != nil || !admitted(channel, release, candidate) {
 			continue
 		}
-		if latest == nil || candidate.GreaterThan(latest) {
+		if latest == nil || releaseidentity.CompareUpdateVersions(candidate, latest) > 0 {
 			latest = candidate
 			selected = release
 		}
@@ -102,7 +103,7 @@ func Select(current string, channel Channel, releases []Release) (Status, error)
 	status.Immutable = selected.Immutable
 	status.PublishedAt = selected.PublishedAt
 	status.Assets = selected.Assets
-	status.Available = latest.GreaterThan(installed)
+	status.Available = releaseidentity.CompareUpdateVersions(latest, installed) > 0
 	return status, nil
 }
 

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/Hikyo-Org/hikyo/internal/diagnostics"
+	"github.com/Hikyo-Org/hikyo/internal/releaseidentity"
 	"github.com/Hikyo-Org/hikyo/internal/updatecheck"
 	"github.com/Masterminds/semver/v3"
 )
@@ -91,6 +92,13 @@ func (i *Installer) Apply(ctx context.Context, status updatecheck.Status) error 
 	}
 	if status.Channel == updatecheck.ChannelStable && isPrerelease {
 		return errors.New("selfupdate: stable channel cannot install a prerelease")
+	}
+	installed, err := semver.StrictNewVersion(status.CurrentVersion)
+	if err != nil {
+		return fmt.Errorf("selfupdate: installed version is not SemVer: %w", err)
+	}
+	if releaseidentity.CompareUpdateVersions(selectedVersion, installed) <= 0 {
+		return errors.New("selfupdate: selected release is not newer than the installed version")
 	}
 
 	archiveFile, err := archiveName(status.LatestVersion, runtime.GOOS, runtime.GOARCH)
