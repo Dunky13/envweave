@@ -1,5 +1,7 @@
 # Handoff: system-scope refusals and the first administrator's missing grants
 
+PR: https://github.com/Hikyo-Org/Hikyo/pull/728
+
 Origin: six screenshots from a nightly 35 instance (2026-09-11), every one a
 permission-shaped refusal for the first administrator inside the `Hikyo`
 organisation and its `Hikyo <instance id>` project.
