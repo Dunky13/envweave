@@ -20,6 +20,8 @@ import (
 )
 
 const IndexFormat = "hikyo.dev/offline-upgrade-bundle/v1"
+const PlatformIndexFormat = "hikyo.dev/offline-upgrade-bundle/v2"
+
 const maxBundleDocuments = 64 << 20
 
 var keyIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
@@ -30,10 +32,11 @@ type ReleaseEntry struct {
 }
 
 type Index struct {
-	Format        string                   `json:"format"`
-	PrimaryKeyIDs []string                 `json:"primary_key_ids"`
-	Releases      []ReleaseEntry           `json:"releases"`
-	Bridges       []releaseidentity.Digest `json:"bridges"`
+	Format          string                   `json:"format"`
+	NightlyPlatform string                   `json:"nightly_platform,omitempty"`
+	PrimaryKeyIDs   []string                 `json:"primary_key_ids"`
+	Releases        []ReleaseEntry           `json:"releases"`
+	Bridges         []releaseidentity.Digest `json:"bridges"`
 }
 
 // Bundle holds immutable authenticated documents, not mutable downloaded
@@ -101,9 +104,10 @@ func Load(ctx context.Context, directory string, pinned releasetrust.PinnedTrust
 		return Bundle{}, err
 	}
 	var index Index
-	if definitions.DecodeStrict(raw, &index) != nil || index.Format != IndexFormat || index.PrimaryKeyIDs == nil || len(index.PrimaryKeyIDs) > 256 || index.Releases == nil || len(index.Releases) == 0 || len(index.Releases) > upgradecompat.MaxReleases || index.Bridges == nil || len(index.Bridges) > upgradecompat.MaxEdges {
+	if definitions.DecodeStrict(raw, &index) != nil || !validIndexPlatform(index) || index.PrimaryKeyIDs == nil || len(index.PrimaryKeyIDs) > 256 || index.Releases == nil || len(index.Releases) == 0 || len(index.Releases) > upgradecompat.MaxReleases || index.Bridges == nil || len(index.Bridges) > upgradecompat.MaxEdges {
 		return Bundle{}, errors.New("invalid bounded offline bundle index")
 	}
+	reader.nightlyPlatform = index.NightlyPlatform
 	keys := map[string][]byte{}
 	for _, id := range index.PrimaryKeyIDs {
 		if !keyIDPattern.MatchString(id) || id == "." || id == ".." || keys[id] != nil {
@@ -199,12 +203,17 @@ func Load(ctx context.Context, directory string, pinned releasetrust.PinnedTrust
 	return bundle, nil
 }
 
+func validIndexPlatform(index Index) bool {
+	return (index.Format == IndexFormat && index.NightlyPlatform == "") || (index.Format == PlatformIndexFormat && releasetrust.ValidNightlyPlatform(index.NightlyPlatform))
+}
+
 type documentReader struct {
-	ctx          context.Context
-	root         *os.Root
-	bytes        int
-	payloadBytes int64
-	documents    map[string]releaseidentity.Digest
+	nightlyPlatform string
+	ctx             context.Context
+	root            *os.Root
+	bytes           int
+	payloadBytes    int64
+	documents       map[string]releaseidentity.Digest
 }
 
 func (r *documentReader) read(name string) ([]byte, error) {

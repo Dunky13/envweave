@@ -122,16 +122,40 @@ index, tree size, pinned log and checkpoint origin. Local wall time never
 substitutes for signed-time evidence. TSA-only Rekor v2 evidence does not satisfy
 this profile's signed integrated-time contract.
 
-The closed inventory contains every payload asset, including executables with
-exact platforms, compatibility, provenance, checksums, other metadata and
-applicable exact OCI references/digests. Only the fixed enclosing
-`release-manifest.json` and `release-manifest.sigstore.json` pair is outside its
-own inventory. All actual inventory readers are hashed before a nightly release
-is returned. Extra, missing, duplicate, unknown or substituted assets refuse.
-Verified staging bytes must remain immutable until execution. Current unsigned
-nightlies remain unsupported; no fallback constructs a stable identity.
-The [signed-nightly runbook](signed-nightlies.md) covers automated publication,
-offline public trust authorization and complete-payload bundle assembly.
+The signed manifest contains the complete release inventory, including exact
+platforms and artifact digests. Its signature and identity are never rewritten
+for a particular host. Only the fixed enclosing `release-manifest.json` and
+`release-manifest.sigstore.json` pair is outside that inventory.
+
+The automatic binary updater authenticates this manifest before downloading
+payloads. It selects exactly one archive for the host OS and architecture, plus
+shared or matching compatibility, policy, trust-root, provenance, checksum,
+release-note and SBOM metadata. Linux amd64 LXC installations therefore fetch the
+Linux amd64 archive, without Windows, macOS, ARM or OS-package downloads. Debian,
+RPM, APK and Arch packages are not used by the binary updater.
+
+`VerifyNightlyManifest` authenticates release identity and inventory without
+claiming payload verification. `VerifyNightly` then requires and hashes exactly
+the chosen inventory. Missing native archives, ambiguous native archives, extra
+payloads and substituted bytes fail. An empty platform retains complete-release
+verification for offline publication tooling.
+
+Platform bundles use `hikyo.dev/offline-upgrade-bundle/v2` and an explicit
+`nightly_platform` in `index.json`. The loader still supports complete v1 bundles;
+v2 requires a supported platform and its exact signed selection. Private cache
+and bundle payloads share storage on the same filesystem, remain immutable, and
+are independently reverified. Cache removal does not invalidate a linked bundle.
+
+Historical binaries only understand complete v1 bundles. Before stopping the
+service or migrating, the coordinator probes every staged route executable with
+`--upgrade-bundle-formats`. A required intermediate release without v2 support
+fails with an explicit compatibility error, without downloading foreign payloads.
+The initial invocation from an older installed updater still follows that older
+binary's download behavior until it hands off to the new release.
+
+Current unsigned nightlies remain unsupported; no fallback constructs a stable
+identity. The [signed-nightly runbook](signed-nightlies.md) covers automated
+publication, offline public trust authorization and complete-payload assembly.
 
 ## Planner and recovery edges
 

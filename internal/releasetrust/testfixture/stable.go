@@ -23,10 +23,11 @@ import (
 // and demonstrate that the real verifier refuses it.
 type Fixture struct {
 	// SignNightly reuses the same test-local OIDC policy for subsequent releases.
-	SignNightly func([]byte, string, uint64) releasetrust.NightlyMaterial
-	Pinned      releasetrust.PinnedTrust
-	Metadata    releasetrust.Metadata
-	Catalog     releasetrust.Catalog
+	SignNightly             func([]byte, string, uint64) releasetrust.NightlyMaterial
+	SignNightlyWithPayloads func([]byte, string, uint64, map[string][]byte, []releasetrust.Artifact) releasetrust.NightlyMaterial
+	Pinned                  releasetrust.PinnedTrust
+	Metadata                releasetrust.Metadata
+	Catalog                 releasetrust.Catalog
 	// NightlyPolicy is the currently published nightly policy served from the
 	// trust tree; nil for stable-only fixtures.
 	NightlyPolicy  []byte

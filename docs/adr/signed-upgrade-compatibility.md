@@ -1,5 +1,12 @@
 # Signed upgrade compatibility and platform orchestration
 
+> **Platform-download amendment (2026-09-11, owner requested):** Automatic
+> upgrades fetch only the native OS/architecture binary archive and required
+> metadata. The complete signed manifest remains unchanged; v2 runtime bundles
+> verify a closed platform selection. Complete v1 offline bundles remain
+> supported. Historical intermediate executables without v2 support are refused
+> before service fencing or migration. See [artifact verification](../operations/upgrade-artifacts.md#nightly-profile).
+
 > **Declared stable-signing amendment (2026-09-08):** The owner selected online keyless stable signing with reviewed draft publication. [Stable workflow signing](stable-workflow-signing.md) supersedes the historical offline stable ceremony after implementation merge and explicit recovery-signed policy activation. The existing root remains; activation and 1.0 publication are pending.
 
 Status: locked upon merge of the #638 governance and legacy-retirement PR, 2026-09-05.

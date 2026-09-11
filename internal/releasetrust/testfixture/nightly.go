@@ -210,6 +210,10 @@ func NightlyWithPayloads(t testing.TB, compatibility []byte, wrongCommit bool, p
 		}
 		return releasetrust.NightlyMaterial{Policy: policyRaw, TrustedRoot: rootRaw, Manifest: manifest, Bundle: bundleRaw, Compatibility: payloads[releasetrust.CompatibilityArtifact], Artifacts: readers}, pb
 	}
+	f.SignNightlyWithPayloads = func(compatibility []byte, version string, sequence uint64, payloads map[string][]byte, artifacts []releasetrust.Artifact) releasetrust.NightlyMaterial {
+		material, _ := sign(compatibility, version, sequence, payloads, artifacts)
+		return material
+	}
 	f.SignNightly = func(compatibility []byte, version string, sequence uint64) releasetrust.NightlyMaterial {
 		material, _ := sign(compatibility, version, sequence, nil, nil)
 		return material

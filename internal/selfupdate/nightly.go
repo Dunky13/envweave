@@ -102,7 +102,7 @@ func (i *Installer) prepareNightly(ctx context.Context, status updatecheck.Statu
 	}
 	cachedDirectory := ""
 	if cacheIdentity.Validate() == nil && cacheIdentity.Version == status.LatestVersion {
-		candidate := filepath.Join(i.config.StateDir, "nightly-"+string(cacheIdentity.ManifestSHA256))
+		candidate := filepath.Join(i.config.StateDir, nightlyCacheDirectory(cacheIdentity))
 		if err := realNightlyDirectory(candidate); err == nil {
 			cachedDirectory = candidate
 		} else if !errors.Is(err, os.ErrNotExist) {
@@ -119,57 +119,9 @@ func (i *Installer) prepareNightly(ctx context.Context, status updatecheck.Statu
 		}
 		defer func() { err = errors.Join(err, os.RemoveAll(stage)) }()
 	}
-	var total int64
-	for _, candidate := range status.Assets {
-		total += candidate.Size
-	}
-	if cachedDirectory == "" {
-		diagnostics.Printf(ctx, 1, "  Downloading nightly %s: %d assets, %s.", status.LatestVersion, len(status.Assets), mebibytes(total))
-	} else {
-		diagnostics.Printf(ctx, 1, "  Reusing cached nightly %s; re-verifying %d assets.", status.LatestVersion, len(status.Assets))
-	}
-	total = 0
-	for _, candidate := range status.Assets {
-		if !releaseidentity.SafeName(candidate.Name) {
-			return errors.New("selfupdate: unsafe nightly payload name")
-		}
-		asset, err := exactAsset(status.LatestVersion, candidate.Name, status.Assets)
-		if err != nil {
-			return err
-		}
-		total += asset.Size
-		if asset.Size > maxArchiveBytes || total > 8<<30 {
-			return errors.New("selfupdate: nightly payload inventory exceeds byte bound")
-		}
-		var raw []byte
-		if cachedDirectory == "" {
-			diagnostics.Printf(ctx, 2, "    %s (%s)", asset.Name, mebibytes(asset.Size))
-			raw, err = i.download(ctx, asset, maxArchiveBytes)
-		} else {
-			raw, err = readNightlyFile(filepath.Join(cachedDirectory, asset.Name), maxArchiveBytes)
-			if err == nil && (int64(len(raw)) != asset.Size || "sha256:"+string(releaseidentity.Hash(raw)) != asset.Digest) {
-				err = errors.New("selfupdate: cached nightly differs from immutable release asset inventory")
-			}
-		}
-		if err != nil {
-			return err
-		}
-		if cachedDirectory != "" {
-			continue
-		}
-		file, err := os.OpenFile(filepath.Join(stage, asset.Name), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-		if err != nil {
-			return err
-		}
-		_, err = file.Write(raw)
-		if err := errors.Join(err, file.Sync(), file.Close()); err != nil {
-			return err
-		}
-	}
-	diagnostics.Printf(ctx, 1, "  Verifying nightly %s signatures.", status.LatestVersion)
-	release, err := upgradebundle.VerifyNightlyDirectory(ctx, stage, snapshot)
+	release, err := i.downloadNightlyPlatform(ctx, status, stage, cachedDirectory != "", snapshot)
 	if err != nil {
-		return fmt.Errorf("selfupdate: authenticate complete nightly: %w", err)
+		return err
 	}
 	identity := release.Identity()
 	if identity.Version != status.LatestVersion {
@@ -184,12 +136,12 @@ func (i *Installer) prepareNightly(ctx context.Context, status updatecheck.Statu
 	if err := filedurability.SyncDirectory(stage); err != nil {
 		return err
 	}
-	destination := filepath.Join(i.config.StateDir, "nightly-"+string(identity.ManifestSHA256))
+	destination := filepath.Join(i.config.StateDir, nightlyCacheDirectory(identity))
 	if _, statErr := os.Lstat(destination); statErr == nil {
 		if err := realNightlyDirectory(destination); err != nil {
 			return err
 		}
-		verified, err := upgradebundle.VerifyNightlyDirectory(ctx, destination, snapshot)
+		verified, err := upgradebundle.VerifyNightlyPlatformDirectory(ctx, destination, snapshot, nightlyPlatform())
 		if err != nil || verified.Identity() != identity {
 			return errors.New("selfupdate: existing nightly staging differs from verified release")
 		}
