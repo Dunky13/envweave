@@ -91,6 +91,35 @@ or a pipe. Delete `hikyo-admin-authority` after the command succeeds, then open
   Hikyo beyond loopback.
 </Callout>
 
+## 4. What the first administrator does not hold yet
+
+The first administrator holds the `operator` template at instance scope and,
+once the instance has adopted its own configuration, the `admin` template on
+the `Hikyo` organisation it creates. Two capabilities are deliberately outside
+every template and must be granted explicitly, to yourself or anyone else:
+
+| Capability | Where | Unlocks |
+|---|---|---|
+| `audit-read` | an organisation, project or environment | that scope's audit trail (Audit, Project audit) |
+| `instance-directory` | the instance | Remotes: the directory of connected instances |
+
+Grant them in the browser under Members (organisation scope) and Instance
+members (instance scope), or from the CLI after `hikyo login`:
+
+```bash
+hikyo access grant add --principal <your principal id> --capability audit-read --org <org id>
+hikyo access grant add --principal <your principal id> --capability instance-directory --instance-scope
+```
+
+Every grant to yourself ends your current session. Sign in again and present
+your second factor before continuing.
+
+The `Hikyo` organisation and its `Hikyo <instance id>` project are the
+instance's own configuration. They refuse machine access, deployment adapters,
+SCIM provisioning and additional projects by design, so those pages are absent
+there. Create an organisation of your own for your projects, as
+[your first project](/docs/first-project/) does.
+
 ## Next steps
 
 - Complete [your first project](/docs/first-project/) to create environments and a validated value.

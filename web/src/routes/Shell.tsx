@@ -18,6 +18,7 @@ import {
 } from 'react-router';
 
 import { useLogout, useOrgs, type WhoAmI } from '../api/session.ts';
+import { useSystemScope } from '../api/selfConfig.ts';
 import { useProjects } from '../api/settings.ts';
 import { retentionBanner, storageBanner, useRetentionHealth } from '../api/retention.ts';
 import {
@@ -97,6 +98,7 @@ export function Shell({ session }: { session: WhoAmI }) {
   // only be refused with a 403). The reads still swallow a 403 as belt-and-
   // suspenders; this just stops us provoking it.
   const isInstanceOperator = session.capabilities.instance_operator;
+  const systemScope = useSystemScope(isInstanceOperator).scope;
   const retentionHealth = useRetentionHealth(isInstanceOperator);
   const updateStatus = useUpdateStatus(isInstanceOperator);
   const serverVersion = useServerVersion();
@@ -309,6 +311,7 @@ export function Shell({ session }: { session: WhoAmI }) {
     routeProjectId: routeProjectId === '' ? '' : activeProjectId,
     remote,
     isInstanceOperator,
+    systemScope,
   });
 
   return (

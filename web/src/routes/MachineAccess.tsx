@@ -58,6 +58,7 @@ import {
 } from '../api/identities.ts';
 import { TypedNameConfirm } from './Sections.tsx';
 import { ApiError } from '../api/client.ts';
+import { gateSystemScope } from './SystemScope.tsx';
 import {
   createDynamicProvider,
   createProviderRefusalText,
@@ -196,7 +197,23 @@ export function nextTab<T>(tabs: readonly T[], current: T, key: string): T | nul
   }
 }
 
-export function MachineAccess() {
+/**
+ * accountsRefusalText names the listing failure without inventing a cause.
+ * A 404 is the uniform "not available or not yours" answer: the capability
+ * may be missing, or the project may be one where machine access is refused
+ * by profile. Anything else is not a permission question at all.
+ */
+export function accountsRefusalText(error: unknown): string {
+  if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+    return 'The service accounts could not be listed. Listing them needs manage-identities on this project, and a project where machine access is available.';
+  }
+  return 'The service accounts could not be listed. Reload to try again.';
+}
+
+/** Deep links into the Hikyo system project answer with the profile refusal. */
+export const MachineAccess = gateSystemScope('machine-access', MachineAccessPage);
+
+function MachineAccessPage() {
   const params = useParams();
   const project: ProjectRef = {
     org: params['org'] ?? '',
@@ -394,10 +411,7 @@ export function MachineAccess() {
           <span className="alert__glyph" aria-hidden="true">
             !
           </span>
-          <span>
-            The service accounts could not be listed. Listing them needs manage-identities on this
-            project.
-          </span>
+          <span>{accountsRefusalText(accountsQuery.error)}</span>
         </p>
       ) : null}
 

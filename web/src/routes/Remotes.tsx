@@ -94,7 +94,9 @@ export function Remotes() {
             </span>
             <span>
               The remote directory could not be read. You may not hold{' '}
-              <span className="mono">instance-directory</span> on this instance.
+              <span className="mono">instance-directory</span> on this instance. The operator
+              template does not include it; an instance member manager grants it under Instance
+              members, and the grant ends the current session.
             </span>
           </p>
         ) : null}
@@ -138,7 +140,7 @@ export function ThisInstance() {
         <p className="alert" role="alert">
           <span className="alert__glyph" aria-hidden="true">!</span>
           <span>{directory.error instanceof ApiError && directory.error.status === 403
-            ? 'You do not hold instance-directory on this instance. Its directory is not available to you.'
+            ? 'You do not hold instance-directory on this instance. Its directory is not available to you. The operator template does not include it; an instance member manager grants it under Instance members, and the grant ends the current session.'
             : "This instance's directory could not be read. Reload to try again."}</span>
         </p>
       ) : directory.data === undefined ? null : (

@@ -45,10 +45,20 @@ function when(value: string): string {
   return Number.isNaN(at.getTime()) ? value : at.toLocaleString();
 }
 
-function refusalText(error: unknown): string {
+function refusalText(error: unknown, scope: AuditScope): string {
   if (error instanceof ApiError) {
     if (error.status === 404 || error.status === 403) {
-      return 'This trail is not available, or you may not read it.';
+      // `audit-read` is its own grant (audit-model ADR): no template seeds
+      // it, the organisation `admin` template included. Name the exact grant
+      // and where it is made, so the holder of everything else is not left
+      // guessing which capability this is.
+      const where =
+        scope.project === undefined
+          ? 'this organisation'
+          : scope.environment === ''
+            ? 'this project'
+            : 'this environment';
+      return `This trail is not available, or you may not read it. Reading it needs the audit-read grant on ${where} with a second factor in this session. No role template includes audit-read; a member manager grants it under Members.`;
     }
     if (error.status === 400) {
       return error.detail ?? 'The filter is not valid.';
@@ -238,7 +248,7 @@ function AuditTrail({ org, project }: { readonly org: string; readonly project: 
           {trail.isPending ? <p role="status">Loading events…</p> : null}
           {trail.isError ? (
             <p className="audit__empty alert" role="alert">
-              {refusalText(trail.error)}
+              {refusalText(trail.error, scope)}
             </p>
           ) : emptyResult ? (
             <div className="audit__empty" role="status">
