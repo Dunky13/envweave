@@ -82,7 +82,7 @@ bundle and boots/restarts the packaged Linux binary in production mode on both
 engines. After the first signed nightly, it also runs the previous published
 binary, populates an encrypted secret, exports and drills a backup, signs local
 operator evidence, upgrades with the candidate binary, and checks readiness,
-secret readability and restart. Each nightly declares up to three signed
+secret readability and restart. Each nightly declares up to eight signed
 predecessors as exact-schema upgrade sources, newest first, and the populated
 upgrade proof runs from both the newest and the oldest of them, so a route can
 skip one revoked or missing release without a bridge ceremony as long as an

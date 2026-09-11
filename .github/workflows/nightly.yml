@@ -163,7 +163,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ALLOW_MISSING_PREDECESSOR: ${{ inputs.allow_missing_predecessor == true }}
-          PREDECESSOR_EDGES: 3
+          PREDECESSOR_EDGES: 8
         run: |
           set -o pipefail
           # Up to PREDECESSOR_EDGES signed predecessors, newest first, each
