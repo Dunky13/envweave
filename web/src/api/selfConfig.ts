@@ -17,6 +17,15 @@ const configKey = ['self-config'];
 /** The Hikyo system organisation and project ids, from the self-configuration binding. */
 export type SystemScope = { readonly org: string; readonly project: string };
 
+/**
+ * The surfaces the protected system profile refuses outright (permission-model
+ * ADR, 2026-09-06 amendment: machine consumers, adapters, SCIM). The sidebar
+ * omits them in the system scope and their routes answer a deep link with the
+ * reason; both read this one list.
+ */
+export const SYSTEM_SCOPE_REFUSED_SURFACES = ['machine-access', 'adapters', 'scim'] as const;
+export type SystemScopeSurface = (typeof SYSTEM_SCOPE_REFUSED_SURFACES)[number];
+
 export function useSelfConfig(enabled = true) {
   const transport = useTransport();
   return useQuery({ queryKey: configKey, queryFn: () => parsed(getInstanceConfigOp, { ...transport }), enabled, refetchInterval: (query) => query.state.status === 'error' ? false : 2000, retry: false });

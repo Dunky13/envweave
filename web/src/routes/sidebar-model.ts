@@ -1,7 +1,7 @@
 import { generatePath } from 'react-router';
 
 import { needsOrg, sectionsFor, surfaceById, type Surface } from '../app/navigation.ts';
-import type { SystemScope } from '../api/selfConfig.ts';
+import { SYSTEM_SCOPE_REFUSED_SURFACES, type SystemScope } from '../api/selfConfig.ts';
 import { withRemote } from '../api/transport.tsx';
 
 export type SidebarLink = {
@@ -32,12 +32,8 @@ export type SidebarModel = {
 
 const localOnly = (label: string) => `${label} is local-instance only`;
 
-/**
- * The surfaces the protected system profile refuses outright. Every other
- * project and organisation surface stays reachable there under its ordinary
- * grant plus `instance-config`.
- */
-export const SYSTEM_SCOPE_REFUSES: ReadonlySet<string> = new Set(['machine-access', 'adapters', 'scim']);
+/** Every other project and organisation surface stays reachable in the system scope. */
+const SYSTEM_SCOPE_REFUSES: ReadonlySet<string> = new Set(SYSTEM_SCOPE_REFUSED_SURFACES);
 
 function link(surface: Surface, to: string, disabledReason: string | null = null): SidebarLink {
   return { id: surface.id, label: surface.label, to, disabledReason };

@@ -98,7 +98,6 @@ export function Shell({ session }: { session: WhoAmI }) {
   // only be refused with a 403). The reads still swallow a 403 as belt-and-
   // suspenders; this just stops us provoking it.
   const isInstanceOperator = session.capabilities.instance_operator;
-  const systemScope = useSystemScope(isInstanceOperator).scope;
   const retentionHealth = useRetentionHealth(isInstanceOperator);
   const updateStatus = useUpdateStatus(isInstanceOperator);
   const serverVersion = useServerVersion();
@@ -130,6 +129,10 @@ export function Shell({ session }: { session: WhoAmI }) {
   const membersProjectId = here?.surface.id === 'members' ? search.get('project') ?? '' : '';
   const routeProjectId = pathProjectId === '' ? membersProjectId : pathProjectId;
   const remote = search.get('remote') ?? '';
+  // The system scope is this instance's; a remote workspace's config read
+  // would be an audited denial on the remote, and its project links are
+  // disabled here anyway.
+  const systemScope = useSystemScope(isInstanceOperator && remote === '').scope;
 
   // A deep link is a selection too. Persist it only after the organisation
   // listing confirms the id, then unscoped destinations keep the same tenant.

@@ -1,21 +1,20 @@
 import type { ReactElement } from 'react';
 import { Link, useParams } from 'react-router';
 
-import { useSystemScope } from '../api/selfConfig.ts';
+import { useSystemScope, type SystemScopeSurface } from '../api/selfConfig.ts';
+import { useWorkspaceContext } from '../api/transport.tsx';
 import { useInstanceOperator } from '../app/AuthProvider.tsx';
 import { surfaceById } from '../app/navigation.ts';
 import { Alert } from './Sections.tsx';
 
 /**
- * Which surfaces the protected system profile refuses. The Hikyo system
- * organisation and project carry the instance's own configuration; the
- * permission-model ADR (2026-09-06 amendment) refuses machine consumers,
- * adapters and SCIM there outright, whatever the caller holds. The sidebar
- * omits these entries in that scope (sidebar-model.ts); this gate answers a
- * deep link with the reason instead of a refusal dressed as a denial.
+ * The Hikyo system organisation and project carry the instance's own
+ * configuration; the permission-model ADR (2026-09-06 amendment) refuses
+ * machine consumers, adapters and SCIM there outright, whatever the caller
+ * holds. The sidebar omits these entries in that scope (sidebar-model.ts);
+ * this gate answers a deep link with the reason instead of a refusal dressed
+ * as a denial.
  */
-export type SystemScopeSurface = 'machine-access' | 'adapters' | 'scim';
-
 const REASON: Record<SystemScopeSurface, string> = {
   'machine-access':
     'Machine access is not available here: the system configuration project has no machine consumers, service accounts or dynamic providers.',
@@ -33,7 +32,12 @@ const REASON: Record<SystemScopeSurface, string> = {
  */
 export function useInSystemScope(org: string, project: string | null): 'pending' | 'system' | 'ordinary' {
   const operator = useInstanceOperator();
-  const { pending, scope } = useSystemScope(operator === true);
+  // A remote workspace is the viewing side: the operator hint is this
+  // instance's, the transport is the remote's, and its system scope is the
+  // remote's own concern (and an audited denial there). Never read it.
+  const local = useWorkspaceContext() === null;
+  const { pending, scope } = useSystemScope(local && operator === true);
+  if (!local) return 'ordinary';
   if (operator === null || pending) return 'pending';
   if (scope === null || scope.org !== org) return 'ordinary';
   return project === null || scope.project === project ? 'system' : 'ordinary';
