@@ -1,0 +1,1206 @@
+---
+// Prototype 4 · Manifesto. Five numbered statements, ink on bone, one accent.
+// Every product claim on this page is rendered from src/lib/prototype/hikyo.ts.
+import HikyoHead from '../../../components/prototype/HikyoHead.astro';
+import HikyoSwitcher from '../../../components/prototype/HikyoSwitcher.astro';
+import {
+  cellLabel,
+  cellText,
+  claims,
+  cli,
+  cliRead,
+  cliReferenceUrl,
+  coreConceptsUrl,
+  docsUrl,
+  environments,
+  gettingStartedUrl,
+  keyCount,
+  masked,
+  matrix,
+  project,
+  repositoryUrl,
+  selfHostingUrl,
+} from '../../../lib/prototype/hikyo';
+import '@fontsource-variable/bricolage-grotesque/standard.css';
+import '@fontsource/azeret-mono/400.css';
+import '@fontsource/azeret-mono/500.css';
+
+const webhook = matrix.flatMap((g) => g.keys).find((k) => k.name === 'STRIPE_WEBHOOK_SECRET');
+if (!webhook) throw new Error('example data no longer contains STRIPE_WEBHOOK_SECRET');
+
+const [explicitState, declarations, disclosure, chokepoint, selfHosting] = claims.pillars;
+if (!explicitState || !declarations || !disclosure || !chokepoint || !selfHosting) {
+  throw new Error('example data no longer has five pillars');
+}
+
+const groupCount = matrix.length;
+const violations = matrix.flatMap((g) => g.keys).flatMap((k) =>
+  environments.filter((env) => k.cells[env].kind === 'missing').map((env) => `${k.name} in ${env}`),
+);
+
+const ceremony = [
+  { verb: 'Request', text: 'An ordinary read returns classification and presence. Plaintext is a separate request.' },
+  { verb: 'Reauthenticate', text: 'The request is answered only after a fresh authentication. Protected environments take a new ceremony every time.' },
+  { verb: 'Reveal', text: 'The value goes to a new mode-0600 file, or to a short display window that remasks on its own.' },
+  { verb: 'Record', text: 'The reveal writes its own audit event: actor, object, outcome, decision context. Never the secret.' },
+];
+
+const spec = [
+  { term: 'Runtime', detail: 'One Go binary with an embedded web UI' },
+  { term: 'Storage', detail: 'SQLite or PostgreSQL' },
+  { term: 'Encryption', detail: 'Envelope encryption, root key held by the operator' },
+  { term: 'Identity', detail: claims.identity.join(', ') },
+  { term: 'Delivery', detail: claims.delivery.join(', ') },
+  { term: 'Imports', detail: claims.imports.join(', ') },
+  { term: 'Lifecycle', detail: claims.lifecycle.join(', ') },
+  { term: 'License', detail: claims.license },
+];
+
+const sections = [
+  { n: '01', id: 'empty', title: 'Empty is a state.' },
+  { n: '02', id: 'declare', title: 'Declare, then decide.' },
+  { n: '03', id: 'reveal', title: 'Reveal is a verb.' },
+  { n: '04', id: 'door', title: 'One door.' },
+  { n: '05', id: 'yours', title: 'Yours.' },
+];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <HikyoHead
+      title="Hikyo: set, or absent, never inherited"
+      description={claims.positioning}
+      themeColor="#f5f3ee"
+    />
+  </head>
+  <body>
+    <div class="progress" aria-hidden="true"></div>
+
+    <header class="masthead">
+      <a class="wordmark" href="/" aria-label="hikyo home">
+        <img src="/favicon.svg" alt="" width="22" height="22" />
+        <span>hikyo</span>
+      </a>
+      <nav class="masthead-nav" aria-label="Primary">
+        <a href={docsUrl}>Docs</a>
+        <a href={repositoryUrl} rel="noopener">GitHub</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="hero-heading">
+        <p class="marker">Prototype 4 · Manifesto</p>
+        <h1 id="hero-heading">
+          <span>Set.</span>
+          <span>Or absent.</span>
+          <span>Never inherited.</span>
+        </h1>
+        <p class="subline">{claims.positioning}</p>
+        <div class="actions">
+          <a class="btn btn-primary" href={repositoryUrl} rel="noopener">View on GitHub</a>
+          <a class="btn btn-secondary" href={gettingStartedUrl}>Read the docs</a>
+        </div>
+      </section>
+
+      <!-- 01 -->
+      <section class="statement" id={sections[0]?.id} aria-labelledby="s1-heading">
+        <div class="num" aria-hidden="true">01</div>
+        <div class="body">
+          <h2 id="s1-heading"><span class="vh">Statement one. </span>Empty is a state.</h2>
+          <p>{explicitState.body}</p>
+          <p>
+            Read the <code>production</code> column of <code>{webhook.name}</code> below. It is not blank. It is
+            <span class="state-missing">! required · absent</span>, and the matrix says so before a deploy does.
+          </p>
+        </div>
+        <div class="artifact bleed">
+          <div class="matrix-head">
+            <span class="mono">{project.organisation}/{project.name}</span>
+            <span class="mono muted">{keyCount} keys · {groupCount} groups · {project.revision}</span>
+          </div>
+          <p class="scroll-hint" aria-hidden="true">Scroll sideways for staging and production</p>
+          <div class="matrix-scroll" role="region" tabindex="0" aria-label="Environment matrix, scrolls horizontally">
+            <table class="matrix">
+              <caption class="vh">
+                Environment matrix for {project.organisation}/{project.name}: {keyCount} keys across {environments.length} environments.
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">key</th>
+                  {environments.map((env) => (
+                    <th scope="col">
+                      {env}
+                      {project.protectedEnvironments.some((p) => p === env) && <span class="protected"> · protected</span>}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              {matrix.map((group) => (
+                <tbody>
+                  <tr class="group-row">
+                    <th scope="rowgroup" colspan={environments.length + 1}>
+                      <span class="group-name">{group.name}</span>
+                      {group.allOrNone && <span class="group-rule">group: all or none</span>}
+                    </th>
+                  </tr>
+                  {group.keys.map((key) => (
+                    <tr>
+                      <th scope="row">
+                        <span class="key-name">{key.name}</span>
+                        {key.classification === 'secret' && (
+                          <span class="lock" title="secret">
+                            <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true" focusable="false">
+                              <rect x="2" y="5.5" width="8" height="5.5" fill="none" stroke="currentColor" stroke-width="1" />
+                              <path d="M4 5.5V3.5a2 2 0 0 1 4 0v2" fill="none" stroke="currentColor" stroke-width="1" />
+                            </svg>
+                            <span class="vh">secret</span>
+                          </span>
+                        )}
+                      </th>
+                      {environments.map((env) => {
+                        const cell = key.cells[env];
+                        return (
+                          <td class={`cell cell-${cell.kind}`}>
+                            <span aria-hidden="true">{cellText(cell)}</span>
+                            <span class="vh">{cellLabel(cell)}</span>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              ))}
+            </table>
+          </div>
+          <ul class="legend" aria-label="Matrix legend">
+            <li><span class="mono">{masked}</span> secret set, masked</li>
+            <li><span class="mono">· absent</span> explicit absence</li>
+            <li><span class="mono state-missing">! required · absent</span> violation</li>
+            <li><span class="mono state-draft">Δ</span> draft, not yet published</li>
+          </ul>
+          <p class="matrix-note">
+            {violations.length} violation{violations.length === 1 ? '' : 's'} in this revision: {violations.join('; ')}.
+            Nothing in this table was inherited from a neighbouring column. There is no neighbouring column to inherit from.
+          </p>
+        </div>
+      </section>
+
+      <!-- 02 -->
+      <section class="statement" id={sections[1]?.id} aria-labelledby="s2-heading">
+        <div class="num" aria-hidden="true">02</div>
+        <div class="body">
+          <h2 id="s2-heading"><span class="vh">Statement two. </span>Declare, then decide.</h2>
+          <p>{declarations.body}</p>
+          <p>A declaration is short. It is also the whole contract for the key.</p>
+        </div>
+        <div class="artifact">
+          <dl class="spec">
+            <div>
+              <dt>name</dt>
+              <dd class="mono">{webhook.name}</dd>
+            </div>
+            <div>
+              <dt>classification</dt>
+              <dd class="mono">{webhook.classification}</dd>
+            </div>
+            <div>
+              <dt>rule</dt>
+              <dd class="mono">{webhook.rule}</dd>
+            </div>
+            <div>
+              <dt>presence</dt>
+              <dd class="mono">{webhook.presence}</dd>
+            </div>
+          </dl>
+          <pre class="cmd"><code>{cli.declare}</code></pre>
+          <p class="refusal">
+            <span class="refusal-glyph" aria-hidden="true">!</span>
+            <span><span class="vh">Refusal. </span>A required value cannot be cleared where its rule applies. The write is refused before state changes.</span>
+          </p>
+        </div>
+      </section>
+
+      <!-- 03 -->
+      <section class="statement" id={sections[2]?.id} aria-labelledby="s3-heading">
+        <div class="num" aria-hidden="true">03</div>
+        <div class="body">
+          <h2 id="s3-heading"><span class="vh">Statement three. </span>Reveal is a verb.</h2>
+          <p>{disclosure.body}</p>
+        </div>
+        <div class="artifact ceremony">
+          <svg class="lock-large" viewBox="0 0 120 150" width="120" height="150" aria-hidden="true" focusable="false">
+            <rect x="12" y="66" width="96" height="74" rx="4" fill="none" stroke="currentColor" stroke-width="1" />
+            <path d="M32 66V40a28 28 0 0 1 56 0v26" fill="none" stroke="currentColor" stroke-width="1" />
+            <circle cx="60" cy="98" r="7" fill="none" stroke="currentColor" stroke-width="1" />
+            <path d="M60 105v16" fill="none" stroke="currentColor" stroke-width="1" />
+            <path d="M12 103h96" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="2 4" />
+          </svg>
+          <ol class="steps">
+            {ceremony.map((step) => (
+              <li>
+                <span class="step-verb">{step.verb}</span>
+                <span class="step-text">{step.text}</span>
+              </li>
+            ))}
+          </ol>
+          <div class="reveal-demo">
+            <pre class="cmd"><code>{cliRead.get}</code></pre>
+            <pre class="cmd out"><code>{cliRead.getMasked}</code></pre>
+            <pre class="cmd"><code>{cliRead.reveal}</code></pre>
+            <p class="reveal-state">
+              <span class="mono">{masked}</span>
+              <span>stays masked in every ordinary read. Replacing a secret never reveals the old one.</span>
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- 04 -->
+      <section class="statement" id={sections[3]?.id} aria-labelledby="s4-heading">
+        <div class="num" aria-hidden="true">04</div>
+        <div class="body">
+          <h2 id="s4-heading"><span class="vh">Statement four. </span>One door.</h2>
+          <p>{chokepoint.body}</p>
+        </div>
+        <div class="artifact bleed surfaces">
+          <ul class="surface-row" aria-label="Surfaces">
+            {claims.surfaces.map((surface) => (
+              <li>{surface}</li>
+            ))}
+          </ul>
+          <p class="surface-line">
+            Same explicit state. Same authorization decision, for humans, machine identities, and local break-glass.
+          </p>
+          <p class="surface-delivery">
+            <span class="eyebrow">Delivery</span>
+            {claims.delivery.map((target, i) => (
+              <span class="mono">{target}{i < claims.delivery.length - 1 ? ' · ' : ''}</span>
+            ))}
+          </p>
+        </div>
+      </section>
+
+      <!-- 05 -->
+      <section class="statement" id={sections[4]?.id} aria-labelledby="s5-heading">
+        <div class="num" aria-hidden="true">05</div>
+        <div class="body">
+          <h2 id="s5-heading"><span class="vh">Statement five. </span>Yours.</h2>
+          <p>{selfHosting.body}</p>
+          <p>{claims.noEnterpriseTier}</p>
+        </div>
+        <div class="artifact">
+          <pre class="cmd server"><code>{cli.server}</code></pre>
+          <dl class="ruled">
+            {spec.map((row) => (
+              <div>
+                <dt>{row.term}</dt>
+                <dd>{row.detail}</dd>
+              </div>
+            ))}
+          </dl>
+          <p class="audit-line">{claims.audit}</p>
+        </div>
+      </section>
+
+      <section class="closing" aria-labelledby="closing-heading">
+        <h2 id="closing-heading">{claims.tagline}</h2>
+        <p>
+          Read the <a href={coreConceptsUrl}>core concepts</a>, the <a href={cliReferenceUrl}>CLI reference</a>, or the
+          <a href={selfHostingUrl}>self-hosting guide</a>. Then run one binary.
+        </p>
+        <pre class="cmd"><code>{cli.dev}</code></pre>
+        <div class="actions">
+          <a class="btn btn-primary" href={repositoryUrl} rel="noopener">View on GitHub</a>
+          <a class="btn btn-secondary" href={docsUrl}>Docs</a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>
+        <span class="mono">{claims.license}</span> · {claims.maturity} Versioned 0.x, pre-1.0.
+      </p>
+      <nav aria-label="Statements">
+        {sections.map((s) => (
+          <a href={`#${s.id}`}><span class="mono accent">{s.n}</span> {s.title}</a>
+        ))}
+      </nav>
+    </footer>
+
+    <HikyoSwitcher current={4} />
+  </body>
+</html>
+
+<style>
+  :root {
+    color-scheme: light;
+    --bone: oklch(0.97 0.01 90);
+    --ink: oklch(0.22 0.02 260);
+    --ink-muted: oklch(0.42 0.02 250);
+    --hairline: oklch(0.8 0.012 90);
+    --accent: oklch(0.45 0.09 200);
+    --violation: oklch(0.48 0.14 30);
+    --draft: oklch(0.5 0.05 250);
+    --display: 'Bricolage Grotesque Variable', 'Helvetica Neue', Arial, sans-serif;
+    --mono: 'Azeret Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+    --gutter: clamp(1.25rem, 5vw, 4rem);
+    --section-gap: clamp(6rem, 18vh, 12rem);
+    --num-col: 5rem;
+    --hang: 25%;
+    --ease: cubic-bezier(0.25, 1, 0.5, 1);
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    background: var(--bone);
+    overflow-x: clip;
+  }
+
+  body {
+    margin: 0;
+    color: var(--ink);
+    background: var(--bone);
+    font-family: var(--display);
+    font-variation-settings: 'opsz' 14, 'wdth' 100;
+    font-size: 1.0625rem;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: clip;
+  }
+
+  .vh {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .mono,
+  code,
+  pre {
+    font-family: var(--mono);
+    font-variant-ligatures: none;
+  }
+
+  .muted {
+    color: var(--ink-muted);
+  }
+
+  .accent {
+    color: var(--accent);
+  }
+
+  a {
+    color: var(--accent);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.18em;
+  }
+
+  a:hover {
+    text-decoration-thickness: 2px;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 3px;
+  }
+
+  /* Scroll progress hairline, CSS only. Absent in browsers without scroll timelines. */
+  .progress {
+    display: none;
+  }
+
+  @supports (animation-timeline: scroll()) {
+    .progress {
+      display: block;
+      position: fixed;
+      inset: 0 auto auto 0;
+      z-index: 20;
+      height: 1px;
+      width: 100%;
+      background: var(--accent);
+      transform-origin: 0 50%;
+      transform: scaleX(0);
+      animation: progress linear both;
+      animation-timeline: scroll(root);
+    }
+  }
+
+  @keyframes progress {
+    from {
+      transform: scaleX(0);
+    }
+    to {
+      transform: scaleX(1);
+    }
+  }
+
+  /* Masthead */
+  .masthead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.75rem var(--gutter);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .wordmark {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 44px;
+    color: var(--ink);
+    text-decoration: none;
+    font-weight: 700;
+    font-size: 1.125rem;
+    letter-spacing: -0.02em;
+  }
+
+  .wordmark img {
+    display: block;
+  }
+
+  .masthead-nav {
+    display: flex;
+    gap: 0.25rem;
+  }
+
+  .masthead-nav a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding-inline: 0.75rem;
+    color: var(--ink);
+    text-decoration: none;
+    font-weight: 500;
+  }
+
+  .masthead-nav a:hover {
+    color: var(--accent);
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+  }
+
+  /* Hero */
+  .hero {
+    padding: clamp(3rem, 10vh, 7rem) var(--gutter) clamp(4rem, 12vh, 8rem);
+  }
+
+  .marker {
+    margin: 0 0 2rem;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+  }
+
+  .hero h1 {
+    margin: 0;
+    font-size: clamp(3rem, 12vw, 9rem);
+    line-height: 0.92;
+    font-weight: 800;
+    letter-spacing: -0.045em;
+    font-variation-settings: 'opsz' 96, 'wdth' 90;
+    text-wrap: balance;
+  }
+
+  .hero h1 span {
+    display: block;
+  }
+
+  .hero h1 span:nth-child(2) {
+    color: var(--ink-muted);
+  }
+
+  .hero h1 span:nth-child(3) {
+    color: var(--accent);
+  }
+
+  .subline {
+    max-width: 44ch;
+    margin: 2.5rem 0 0;
+    font-size: 1.25rem;
+    line-height: 1.4;
+    color: var(--ink-muted);
+    text-wrap: pretty;
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 2.5rem;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: 0 1.25rem;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    font-weight: 600;
+    font-size: 1rem;
+    text-decoration: none;
+    transition:
+      background-color 150ms var(--ease),
+      color 150ms var(--ease),
+      border-color 150ms var(--ease);
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--bone);
+  }
+
+  .btn-primary:hover {
+    background: oklch(0.38 0.09 200);
+    border-color: oklch(0.38 0.09 200);
+  }
+
+  .btn-secondary {
+    background: transparent;
+    border-color: var(--ink-muted);
+    color: var(--ink);
+  }
+
+  .btn-secondary:hover {
+    border-color: var(--ink);
+  }
+
+  /* Statements */
+  .statement {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      'num'
+      'body'
+      'artifact';
+    row-gap: 1.5rem;
+    margin-top: var(--section-gap);
+    padding: clamp(2rem, 5vh, 3.5rem) var(--gutter) 0;
+    border-top: 1px solid var(--hairline);
+  }
+
+  .hero + .statement {
+    margin-top: 0;
+  }
+
+  .statement > *,
+  .ceremony > * {
+    min-width: 0;
+  }
+
+  .num {
+    grid-area: num;
+    font-family: var(--mono);
+    font-weight: 400;
+    font-size: clamp(4rem, 14vw, 11rem);
+    line-height: 0.85;
+    letter-spacing: -0.06em;
+    color: var(--accent);
+    user-select: none;
+  }
+
+  .body {
+    grid-area: body;
+    max-width: 62ch;
+  }
+
+  .body h2 {
+    margin: 0 0 1.5rem;
+    font-size: clamp(2rem, 5.5vw, 3.75rem);
+    line-height: 1;
+    font-weight: 700;
+    letter-spacing: -0.035em;
+    font-variation-settings: 'opsz' 96, 'wdth' 94;
+    text-wrap: balance;
+  }
+
+  .body p {
+    margin: 0 0 1rem;
+    text-wrap: pretty;
+  }
+
+  .body p:last-child {
+    margin-bottom: 0;
+  }
+
+  .body code {
+    font-size: 0.9em;
+  }
+
+  .artifact {
+    grid-area: artifact;
+    margin-top: 1.5rem;
+  }
+
+  @media (min-width: 64rem) {
+    .statement {
+      grid-template-columns: var(--num-col) minmax(0, 1fr);
+      grid-template-areas:
+        'num body'
+        'num artifact';
+      column-gap: 0;
+      row-gap: 0;
+      padding-inline: var(--gutter);
+    }
+
+    .num {
+      position: sticky;
+      top: 1rem;
+      align-self: start;
+      margin-inline-start: -0.06em;
+    }
+
+    .body {
+      margin-inline-start: calc(var(--hang) - var(--num-col));
+    }
+
+    .artifact {
+      margin-top: 3rem;
+      margin-inline-start: calc(var(--hang) - var(--num-col));
+    }
+
+    .artifact.bleed {
+      margin-inline-end: calc(-1 * var(--gutter));
+    }
+    .artifact.bleed .matrix-head {
+      margin-inline-end: var(--gutter);
+    }
+    .artifact.bleed .matrix-scroll {
+      padding-inline-end: var(--gutter);
+    }
+  }
+
+  /* 01 matrix */
+  .matrix-head {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.5rem 1.5rem;
+    padding-block: 0 0.75rem;
+    font-size: 0.8125rem;
+    border-bottom: 1px solid var(--ink);
+  }
+
+  .matrix-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .scroll-hint {
+    display: none;
+    margin: 0.5rem 0 0;
+    font-family: var(--mono);
+    font-size: 0.6875rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+  }
+  @media (max-width: 48rem) {
+    .scroll-hint {
+      display: block;
+    }
+  }
+
+  .matrix {
+    width: 100%;
+    min-width: 40rem;
+    border-collapse: collapse;
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    line-height: 1.3;
+  }
+
+  .matrix th,
+  .matrix td {
+    padding: 0.7rem 1rem 0.7rem 0;
+    text-align: left;
+    vertical-align: top;
+    border-bottom: 1px solid var(--hairline);
+    white-space: nowrap;
+  }
+
+  .matrix thead th {
+    padding-block: 0.75rem;
+    font-weight: 500;
+    color: var(--ink-muted);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    font-size: 0.6875rem;
+  }
+
+  .protected {
+    color: var(--ink-muted);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  .group-row th {
+    padding-top: 1.5rem;
+    font-weight: 500;
+    border-bottom: 1px solid var(--ink);
+  }
+
+  .group-name {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 1rem;
+    letter-spacing: -0.01em;
+  }
+
+  .group-rule {
+    margin-inline-start: 0.75rem;
+    padding: 0.1rem 0.4rem;
+    border: 1px solid var(--ink-muted);
+    border-radius: 3px;
+    font-size: 0.6875rem;
+    color: var(--ink-muted);
+  }
+
+  .matrix tbody th {
+    font-weight: 500;
+  }
+
+  .key-name {
+    letter-spacing: 0.01em;
+  }
+
+  .lock {
+    display: inline-block;
+    margin-inline-start: 0.4rem;
+    vertical-align: -1px;
+    color: var(--ink-muted);
+  }
+
+  .cell {
+    font-weight: 500;
+  }
+
+  .cell-set {
+    color: var(--ink);
+  }
+
+  .cell-secret {
+    color: var(--ink);
+    letter-spacing: 0.08em;
+  }
+
+  .cell-absent,
+  .cell-forbidden {
+    color: var(--ink-muted);
+    font-weight: 400;
+  }
+
+  .cell-missing,
+  .state-missing {
+    color: var(--violation);
+    font-weight: 500;
+  }
+
+  .cell-draft,
+  .state-draft {
+    color: var(--draft);
+  }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.75rem;
+    margin: 1rem 0 0;
+    padding: 0;
+    list-style: none;
+    font-size: 0.8125rem;
+    color: var(--ink-muted);
+  }
+
+  .legend .mono {
+    color: var(--ink);
+    margin-inline-end: 0.4rem;
+  }
+
+  .legend .state-missing {
+    color: var(--violation);
+  }
+
+  .legend .state-draft {
+    color: var(--draft);
+  }
+
+  .matrix-note {
+    max-width: 62ch;
+    margin: 1.5rem 0 0;
+    font-size: 0.9375rem;
+    color: var(--ink-muted);
+  }
+
+  /* 02 spec */
+  .spec {
+    margin: 0;
+    border-top: 1px solid var(--ink);
+  }
+
+  .spec > div {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.25rem 2rem;
+    padding: 0.85rem 0;
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .spec dt {
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    padding-top: 0.2rem;
+  }
+
+  .spec dd {
+    margin: 0;
+    font-size: 0.9375rem;
+    overflow-wrap: anywhere;
+  }
+
+  @media (min-width: 40rem) {
+    .spec > div {
+      grid-template-columns: 9rem 1fr;
+    }
+  }
+
+  .cmd {
+    margin: 2rem 0 0;
+    padding: 1rem 1.25rem;
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+    font-size: 0.8125rem;
+    line-height: 1.6;
+    overflow-x: auto;
+    tab-size: 2;
+  }
+
+  .cmd code {
+    font-family: inherit;
+  }
+
+  .cmd.out {
+    margin-top: 0;
+    border-top: 0;
+    border-start-start-radius: 0;
+    border-start-end-radius: 0;
+    color: var(--ink-muted);
+  }
+
+  .cmd.out + .cmd {
+    margin-top: 1rem;
+  }
+
+  .reveal-demo .cmd:first-child {
+    margin-top: 0;
+    border-end-start-radius: 0;
+    border-end-end-radius: 0;
+  }
+
+  .refusal {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 1rem;
+    max-width: 62ch;
+    margin: 2rem 0 0;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--violation);
+    color: var(--ink);
+  }
+
+  .refusal-glyph {
+    font-family: var(--mono);
+    font-weight: 500;
+    font-size: 1.75rem;
+    line-height: 1;
+    color: var(--violation);
+  }
+
+  /* 03 ceremony */
+  .ceremony {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 2rem;
+  }
+
+  .lock-large {
+    color: var(--accent);
+    width: clamp(5rem, 12vw, 7.5rem);
+    height: auto;
+  }
+
+  .steps {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: step;
+    border-top: 1px solid var(--ink);
+  }
+
+  .steps li {
+    display: grid;
+    grid-template-columns: 2rem 1fr;
+    gap: 0.25rem 1rem;
+    padding: 1rem 0;
+    border-bottom: 1px solid var(--hairline);
+    counter-increment: step;
+  }
+
+  .steps li::before {
+    content: counter(step);
+    grid-row: 1 / span 2;
+    font-family: var(--mono);
+    color: var(--accent);
+    padding-top: 0.15rem;
+  }
+
+  .step-verb {
+    font-weight: 700;
+    font-size: 1.25rem;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+  }
+
+  .step-text {
+    color: var(--ink-muted);
+    max-width: 52ch;
+    font-size: 0.9375rem;
+    text-wrap: pretty;
+  }
+
+  .reveal-demo {
+    grid-column: 1 / -1;
+  }
+
+  .reveal-state {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.5rem 1rem;
+    max-width: 62ch;
+    margin: 1.5rem 0 0;
+    color: var(--ink-muted);
+  }
+
+  .reveal-state .mono {
+    color: var(--ink);
+    letter-spacing: 0.08em;
+  }
+
+  @media (min-width: 48rem) {
+    .ceremony {
+      grid-template-columns: auto minmax(0, 1fr);
+      column-gap: 3rem;
+      align-items: start;
+    }
+  }
+
+  /* 04 surfaces */
+  .surface-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 clamp(1rem, 4vw, 3rem);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: clamp(2.5rem, 9vw, 7rem);
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -0.045em;
+    font-variation-settings: 'opsz' 96, 'wdth' 90;
+  }
+
+  .surface-row li {
+    display: flex;
+    align-items: baseline;
+    gap: inherit;
+  }
+
+  .surface-row li + li::before {
+    content: '·';
+    color: var(--accent);
+    font-weight: 400;
+  }
+
+  .surface-line {
+    max-width: 62ch;
+    margin: 2rem 0 0;
+    font-size: 1.25rem;
+    line-height: 1.35;
+    text-wrap: pretty;
+  }
+
+  .surface-delivery {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.5rem;
+    max-width: 62ch;
+    margin: 2rem 0 0;
+    padding-top: 1rem;
+    border-top: 1px solid var(--hairline);
+    font-size: 0.875rem;
+    color: var(--ink-muted);
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.6875rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-inline-end: 0.75rem;
+  }
+
+  /* 05 yours */
+  .cmd.server {
+    margin-top: 0;
+  }
+
+  .ruled {
+    margin: 2rem 0 0;
+    border-top: 1px solid var(--ink);
+  }
+
+  .ruled > div {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.25rem 2rem;
+    padding: 0.85rem 0;
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .ruled dt {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    padding-top: 0.25rem;
+  }
+
+  .ruled dd {
+    margin: 0;
+    font-size: 1rem;
+    text-wrap: pretty;
+  }
+
+  @media (min-width: 40rem) {
+    .ruled > div {
+      grid-template-columns: 9rem 1fr;
+    }
+  }
+
+  .audit-line {
+    max-width: 62ch;
+    margin: 2rem 0 0;
+    color: var(--ink-muted);
+    font-size: 0.9375rem;
+  }
+
+  /* Closing */
+  .closing {
+    margin-top: var(--section-gap);
+    padding: clamp(3rem, 8vh, 5rem) var(--gutter) clamp(4rem, 10vh, 7rem);
+    border-top: 1px solid var(--ink);
+  }
+
+  .closing h2 {
+    margin: 0;
+    max-width: 14ch;
+    font-size: clamp(2.5rem, 8vw, 6rem);
+    line-height: 0.95;
+    font-weight: 800;
+    letter-spacing: -0.045em;
+    font-variation-settings: 'opsz' 96, 'wdth' 92;
+    text-wrap: balance;
+  }
+
+  .closing > p {
+    max-width: 52ch;
+    margin: 2rem 0 0;
+    font-size: 1.125rem;
+    color: var(--ink-muted);
+  }
+
+  .closing .cmd {
+    max-width: 40rem;
+  }
+
+  @media (min-width: 64rem) {
+    .closing h2,
+    .closing > p,
+    .closing .cmd,
+    .closing .actions {
+      margin-inline-start: var(--hang);
+    }
+  }
+
+  /* Footer */
+  .footer {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 1rem 2rem;
+    padding: 1.5rem var(--gutter) calc(2rem + 3.5rem);
+    border-top: 1px solid var(--hairline);
+    font-size: 0.8125rem;
+    color: var(--ink-muted);
+  }
+
+  .footer p {
+    margin: 0;
+    max-width: 62ch;
+  }
+
+  .footer nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 1rem;
+  }
+
+  .footer nav a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-height: 44px;
+    color: var(--ink-muted);
+    text-decoration: none;
+  }
+
+  .footer nav a:hover {
+    color: var(--ink);
+    text-decoration: underline;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition: none !important;
+      animation: none !important;
+    }
+
+    .progress {
+      display: none;
+    }
+  }
+</style>

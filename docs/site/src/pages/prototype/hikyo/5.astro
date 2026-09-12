@@ -1,0 +1,1696 @@
+---
+// Prototype 5 · Audit trail. The homepage reads as an append-only log: every
+// marketing section is an event on a vertical spine. Product claims come from
+// src/lib/prototype/hikyo.ts and the shipped docs; event names, offsets, the
+// refusal record and the reveal steps are illustrative shapes, not captured output.
+import '@fontsource-variable/familjen-grotesk/wght.css';
+import '@fontsource-variable/jetbrains-mono/wght.css';
+import HikyoHead from '../../../components/prototype/HikyoHead.astro';
+import HikyoSwitcher from '../../../components/prototype/HikyoSwitcher.astro';
+import {
+  claims,
+  cli,
+  cellLabel,
+  cellText,
+  cliReferenceUrl,
+  coreConceptsUrl,
+  docsUrl,
+  environments,
+  gettingStartedUrl,
+  keyCount,
+  masked,
+  matrix,
+  project,
+  repositoryUrl,
+  selfHostingUrl,
+} from '../../../lib/prototype/hikyo';
+import type { CellState, Environment, KeyGroup } from '../../../lib/prototype/hikyo';
+
+type Outcome = 'allowed' | 'refused' | 'recorded';
+
+interface LogLine {
+  seq: string;
+  offset: string;
+  name: string;
+  actor: string;
+  scope: string;
+  outcome: Outcome;
+}
+
+const projectScope = `${project.organisation}/${project.name}`;
+
+// One trail, monotonic offsets. Relative to the first line, never a wall clock.
+const ev: Record<
+  'declared' | 'setStaging' | 'refused' | 'published' | 'revealed' | 'deliveryRefused' | 'deliveryStarted' | 'instance',
+  LogLine
+> = {
+  declared: {
+    seq: '#0001',
+    offset: '+00:00.000',
+    name: 'key.declared',
+    actor: 'operator',
+    scope: projectScope,
+    outcome: 'allowed',
+  },
+  setStaging: {
+    seq: '#0002',
+    offset: '+00:04.120',
+    name: 'value.set',
+    actor: 'operator',
+    scope: `${projectScope}/staging`,
+    outcome: 'allowed',
+  },
+  refused: {
+    seq: '#0003',
+    offset: '+00:09.470',
+    name: 'publish.refused',
+    actor: 'ci-runner',
+    scope: `${projectScope}/production`,
+    outcome: 'refused',
+  },
+  published: {
+    seq: '#0004',
+    offset: '+00:12.960',
+    name: 'publish.completed',
+    actor: 'operator',
+    scope: `${projectScope}/production`,
+    outcome: 'allowed',
+  },
+  revealed: {
+    seq: '#0005',
+    offset: '+00:31.008',
+    name: 'secret.revealed',
+    actor: 'operator',
+    scope: `${projectScope}/production`,
+    outcome: 'allowed',
+  },
+  deliveryRefused: {
+    seq: '#0006',
+    offset: '+00:47.215',
+    name: 'delivery.refused',
+    actor: 'payments-api (service account)',
+    scope: `${projectScope}/production`,
+    outcome: 'refused',
+  },
+  deliveryStarted: {
+    seq: '#0007',
+    offset: '+00:52.640',
+    name: 'delivery.started',
+    actor: 'payments-api (service account)',
+    scope: `${projectScope}/production`,
+    outcome: 'allowed',
+  },
+  instance: {
+    seq: '#0008',
+    offset: '+01:10.002',
+    name: 'instance.started',
+    actor: 'system',
+    scope: 'hikyo.example.com',
+    outcome: 'recorded',
+  },
+};
+
+// The lead-in write that #0004 publishes. Shown as decision context, not as a
+// numbered line, so the trail keeps the eight events the page is built around.
+const setProductionOffset = '+00:12.310';
+
+const webhookName = 'STRIPE_WEBHOOK_SECRET';
+const webhook = matrix.flatMap((group) => group.keys).find((key) => key.name === webhookName);
+if (!webhook) throw new Error(`${webhookName} is missing from the shared matrix`);
+
+// Row states as the trail produces them. The shared dataset holds the final
+// pre-publish state (production still missing); the earlier two are derived.
+const rowAfterDeclare: Record<Environment, CellState> = {
+  development: { kind: 'absent' },
+  staging: { kind: 'missing' },
+  production: { kind: 'missing' },
+};
+const rowAfterStaging: Record<Environment, CellState> = {
+  development: { kind: 'absent' },
+  staging: { kind: 'secret' },
+  production: { kind: 'missing' },
+};
+const rowAfterPublish: Record<Environment, CellState> = {
+  development: { kind: 'absent' },
+  staging: { kind: 'secret' },
+  production: { kind: 'secret' },
+};
+
+// State-after-publish snapshot: the shared matrix, with the one row this trail
+// changed advanced to its post-publish state. Everything else is untouched,
+// including the open draft in production and the SMTP violation in staging.
+const snapshot: KeyGroup[] = matrix.map((group) => ({
+  ...group,
+  keys: group.keys.map((key) => (key.name === webhookName ? { ...key, cells: rowAfterPublish } : key)),
+}));
+const groupCount = snapshot.length;
+const allOrNoneGroups = snapshot.filter((group) => group.allOrNone).map((group) => group.name);
+
+const isProtected = (env: Environment): boolean => project.protectedEnvironments.some((p) => p === env);
+
+const cliSetStaging = cli.set.replace('payments/production', 'payments/staging');
+
+const ledger: { key: string; value: string }[] = [
+  { key: 'runtime', value: claims.runtime },
+  { key: 'storage', value: 'SQLite or PostgreSQL' },
+  { key: 'encryption', value: 'envelope encryption, operator-held root key material' },
+  { key: 'identity', value: claims.identity.join(' · ') },
+  { key: 'surfaces', value: claims.surfaces.join(' · ') },
+  { key: 'delivery', value: claims.delivery.join(' · ') },
+  { key: 'imports', value: claims.imports.join(' · ') },
+  { key: 'lifecycle', value: claims.lifecycle.join(' · ') },
+  { key: 'audit', value: 'append-only; actor, object, outcome, decision context; never secret material' },
+  { key: 'scanning', value: claims.scanning },
+  { key: 'license', value: claims.license },
+  { key: 'source', value: 'fully open source, no /ee directory' },
+  { key: 'maturity', value: '0.x, pre-1.0' },
+];
+
+const title = 'Hikyo · Every change leaves a line';
+const description =
+  'Hikyo is an open-source, self-hosted control plane for explicit secrets and configuration with an append-only audit trail.';
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <HikyoHead title={title} description={description} themeColor="#1a1d24" />
+  </head>
+  <body>
+    <a class="skip" href="#trail">Skip to the trail</a>
+
+    <header class="masthead rail">
+      <a class="wordmark" href="/prototype/hikyo/5/" aria-label="Hikyo home">
+        <img src="/favicon.svg" alt="" width="22" height="22" />
+        <span>hikyo</span>
+      </a>
+      <nav class="nav" aria-label="Primary">
+        <a href={docsUrl}>Docs</a>
+        <a href={repositoryUrl} rel="noopener">GitHub</a>
+      </nav>
+      <p class="proto-mark">Prototype 5 · Audit trail</p>
+    </header>
+
+    <main id="main">
+      <section class="hero rail" aria-labelledby="hero-heading">
+        <div class="hero-copy">
+          <p class="eyebrow">Open-source, self-hosted control plane for secrets and configuration</p>
+          <h1 id="hero-heading">Every change leaves a line.</h1>
+          <p class="lede">
+            Explicit values, deliberate disclosure, and an append-only trail that records the decision, never the
+            secret.
+          </p>
+          <div class="actions">
+            <a class="btn primary" href={repositoryUrl} rel="noopener">View on GitHub</a>
+            <a class="btn" href={docsUrl}>Read the docs</a>
+          </div>
+        </div>
+        <div class="legend" role="group" aria-labelledby="legend-heading">
+          <p id="legend-heading" class="legend-title">How to read this page</p>
+          <p class="legend-line">
+            <span class="f seq">#seq</span>
+            <span class="f name">event.name</span>
+            <span class="meta">
+              <span class="f off">+offset</span>
+              <span class="f actor">actor</span>
+              <span class="f scope">org/project/environment</span>
+              <span class="f out">outcome</span>
+            </span>
+          </p>
+          <p class="legend-note">
+            One trail, one example project. Offsets are relative to the first line. Outcomes are always a word:
+            <span class="w allowed">allowed</span>, <span class="w refused">refused</span>,
+            <span class="w recorded">recorded</span>. No line ever contains a secret value.
+          </p>
+        </div>
+      </section>
+
+      <ol class="log" id="trail" aria-label="Audit trail, events 1 to 4">
+        <!-- #0001 key.declared -->
+        <li class="event" id="e0001">
+          <div class="spine">
+            <span class="marker" aria-hidden="true"></span>
+            <span class="idx" aria-hidden="true">01</span>
+          </div>
+          <p class="line">
+            <span class="f seq">{ev.declared.seq}</span>
+            <span class="f name">{ev.declared.name}</span>
+            <span class="meta">
+              <span class="f off">{ev.declared.offset}</span>
+              <span class="f actor">{ev.declared.actor}</span>
+              <span class="f scope">{ev.declared.scope}</span>
+              <span class={`f out ${ev.declared.outcome}`}>{ev.declared.outcome}</span>
+            </span>
+          </p>
+          <dl class="ctx">
+            <div><dt>key</dt><dd>{webhook.name}</dd></div>
+            <div><dt>classification</dt><dd>{webhook.classification}</dd></div>
+            <div><dt>presence</dt><dd>{webhook.presence}</dd></div>
+          </dl>
+          <div class="copy">
+            <h2>A key exists before any value does.</h2>
+            <p>
+              The declaration comes first: a name, a classification of config or secret, a validation rule, and a
+              presence rule per environment. Until a value is set, each environment records absence explicitly.
+              Development may stay absent. Staging and production are required, so their empty cells are violations
+              and are named as such.
+            </p>
+            <p>
+              No environment inherits from another. An empty cell never means inherited, unknown, or default; it means
+              absent, here, on purpose or not yet.
+            </p>
+          </div>
+          <div class="artifact">
+            <p class="art-title">Declaration</p>
+            <dl class="decl">
+              <div><dt>name</dt><dd>{webhook.name}</dd></div>
+              <div><dt>classification</dt><dd>{webhook.classification}</dd></div>
+              <div><dt>rule</dt><dd>{webhook.rule}</dd></div>
+              <div><dt>presence</dt><dd>{webhook.presence}</dd></div>
+            </dl>
+            <pre class="code"><code>{cli.declare}</code></pre>
+            <p class="art-title">Resulting row</p>
+            <div class="scroll">
+              <table class="row-table">
+                <caption class="sr-only">STRIPE_WEBHOOK_SECRET after declaration, one cell per environment</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">key</th>
+                    {environments.map((env) => <th scope="col">{env}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <th scope="row" class="key">
+                      <svg class="lock" viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M3.5 5V3.5a2.5 2.5 0 0 1 5 0V5" fill="none" stroke="currentColor" stroke-width="1.2"/><rect x="2" y="5" width="8" height="6" rx="0.5" fill="currentColor"/></svg>
+                      <span class="sr-only">secret key </span>{webhook.name}
+                    </th>
+                    {environments.map((env) => (
+                      <td class={`cell ${rowAfterDeclare[env].kind}`}>
+                        <span aria-hidden="true">{cellText(rowAfterDeclare[env])}</span>
+                        <span class="sr-only">{cellLabel(rowAfterDeclare[env])}</span>
+                      </td>
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </li>
+
+        <!-- #0002 value.set, staging -->
+        <li class="event" id="e0002">
+          <div class="spine">
+            <span class="marker" aria-hidden="true"></span>
+            <span class="idx" aria-hidden="true">02</span>
+          </div>
+          <p class="line">
+            <span class="f seq">{ev.setStaging.seq}</span>
+            <span class="f name">{ev.setStaging.name}</span>
+            <span class="meta">
+              <span class="f off">{ev.setStaging.offset}</span>
+              <span class="f actor">{ev.setStaging.actor}</span>
+              <span class="f scope">{ev.setStaging.scope}</span>
+              <span class={`f out ${ev.setStaging.outcome}`}>{ev.setStaging.outcome}</span>
+            </span>
+          </p>
+          <dl class="ctx">
+            <div><dt>key</dt><dd>{webhook.name}</dd></div>
+            <div><dt>source</dt><dd>--value-file</dd></div>
+            <div><dt>rule</dt><dd>pattern matched</dd></div>
+            <div><dt>material_recorded</dt><dd>never</dd></div>
+          </dl>
+          <div class="copy">
+            <h2>A value is set from a file, not from an argument.</h2>
+            <p>
+              The file is read locally, so the value never passes through shell history or a process list. The write
+              is validated against the declared rule before any state changes. Staging now records a secret: masked in
+              the matrix, a lock on the key, presence and metadata on ordinary reads.
+            </p>
+          </div>
+          <div class="artifact">
+            <pre class="code"><code>{cliSetStaging}</code></pre>
+            <p class="art-title">Row after the write</p>
+            <div class="scroll">
+              <table class="row-table">
+                <caption class="sr-only">STRIPE_WEBHOOK_SECRET after the staging write</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">key</th>
+                    {environments.map((env) => <th scope="col">{env}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <th scope="row" class="key">
+                      <svg class="lock" viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M3.5 5V3.5a2.5 2.5 0 0 1 5 0V5" fill="none" stroke="currentColor" stroke-width="1.2"/><rect x="2" y="5" width="8" height="6" rx="0.5" fill="currentColor"/></svg>
+                      <span class="sr-only">secret key </span>{webhook.name}
+                    </th>
+                    {environments.map((env) => (
+                      <td class={`cell ${rowAfterStaging[env].kind}`}>
+                        <span aria-hidden="true">{cellText(rowAfterStaging[env])}</span>
+                        <span class="sr-only">{cellLabel(rowAfterStaging[env])}</span>
+                      </td>
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </li>
+
+        <!-- #0003 publish.refused, production -->
+        <li class="event" id="e0003">
+          <div class="spine">
+            <span class="marker" aria-hidden="true"></span>
+            <span class="idx" aria-hidden="true">03</span>
+          </div>
+          <p class="line">
+            <span class="f seq">{ev.refused.seq}</span>
+            <span class="f name">{ev.refused.name}</span>
+            <span class="meta">
+              <span class="f off">{ev.refused.offset}</span>
+              <span class="f actor">{ev.refused.actor}</span>
+              <span class="f scope">{ev.refused.scope}</span>
+              <span class={`f out ${ev.refused.outcome}`}>{ev.refused.outcome}</span>
+            </span>
+          </p>
+          <dl class="ctx">
+            <div><dt>reason</dt><dd>required key absent</dd></div>
+            <div><dt>key</dt><dd>{webhook.name}</dd></div>
+            <div><dt>state_changed</dt><dd>false</dd></div>
+          </dl>
+          <div class="copy">
+            <h2>Production refuses to publish with a required key absent.</h2>
+            <p>
+              The refusal names the key, the rule that applies, and the next safe action. Nothing about production
+              changed; the line records that a change was attempted and why it did not happen.
+            </p>
+            <p>
+              The same rules hold at write time. An invalid value is refused before state changes. A required value
+              cannot be cleared where its rule applies: clear records absent, and absent is not allowed here.
+            </p>
+          </div>
+          <div class="artifact">
+            <div class="refusal" role="group" aria-label="Refusal record">
+              <p class="refusal-head"><span class="w refused">refused</span> publish · production</p>
+              <p class="refusal-body">1 required key is absent in production.</p>
+              <div class="scroll">
+                <table class="row-table">
+                  <caption class="sr-only">Violations that blocked the publish</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">key</th>
+                      <th scope="col">production</th>
+                      <th scope="col">presence rule</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <th scope="row" class="key">
+                        <svg class="lock" viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M3.5 5V3.5a2.5 2.5 0 0 1 5 0V5" fill="none" stroke="currentColor" stroke-width="1.2"/><rect x="2" y="5" width="8" height="6" rx="0.5" fill="currentColor"/></svg>
+                        <span class="sr-only">secret key </span>{webhook.name}
+                      </th>
+                      <td class="cell missing">
+                        <span aria-hidden="true">{cellText(rowAfterStaging.production)}</span>
+                        <span class="sr-only">{cellLabel(rowAfterStaging.production)}</span>
+                      </td>
+                      <td class="cell">{webhook.presence}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p class="refusal-next">next</p>
+              <pre class="code"><code>{cli.set}</code></pre>
+              <p class="refusal-foot">exit status 4 · refused · satisfy the named condition, then retry</p>
+            </div>
+          </div>
+        </li>
+
+        <!-- #0004 publish.completed, production, wide artifact -->
+        <li class="event wide" id="e0004">
+          <div class="spine">
+            <span class="marker" aria-hidden="true"></span>
+            <span class="idx" aria-hidden="true">04</span>
+          </div>
+          <p class="line">
+            <span class="f seq">{ev.published.seq}</span>
+            <span class="f name">{ev.published.name}</span>
+            <span class="meta">
+              <span class="f off">{ev.published.offset}</span>
+              <span class="f actor">{ev.published.actor}</span>
+              <span class="f scope">{ev.published.scope}</span>
+              <span class={`f out ${ev.published.outcome}`}>{ev.published.outcome}</span>
+            </span>
+          </p>
+          <dl class="ctx">
+            <div><dt>preceded_by</dt><dd>value.set {setProductionOffset} allowed</dd></div>
+            <div><dt>protected</dt><dd>true</dd></div>
+            <div><dt>confirmation</dt><dd>explicit</dd></div>
+            <div><dt>reauthenticated</dt><dd>true</dd></div>
+            <div><dt>revision</dt><dd>{project.revision}</dd></div>
+          </dl>
+          <div class="copy">
+            <h2>Production is protected, so the change costs a ceremony.</h2>
+            <p>
+              Writing into a protected environment takes explicit confirmation and the matching authorization, and a
+              protected environment never keeps a reauthentication window open. The trail records the ceremony and its
+              outcome. It does not record the value that was published.
+            </p>
+            <p>
+              Below is the matrix after the publish: {keyCount} keys in {groupCount} groups across three environments.
+              It hides nothing that is still open. One draft remains unpublished in production (Δ 40 on
+              DATABASE_POOL_MAX) and one violation remains in staging: SMTP_PASSWORD is absent inside the
+              all-or-none group <span class="mono">{allOrNoneGroups.join(', ')}</span>.
+            </p>
+          </div>
+          <div class="artifact">
+            <p class="art-title">State after publish · {project.organisation}/{project.name} · {project.revision}</p>
+            <div class="scroll">
+              <table class="matrix">
+                <caption class="sr-only">
+                  Environment matrix for {project.name}: {keyCount} keys in {groupCount} groups across development,
+                  staging, and production
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">key</th>
+                    {environments.map((env) => (
+                      <th scope="col">
+                        {env}
+                        {isProtected(env) && <span class="prot"> · protected</span>}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                {snapshot.map((group) => (
+                  <tbody>
+                    <tr class="group">
+                      <th scope="colgroup" colspan={environments.length + 1}>
+                        {group.name}
+                        <span class="group-meta">
+                          {' '}· {group.keys.length} {group.keys.length === 1 ? 'key' : 'keys'}
+                          {group.allOrNone && ' · all-or-none group'}
+                        </span>
+                      </th>
+                    </tr>
+                    {group.keys.map((key) => (
+                      <tr>
+                        <th scope="row" class="key">
+                          {key.classification === 'secret' && (
+                            <>
+                              <svg class="lock" viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M3.5 5V3.5a2.5 2.5 0 0 1 5 0V5" fill="none" stroke="currentColor" stroke-width="1.2"/><rect x="2" y="5" width="8" height="6" rx="0.5" fill="currentColor"/></svg>
+                              <span class="sr-only">secret key </span>
+                            </>
+                          )}
+                          {key.name}
+                        </th>
+                        {environments.map((env) => (
+                          <td class={`cell ${key.cells[env].kind}`}>
+                            <span aria-hidden="true">{cellText(key.cells[env])}</span>
+                            <span class="sr-only">{cellLabel(key.cells[env])}</span>
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                ))}
+              </table>
+            </div>
+            <p class="matrix-legend" aria-label="State legend">
+              <span>{masked} secret set, masked</span>
+              <span>· absent</span>
+              <span class="w refused">! required · absent</span>
+              <span class="w draft">Δ draft, unpublished</span>
+              <span>· absent (forbidden)</span>
+            </p>
+          </div>
+        </li>
+      </ol>
+
+      <!-- Interlude: the five pillars as a ledger. Breaks the spine on purpose. -->
+      <section class="interlude rail" aria-labelledby="pillars-heading">
+        <div class="interlude-inner">
+          <p class="eyebrow" id="pillars-heading">What the trail is evidence of</p>
+          <ol class="pillars">
+            {claims.pillars.map((pillar, i) => (
+              <li>
+                <span class="pillar-n" aria-hidden="true">{String(i + 1).padStart(2, '0')}</span>
+                <h2>{pillar.title}</h2>
+                <p>{pillar.body}</p>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </section>
+
+      <ol class="log" start="5" aria-label="Audit trail, events 5 to 8">
+        <!-- #0005 secret.revealed -->
+        <li class="event" id="e0005">
+          <div class="spine">
+            <span class="marker" aria-hidden="true"></span>
+            <span class="idx" aria-hidden="true">05</span>
+          </div>
+          <p class="line">
+            <span class="f seq">{ev.revealed.seq}</span>
+            <span class="f name">{ev.revealed.name}</span>
+            <span class="meta">
+              <span class="f off">{ev.revealed.offset}</span>
+              <span class="f actor">{ev.revealed.actor}</span>
+              <span class="f scope">{ev.revealed.scope}</span>
+              <span class={`f out ${ev.revealed.outcome}`}>{ev.revealed.outcome}</span>
+            </span>
+          </p>
+          <dl class="ctx">
+            <div><dt>key</dt><dd>{webhook.name}</dd></div>
+            <div><dt>reauthenticated</dt><dd>true</dd></div>
+            <div><dt>remask</dt><dd>automatic</dd></div>
+            <div><dt>material_recorded</dt><dd>never</dd></div>
+          </dl>
+          <div class="copy">
+            <h2>Reading a secret is a separate act with its own line.</h2>
+            <p>
+              Ordinary reads return presence and metadata only; that is enough for inventory and health checks. A
+              reveal is a ceremony: it requires reauthentication over the environment, writes to a file that must not
+              already exist, remasks automatically, and records its own event.
+            </p>
+            <p>Replacing a secret never needs the old plaintext. Set the new value; the old one is never shown.</p>
+          </div>
+          <div class="artifact">
+            <p class="art-title">Ordinary read</p>
+            <pre class="code"><code>{cli.get}</code></pre>
+            <pre class="code out"><code>{cli.getMasked}</code></pre>
+            <p class="art-title">Reveal, to a new file</p>
+            <pre class="code"><code>{cli.reveal}</code></pre>
+            <ol class="steps" aria-label="Reveal ceremony">
+              <li><span class="step-n" aria-hidden="true">1</span> reauthentication window checked: none live for production</li>
+              <li><span class="step-n" aria-hidden="true">2</span> purpose-bound ceremony opened, naming exactly {webhook.name}</li>
+              <li><span class="step-n" aria-hidden="true">3</span> approved; session token rotated</li>
+              <li><span class="step-n" aria-hidden="true">4</span> plaintext written to ./whsec, which did not exist</li>
+              <li><span class="step-n" aria-hidden="true">5</span> terminal and matrix remain masked: {masked}</li>
+              <li><span class="step-n" aria-hidden="true">6</span> event {ev.revealed.seq} appended: actor, key, outcome, no value</li>
+            </ol>
+          </div>
+        </li>
+
+        <!-- #0006 delivery.refused -->
+        <li class="event" id="e0006">
+          <div class="spine">
+            <span class="marker" aria-hidden="true"></span>
+            <span class="idx" aria-hidden="true">06</span>
+          </div>
+          <p class="line">
+            <span class="f seq">{ev.deliveryRefused.seq}</span>
+            <span class="f name">{ev.deliveryRefused.name}</span>
+            <span class="meta">
+              <span class="f off">{ev.deliveryRefused.offset}</span>
+              <span class="f actor">{ev.deliveryRefused.actor}</span>
+              <span class="f scope">{ev.deliveryRefused.scope}</span>
+              <span class={`f out ${ev.deliveryRefused.outcome}`}>{ev.deliveryRefused.outcome}</span>
+            </span>
+          </p>
+          <dl class="ctx">
+            <div><dt>machine_reveal</dt><dd>disabled</dd></div>
+            <div><dt>grant</dt><dd>none</dd></div>
+            <div><dt>configuration</dt><dd>delivered</dd></div>
+            <div><dt>plaintext</dt><dd>withheld</dd></div>
+          </dl>
+          <div class="copy">
+            <h2>A workload gets what it was granted, nothing more.</h2>
+            <p>
+              A fresh workload credential delivers configuration and secret presence only. Secret plaintext requires
+              the project's machine-reveal opt-in, which is off by default, and then a reveal grant on the principal.
+              Without both, delivery fails closed and the line says why.
+            </p>
+            <p>
+              Humans, machine identities, and local break-glass pass through the same capability-and-scope decision.
+              Unauthorized resources look identical to resources that do not exist.
+            </p>
+          </div>
+          <div class="artifact">
+            <p class="art-title">Opt in, then grant</p>
+            <pre class="code"><code>hikyo project-settings machine-reveal set --enabled true
+hikyo access grant add --principal &lt;mch_...&gt; --capability reveal --env &lt;env-id&gt;</code></pre>
+            <p class="art-note">
+              Withdrawing the opt-in stops every machine secret delivery in the project on the next fetch, without
+              touching any grant.
+            </p>
+          </div>
+        </li>
+
+        <!-- #0007 delivery.started -->
+        <li class="event" id="e0007">
+          <div class="spine">
+            <span class="marker" aria-hidden="true"></span>
+            <span class="idx" aria-hidden="true">07</span>
+          </div>
+          <p class="line">
+            <span class="f seq">{ev.deliveryStarted.seq}</span>
+            <span class="f name">{ev.deliveryStarted.name}</span>
+            <span class="meta">
+              <span class="f off">{ev.deliveryStarted.offset}</span>
+              <span class="f actor">{ev.deliveryStarted.actor}</span>
+              <span class="f scope">{ev.deliveryStarted.scope}</span>
+              <span class={`f out ${ev.deliveryStarted.outcome}`}>{ev.deliveryStarted.outcome}</span>
+            </span>
+          </p>
+          <dl class="ctx">
+            <div><dt>machine_reveal</dt><dd>enabled</dd></div>
+            <div><dt>grant</dt><dd>reveal · production</dd></div>
+            <div><dt>revision</dt><dd>{project.revision}</dd></div>
+          </dl>
+          <div class="copy">
+            <h2>The same command, now with a scoped identity behind it.</h2>
+            <p>
+              With the opt-in on and the grant in place, the workload starts with its values in the process
+              environment. Anything after the double dash belongs to the process; Hikyo never reads it. The identity is
+              scoped to one project and one environment, and every fetch is its own line.
+            </p>
+            <p class="targets">
+              Delivery targets:
+              {claims.delivery.map((target, i) => (
+                <>
+                  <span class="mono">{target}</span>{i < claims.delivery.length - 1 ? ', ' : '.'}
+                </>
+              ))}
+            </p>
+          </div>
+          <div class="artifact">
+            <pre class="code"><code>{cli.run}</code></pre>
+            <p class="art-note">
+              Surfaces: {claims.surfaces.join(', ')}. One decision path behind all three.
+            </p>
+          </div>
+        </li>
+
+        <!-- #0008 instance.started -->
+        <li class="event" id="e0008">
+          <div class="spine">
+            <span class="marker" aria-hidden="true"></span>
+            <span class="idx" aria-hidden="true">08</span>
+          </div>
+          <p class="line">
+            <span class="f seq">{ev.instance.seq}</span>
+            <span class="f name">{ev.instance.name}</span>
+            <span class="meta">
+              <span class="f off">{ev.instance.offset}</span>
+              <span class="f actor">{ev.instance.actor}</span>
+              <span class="f scope">{ev.instance.scope}</span>
+              <span class={`f out ${ev.instance.outcome}`}>{ev.instance.outcome}</span>
+            </span>
+          </p>
+          <dl class="ctx">
+            <div><dt>binary</dt><dd>hikyo</dd></div>
+            <div><dt>db</dt><dd>sqlite</dd></div>
+            <div><dt>root_key</dt><dd>operator-held</dd></div>
+            <div><dt>tls</dt><dd>configured</dd></div>
+          </dl>
+          <div class="copy">
+            <h2>One binary. Your database. Your root key.</h2>
+            <p>
+              Every boot writes a line like this one. The instance is a single Go binary with the web UI embedded,
+              backed by SQLite or PostgreSQL, and encrypted with envelope encryption under root key material you hold.
+              A database backup without the root key cannot decrypt Hikyo data.
+            </p>
+            <p>
+              Every capability required to run Hikyo in production is open source, under {claims.license}. There is
+              no /ee directory. It is 0.x, pre-1.0, in active development.
+            </p>
+            <p class="links">
+              <a href={selfHostingUrl}>Self-hosting guide</a>
+              <a href={coreConceptsUrl}>Core concepts</a>
+              <a href={cliReferenceUrl}>CLI reference</a>
+            </p>
+          </div>
+          <div class="artifact">
+            <pre class="code"><code>{cli.server}</code></pre>
+            <dl class="ledger" aria-label="Instance specification">
+              {ledger.map((entry) => (
+                <div>
+                  <dt>{entry.key}</dt>
+                  <dd>{entry.value}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        </li>
+      </ol>
+
+      <section class="closing rail" aria-labelledby="closing-heading">
+        <div class="closing-inner">
+          <p class="eyebrow">Next line</p>
+          <h2 id="closing-heading">Start a trail on your own host.</h2>
+          <p class="lede">
+            Clone it, run one binary against SQLite, declare a key, and read the first line back. {claims.tagline}
+          </p>
+          <div class="actions">
+            <a class="btn primary" href={repositoryUrl} rel="noopener">View on GitHub</a>
+            <a class="btn" href={gettingStartedUrl}>Getting started</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer rail">
+      <div class="footer-inner">
+        <p class="mono">
+          <span>{claims.license}</span>
+          <span>0.x, pre-1.0</span>
+          <span>no /ee</span>
+          <span>append-only audit trail</span>
+        </p>
+        <p class="footer-note">
+          {claims.maturity} {claims.noEnterpriseTier}
+        </p>
+        <p class="proto-mark">Prototype 5 · Audit trail · <a href="/prototype/hikyo/">all prototypes</a></p>
+      </div>
+    </footer>
+
+    <HikyoSwitcher current={5} />
+
+    <script>
+      // Marks events as they enter the viewport. Without JS everything is
+      // already visible; the .js class only opts the log into the transition.
+      const logs = document.querySelectorAll<HTMLElement>('.log');
+      const events = document.querySelectorAll<HTMLElement>('.event');
+      const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      if (reduce || !('IntersectionObserver' in window)) {
+        events.forEach((el) => el.classList.add('seen'));
+      } else {
+        logs.forEach((el) => el.classList.add('js'));
+        const io = new IntersectionObserver(
+          (entries) => {
+            for (const entry of entries) {
+              if (!entry.isIntersecting) continue;
+              entry.target.classList.add('seen');
+              io.unobserve(entry.target);
+            }
+          },
+          { rootMargin: '0px 0px -12% 0px', threshold: 0.05 },
+        );
+        events.forEach((el) => io.observe(el));
+      }
+    </script>
+  </body>
+</html>
+
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: oklch(0.17 0.012 250);
+    --raised: oklch(0.21 0.014 250);
+    --line: oklch(0.36 0.014 250);
+    --line-strong: oklch(0.5 0.016 250);
+    --tx: oklch(0.94 0.006 250);
+    --dim: oklch(0.74 0.01 250);
+    --ok: oklch(0.82 0.09 195);
+    --on-ok: oklch(0.2 0.02 220);
+    --refused: oklch(0.72 0.13 25);
+    --draft: oklch(0.78 0.07 250);
+    --sans: 'Familjen Grotesk Variable', 'Familjen Grotesk', system-ui, sans-serif;
+    --mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, monospace;
+    --ease: cubic-bezier(0.25, 1, 0.5, 1);
+    --col-spine: 1.5rem;
+    --spine-x: 0.375rem;
+    --gap: 1.25rem;
+  }
+
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+  /* Grid and flex items must not grow to their content's min-content width;
+     scroll containers inside them handle wide tables and commands. */
+  main * {
+    min-width: 0;
+  }
+
+  html {
+    background: var(--bg);
+  }
+
+  body {
+    margin: 0;
+    min-height: 100dvh;
+    background: var(--bg);
+    color: var(--tx);
+    font-family: var(--sans);
+    font-size: 1rem;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1,
+  h2,
+  p,
+  dl,
+  dd,
+  ol,
+  pre {
+    margin: 0;
+  }
+
+  a {
+    color: inherit;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ok);
+    outline-offset: 3px;
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .mono {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    font-variant-ligatures: none;
+  }
+
+  .skip {
+    position: absolute;
+    inset-inline-start: 1rem;
+    inset-block-start: -4rem;
+    z-index: 20;
+    padding: 0.75rem 1rem;
+    border-radius: 4px;
+    background: var(--ok);
+    color: var(--on-ok);
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .skip:focus-visible {
+    inset-block-start: 1rem;
+  }
+
+  /* The rail: every block shares the spine column so text edges line up. */
+  .rail {
+    display: grid;
+    grid-template-columns: var(--col-spine) minmax(0, 1fr);
+    column-gap: var(--gap);
+    max-width: 84rem;
+    margin-inline: auto;
+    padding-inline: clamp(1rem, 4vw, 2.5rem);
+  }
+  .rail > * {
+    grid-column: 2;
+    min-width: 0;
+  }
+
+  /* Masthead */
+  .masthead {
+    grid-template-columns: var(--col-spine) auto 1fr auto;
+    align-items: center;
+    padding-block: 0.75rem;
+    border-bottom: 1px solid var(--line);
+  }
+  .wordmark {
+    grid-column: 2;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+    font-weight: 700;
+    font-size: 1.125rem;
+    letter-spacing: -0.02em;
+    text-decoration: none;
+  }
+  .wordmark img {
+    display: block;
+    width: 22px;
+    height: 22px;
+  }
+  .nav {
+    grid-column: 3;
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.25rem;
+  }
+  .nav a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    padding-inline: 0.75rem;
+    border-radius: 4px;
+    color: var(--dim);
+    text-decoration: none;
+    font-weight: 500;
+  }
+  .nav a:hover {
+    color: var(--tx);
+    background: var(--raised);
+  }
+  .proto-mark {
+    grid-column: 4;
+    display: none;
+    font-family: var(--mono);
+    font-size: 0.6875rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+
+  /* Hero */
+  .hero {
+    padding-block: clamp(3rem, 8vw, 6rem) clamp(2.5rem, 6vw, 4rem);
+    row-gap: 2.5rem;
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+  h1 {
+    margin-top: 1rem;
+    max-width: 14ch;
+    font-size: clamp(2.5rem, 7vw, 5rem);
+    font-weight: 700;
+    line-height: 0.98;
+    letter-spacing: -0.035em;
+  }
+  .lede {
+    max-width: 52ch;
+    margin-top: 1.5rem;
+    font-size: clamp(1.0625rem, 1.5vw, 1.25rem);
+    line-height: 1.5;
+    color: var(--dim);
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 2rem;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    padding: 0 1.125rem;
+    border: 1px solid var(--line-strong);
+    border-radius: 4px;
+    font-weight: 600;
+    text-decoration: none;
+    transition:
+      background-color 150ms var(--ease),
+      border-color 150ms var(--ease);
+  }
+  .btn:hover {
+    background: var(--raised);
+    border-color: var(--tx);
+  }
+  .btn.primary {
+    background: var(--ok);
+    border-color: var(--ok);
+    color: var(--on-ok);
+  }
+  .btn.primary:hover {
+    background: oklch(0.86 0.09 195);
+    border-color: oklch(0.86 0.09 195);
+  }
+
+  .legend {
+    max-width: 60rem;
+    padding: 1rem 1.125rem 1.125rem;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--raised);
+  }
+  .legend-title {
+    font-family: var(--mono);
+    font-size: 0.6875rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+  .legend-line {
+    margin-top: 0.625rem;
+  }
+  .legend-note {
+    margin-top: 0.75rem;
+    max-width: 62ch;
+    font-size: 0.9375rem;
+    line-height: 1.55;
+    color: var(--dim);
+  }
+
+  /* Event lines: the signature. One mono line, fixed fields, aligned page-wide. */
+  .line,
+  .legend-line {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    column-gap: 1.5ch;
+    row-gap: 0.25rem;
+    align-items: baseline;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.5;
+    font-variant-numeric: tabular-nums;
+    font-variant-ligatures: none;
+  }
+  .f {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .f.seq,
+  .f.off {
+    color: var(--dim);
+  }
+  .f.name {
+    color: var(--tx);
+    font-weight: 700;
+  }
+  .f.actor,
+  .f.scope {
+    color: var(--dim);
+  }
+  .f.out {
+    font-weight: 700;
+  }
+  .meta {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    column-gap: 1.5ch;
+    row-gap: 0.125rem;
+  }
+  .legend-line .f {
+    color: var(--dim);
+  }
+  .legend-line .f.name {
+    color: var(--tx);
+  }
+  .w.allowed,
+  .w.recorded,
+  .f.out.allowed,
+  .f.out.recorded {
+    color: var(--ok);
+  }
+  .w.refused,
+  .f.out.refused {
+    color: var(--refused);
+  }
+  .w.draft {
+    color: var(--draft);
+  }
+  .w {
+    font-family: var(--mono);
+    font-weight: 600;
+    font-size: 0.9em;
+  }
+
+  /* The log and its spine */
+  .log {
+    position: relative;
+    list-style: none;
+    max-width: 84rem;
+    margin-inline: auto;
+    padding: 0 clamp(1rem, 4vw, 2.5rem);
+  }
+  .log::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: calc(clamp(1rem, 4vw, 2.5rem) + var(--spine-x));
+    width: 1px;
+    background: var(--line);
+  }
+  .event {
+    display: grid;
+    grid-template-columns: var(--col-spine) minmax(0, 1fr);
+    grid-template-areas:
+      'spine line'
+      'spine ctx'
+      'spine copy'
+      'spine art';
+    column-gap: var(--gap);
+    row-gap: 1.25rem;
+    padding-block: 2.5rem 3rem;
+    border-top: 1px solid var(--line);
+  }
+  .event > * {
+    min-width: 0;
+  }
+  .log > .event:first-child {
+    border-top: 0;
+  }
+  .spine {
+    grid-area: spine;
+    position: relative;
+  }
+  .marker {
+    position: absolute;
+    top: 0.3125rem;
+    left: calc(var(--spine-x) - 4px);
+    width: 8px;
+    height: 8px;
+    border: 1px solid var(--line-strong);
+    background: var(--bg);
+    transition: background-color 200ms var(--ease);
+  }
+  .seen .marker {
+    background: var(--tx);
+    border-color: var(--tx);
+  }
+  .idx {
+    display: none;
+  }
+  .event .line {
+    grid-area: line;
+  }
+  .js .line {
+    opacity: 0;
+    transform: translateY(8px);
+    transition:
+      opacity 200ms var(--ease),
+      transform 200ms var(--ease);
+  }
+  .js .seen .line {
+    opacity: 1;
+    transform: none;
+  }
+
+  .ctx {
+    grid-area: ctx;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem 1.25rem;
+    margin-top: -0.5rem;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: var(--dim);
+    font-variant-numeric: tabular-nums;
+  }
+  .ctx > div {
+    display: flex;
+    gap: 0.5ch;
+    min-width: 0;
+  }
+  .ctx dt::after {
+    content: ':';
+  }
+  .ctx dd {
+    color: var(--tx);
+    overflow-wrap: anywhere;
+  }
+
+  .copy {
+    grid-area: copy;
+    max-width: 58ch;
+  }
+  .copy h2 {
+    font-size: clamp(1.5rem, 2.6vw, 2rem);
+    font-weight: 650;
+    line-height: 1.12;
+    letter-spacing: -0.025em;
+    max-width: 22ch;
+  }
+  .copy p {
+    margin-top: 1rem;
+    color: var(--dim);
+    font-size: 1rem;
+    line-height: 1.65;
+  }
+  .copy p .mono {
+    color: var(--tx);
+    font-size: 0.9em;
+  }
+  .copy .links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.25rem;
+    margin-top: 1.25rem;
+  }
+  .copy .links a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    padding-inline: 0.625rem;
+    margin-inline-start: -0.625rem;
+    border-radius: 4px;
+    color: var(--ok);
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .copy .links a:hover {
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+  }
+  .targets .mono {
+    color: var(--tx);
+  }
+
+  .artifact {
+    grid-area: art;
+    display: grid;
+    gap: 0.75rem;
+    align-content: start;
+  }
+  .art-title {
+    font-family: var(--mono);
+    font-size: 0.6875rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+  .art-title + * {
+    margin-top: -0.25rem;
+  }
+  .art-note {
+    font-size: 0.9375rem;
+    line-height: 1.55;
+    color: var(--dim);
+    max-width: 58ch;
+  }
+
+  .code {
+    padding: 0.875rem 1rem;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--raised);
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    line-height: 1.6;
+    font-variant-ligatures: none;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .code code {
+    font-family: inherit;
+    white-space: pre;
+  }
+  .code.out {
+    border-style: dashed;
+    color: var(--dim);
+  }
+
+  .decl,
+  .ledger {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 0.375rem 1.25rem;
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    font-variant-numeric: tabular-nums;
+  }
+  .decl > div,
+  .ledger > div {
+    display: contents;
+  }
+  .decl dt,
+  .ledger dt {
+    color: var(--dim);
+  }
+  .decl dd,
+  .ledger dd {
+    overflow-wrap: anywhere;
+  }
+  .ledger {
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--line);
+  }
+
+  .scroll {
+    position: relative; /* contain the absolutely positioned sr-only labels */
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--raised);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    line-height: 1.4;
+    font-variant-numeric: tabular-nums;
+    font-variant-ligatures: none;
+  }
+  thead th {
+    padding: 0.625rem 0.875rem;
+    text-align: left;
+    font-weight: 500;
+    color: var(--dim);
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  .prot {
+    color: var(--draft);
+  }
+  tbody th,
+  tbody td {
+    padding: 0.5rem 0.875rem;
+    text-align: left;
+    vertical-align: top;
+    white-space: nowrap;
+    min-height: 2.25rem;
+  }
+  tbody tr + tr th,
+  tbody tr + tr td {
+    border-top: 1px solid var(--line);
+  }
+  tbody + tbody tr:first-child th {
+    border-top: 1px solid var(--line);
+  }
+  th.key {
+    font-weight: 500;
+    color: var(--tx);
+  }
+  .lock {
+    display: inline-block;
+    vertical-align: -1px;
+    margin-inline-end: 0.375rem;
+    color: var(--dim);
+  }
+  tr.group th {
+    padding-top: 0.75rem;
+    padding-bottom: 0.375rem;
+    font-weight: 600;
+    color: var(--tx);
+    background: var(--bg);
+  }
+  .group-meta {
+    font-weight: 400;
+    color: var(--dim);
+  }
+  .cell {
+    color: var(--tx);
+  }
+  .cell.absent,
+  .cell.forbidden {
+    color: var(--dim);
+  }
+  .cell.missing {
+    color: var(--refused);
+  }
+  .cell.draft {
+    color: var(--draft);
+  }
+  .cell.secret {
+    letter-spacing: 0.04em;
+  }
+
+  .matrix-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1.25rem;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--dim);
+  }
+  .matrix-legend .w {
+    font-size: inherit;
+    font-weight: 500;
+  }
+
+  .refusal {
+    display: grid;
+    gap: 0.75rem;
+    padding: 1rem 1.125rem 1.125rem;
+    border: 1px solid var(--line);
+    border-left: 1px solid var(--refused);
+    border-radius: 6px;
+    background: var(--raised);
+  }
+  .refusal-head {
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+  .refusal-head .w {
+    margin-inline-end: 0.75ch;
+  }
+  .refusal-body {
+    font-size: 0.9375rem;
+    color: var(--dim);
+  }
+  .refusal .scroll {
+    background: var(--bg);
+  }
+  .refusal-next {
+    font-family: var(--mono);
+    font-size: 0.6875rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin-bottom: -0.375rem;
+  }
+  .refusal .code {
+    background: var(--bg);
+  }
+  .refusal-foot {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--dim);
+  }
+
+  .steps {
+    list-style: none;
+    padding: 0;
+    display: grid;
+    gap: 0.375rem;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    line-height: 1.55;
+    color: var(--dim);
+  }
+  .steps li {
+    display: grid;
+    grid-template-columns: 1.25rem minmax(0, 1fr);
+    gap: 0.5rem;
+    overflow-wrap: anywhere;
+  }
+  .step-n {
+    color: var(--tx);
+    font-weight: 700;
+  }
+
+  /* Interlude: the ledger of pillars. Breaks the spine. */
+  .interlude {
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    background: var(--raised);
+    padding-block: clamp(2.5rem, 6vw, 4.5rem);
+  }
+  .interlude-inner {
+    grid-column: 1 / -1;
+  }
+  .pillars {
+    list-style: none;
+    padding: 0;
+    margin-top: 1.5rem;
+    border-top: 1px solid var(--line);
+  }
+  .pillars li {
+    display: grid;
+    grid-template-columns: 2.5rem minmax(0, 1fr);
+    grid-template-areas:
+      'n title'
+      'n body';
+    column-gap: 1rem;
+    row-gap: 0.375rem;
+    padding-block: 1.25rem;
+    border-bottom: 1px solid var(--line);
+  }
+  .pillar-n {
+    grid-area: n;
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--dim);
+    padding-top: 0.25rem;
+  }
+  .pillars h2 {
+    grid-area: title;
+    font-size: 1.25rem;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+  }
+  .pillars p {
+    grid-area: body;
+    max-width: 58ch;
+    color: var(--dim);
+    line-height: 1.6;
+  }
+
+  /* Closing */
+  .closing {
+    padding-block: clamp(3rem, 8vw, 6rem);
+    border-top: 1px solid var(--line);
+  }
+  .closing h2 {
+    margin-top: 1rem;
+    max-width: 16ch;
+    font-size: clamp(2rem, 5vw, 3.5rem);
+    font-weight: 700;
+    line-height: 1.02;
+    letter-spacing: -0.03em;
+  }
+
+  /* Footer */
+  .footer {
+    padding-block: 2rem 6rem;
+    border-top: 1px solid var(--line);
+  }
+  .footer-inner {
+    display: grid;
+    gap: 0.75rem;
+  }
+  .footer .mono {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1.5rem;
+    font-size: 0.75rem;
+    color: var(--dim);
+  }
+  .footer-note {
+    max-width: 62ch;
+    font-size: 0.9375rem;
+    line-height: 1.55;
+    color: var(--dim);
+  }
+  .footer .proto-mark {
+    display: block;
+    grid-column: auto;
+    margin-top: 0.5rem;
+  }
+  .footer .proto-mark a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    color: var(--dim);
+  }
+  .footer .proto-mark a:hover {
+    color: var(--tx);
+  }
+
+  /* Desktop: three columns, spine column 9rem, event lines as one aligned grid. */
+  @media (min-width: 72rem) {
+    :root {
+      --col-spine: 9rem;
+      --spine-x: 2rem;
+      --gap: 2.5rem;
+    }
+    .masthead .proto-mark {
+      display: block;
+      justify-self: end;
+      padding-inline-start: 1.5rem;
+    }
+    .legend {
+      justify-self: start;
+    }
+    .event {
+      grid-template-columns: var(--col-spine) minmax(0, 1fr) minmax(0, 1.15fr);
+      grid-template-areas:
+        'spine line line'
+        'spine ctx ctx'
+        'spine copy art';
+      column-gap: var(--gap);
+      row-gap: 1.5rem;
+      padding-block: 3rem 4rem;
+    }
+    .event.wide {
+      grid-template-areas:
+        'spine line line'
+        'spine ctx ctx'
+        'spine copy copy'
+        'spine art art';
+    }
+    .idx {
+      display: block;
+      position: absolute;
+      top: -0.125rem;
+      left: calc(var(--spine-x) + 1.25rem);
+      font-family: var(--mono);
+      font-size: 1.125rem;
+      font-weight: 500;
+      font-variant-numeric: tabular-nums;
+      color: var(--dim);
+    }
+    .marker {
+      top: 0.5rem;
+    }
+    .line,
+    .legend-line {
+      grid-template-columns: 5ch 10ch 18ch 30ch minmax(0, 1fr) 9ch;
+      column-gap: 2ch;
+      row-gap: 0;
+      font-size: 0.75rem;
+    }
+    .meta {
+      display: contents;
+    }
+    .f.seq {
+      order: 1;
+    }
+    .f.off {
+      order: 2;
+    }
+    .f.name {
+      order: 3;
+    }
+    .f.actor {
+      order: 4;
+    }
+    .f.scope {
+      order: 5;
+    }
+    .f.out {
+      order: 6;
+      text-align: right;
+    }
+    .ctx {
+      margin-top: -0.75rem;
+    }
+    .pillars {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      column-gap: 3rem;
+    }
+    .pillars li:nth-child(odd):last-child {
+      grid-column: 1 / -1;
+      max-width: calc(50% - 1.5rem);
+    }
+    .footer-inner {
+      grid-template-columns: auto 1fr auto;
+      align-items: start;
+      column-gap: 3rem;
+    }
+    .footer .proto-mark {
+      margin-top: 0;
+      justify-self: end;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition: none !important;
+      animation: none !important;
+    }
+    .js .line {
+      opacity: 1;
+      transform: none;
+    }
+  }
+</style>

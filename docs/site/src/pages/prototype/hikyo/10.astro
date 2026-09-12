@@ -1,0 +1,1315 @@
+---
+// Prototype 10: Patch bay. The environment matrix as a hardware patch panel.
+// Each key is a channel, each environment a jack column. A value exists in an
+// environment only where a cable is physically patched. No normalled routing.
+// All facts come from src/lib/prototype/hikyo.ts; nothing is invented.
+import '@fontsource/barlow/500.css';
+import '@fontsource/barlow/700.css';
+import '@fontsource/barlow-condensed/600.css';
+import '@fontsource/barlow-condensed/700.css';
+import '@fontsource-variable/red-hat-mono/wght.css';
+import HikyoHead from '../../../components/prototype/HikyoHead.astro';
+import HikyoSwitcher from '../../../components/prototype/HikyoSwitcher.astro';
+import {
+  cellLabel,
+  cellText,
+  claims,
+  cli,
+  cliRead,
+  docsUrl,
+  environments,
+  gettingStartedUrl,
+  keyCount,
+  matrix,
+  project,
+  repositoryUrl,
+  selfHostingUrl,
+  type CellState,
+  type Environment,
+  type KeyRow,
+} from '../../../lib/prototype/hikyo';
+
+// Panel geometry in CSS px. Emitted as custom properties on the strip so the
+// HTML rows and the SVG cable overlay share one source of truth.
+const ROW_H = 44;
+const GRP_H = 26;
+const RAIL_W = 6;
+const PAD = 8;
+const JACK_Y = 29;
+const PITCH_M = 44;
+const PITCH_D = 72;
+
+const patched = (c: CellState): boolean => c.kind === 'set' || c.kind === 'secret' || c.kind === 'draft';
+
+interface JackCell {
+  env: Environment;
+  cell: CellState;
+  /** Cable ordinal for the plug-in stagger; null when nothing is patched. */
+  i: number | null;
+}
+interface Channel {
+  row: KeyRow;
+  cells: JackCell[];
+}
+interface Bank {
+  name: string;
+  allOrNone: boolean;
+  group: number;
+  channels: Channel[];
+}
+
+let cableIndex = 0;
+const banks: Bank[] = matrix.map((g, group) => ({
+  name: g.name,
+  allOrNone: g.allOrNone === true,
+  group,
+  channels: g.keys.map((row) => ({
+    row,
+    cells: environments.map((env) => {
+      const cell = row.cells[env];
+      return { env, cell, i: patched(cell) ? cableIndex++ : null };
+    }),
+  })),
+}));
+const cableCount = cableIndex;
+
+interface Wire {
+  d: string;
+  group: number;
+  draft: boolean;
+  i: number;
+  jx: number;
+  jy: number;
+}
+interface Overlay {
+  width: number;
+  height: number;
+  wires: Wire[];
+}
+const r1 = (n: number): number => Math.round(n * 10) / 10;
+
+function overlay(pitch: number): Overlay {
+  const wires: Wire[] = [];
+  let y = 0;
+  for (const bank of banks) {
+    for (const ch of bank.channels) {
+      ch.cells.forEach((jc, c) => {
+        if (jc.i === null) return;
+        const jx = RAIL_W + PAD + c * pitch + pitch / 2;
+        const jy = y + JACK_Y;
+        const x0 = RAIL_W;
+        const y0 = jy + (c - 1) * 6;
+        const x1 = jx - 12;
+        const len = x1 - x0;
+        const sag = Math.min(4 + len * 0.1, 16);
+        const d = `M${x0} ${y0} C${r1(x0 + len * 0.3)} ${r1(y0 + sag)}, ${r1(x1 - len * 0.15)} ${r1(jy + sag)}, ${x1} ${jy}`;
+        wires.push({ d, group: bank.group, draft: jc.cell.kind === 'draft', i: jc.i, jx, jy });
+      });
+      y += ROW_H;
+    }
+    y += GRP_H;
+  }
+  return { width: RAIL_W + PAD + pitch * environments.length, height: y, wires };
+}
+const svgM = overlay(PITCH_M);
+const svgD = overlay(PITCH_D);
+
+function ledClass(cell: CellState): string {
+  switch (cell.kind) {
+    case 'set':
+    case 'secret':
+      return 'led on';
+    case 'draft':
+      return 'led on amber';
+    case 'missing':
+      return 'led err';
+    default:
+      return 'led';
+  }
+}
+
+const shortEnv: Record<Environment, string> = { development: 'dev', staging: 'stg', production: 'prod' };
+
+const tagGlyph: Record<CellState['kind'], string> = {
+  set: '',
+  secret: '',
+  absent: '·',
+  missing: '!',
+  forbidden: '×',
+  draft: 'Δ',
+};
+
+interface EnvStat {
+  env: Environment;
+  patched: number;
+  violations: number;
+  drafts: number;
+  rows: { name: string; cell: CellState }[];
+}
+const envStats: EnvStat[] = environments.map((env) => {
+  const rows = matrix.flatMap((g) => g.keys.map((k) => ({ name: k.name, cell: k.cells[env] })));
+  return {
+    env,
+    patched: rows.filter((r) => patched(r.cell)).length,
+    violations: rows.filter((r) => r.cell.kind === 'missing').length,
+    drafts: rows.filter((r) => r.cell.kind === 'draft').length,
+    rows,
+  };
+});
+
+const stripVars = `--cables:${cableCount}; --row-h:${ROW_H}px; --grp-h:${GRP_H}px; --rail-w:${RAIL_W}px; --pad:${PAD}px; --pitch-m:${PITCH_M}px; --pitch-d:${PITCH_D}px; --block-m:${svgM.width}px; --block-d:${svgD.width}px`;
+
+const legend = [
+  { jack: 'plug, green LED', text: 'set: value shown' },
+  { jack: 'plug, locking cap', text: `secret: ${cellText({ kind: 'secret' })}` },
+  { jack: 'empty jack, LED off', text: cellText({ kind: 'absent' }) },
+  { jack: 'empty jack, red LED', text: `${cellText({ kind: 'missing' })} (violation)` },
+  { jack: 'blanking plate', text: cellText({ kind: 'forbidden' }) },
+  { jack: 'dashed cable, amber LED', text: 'Δ draft, not yet published' },
+];
+
+const spec = [
+  { k: 'Version', v: claims.maturity },
+  { k: 'Licence', v: claims.license },
+  { k: '/ee', v: claims.noEnterpriseTier },
+  { k: 'Audit', v: claims.audit },
+];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <HikyoHead title="Hikyo · No signal without a cable" description={claims.positioning} themeColor="#2b2e36" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <svg width="0" height="0" class="defs" aria-hidden="true" focusable="false">
+      <symbol id="lock" viewBox="0 0 12 12"
+        ><rect x="2" y="5.5" width="8" height="6" rx="1" fill="currentColor" /><path
+          d="M4 5.5V4a2 2 0 0 1 4 0v1.5"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.4"></path></symbol
+      >
+    </svg>
+
+    <main id="main" class="rack">
+      <!-- Header unit -->
+      <header class="panel head">
+        <span class="screws" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <div class="head-top">
+          <a class="brand" href="/" aria-label="Hikyo home">HIKYO</a>
+          <nav class="head-nav" aria-label="Primary">
+            <a href={docsUrl}>Docs</a>
+            <a href={repositoryUrl} rel="noopener">Source</a>
+          </nav>
+        </div>
+        <h1>No signal without a cable.</h1>
+        <p class="normal">
+          A studio patch bay "normals" its jacks: signal flows through by default until a cable interrupts it. Hikyo has no
+          normals. A value reaches an environment only where someone patched it.
+        </p>
+        <p class="model">{claims.positioning}</p>
+        <p class="marker">Prototype 10 · Patch bay · example data</p>
+      </header>
+
+      <div class="deck">
+        <!-- The patch bay -->
+        <section class="panel bay" aria-labelledby="bay-title" style={stripVars}>
+          <span class="screws" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+          <div class="unit">
+            <span id="bay-title" class="unit-name">{project.organisation} / {project.name} · {project.revision}</span>
+            <span class="unit-meta"
+              >{keyCount} channels · {environments.length} outputs · protected: {project.protectedEnvironments.join(', ')}</span
+            >
+          </div>
+
+          <div class="cols" aria-hidden="true">
+            <span class="cols-label">channel</span>
+            <span class="cols-block">
+              <span class="cols-bus">bus</span>
+              {environments.map((env) => <span>{shortEnv[env]}</span>)}
+            </span>
+          </div>
+
+          <div class="strip">
+            <span class="rail" aria-hidden="true"></span>
+            {
+              banks.map((bank) => (
+                <div class="bank">
+                  {bank.channels.map((ch) => (
+                    <div class="ch">
+                      <div class="label">
+                        <span class="key">{ch.row.name}</span>
+                        <span class="rule">{ch.row.presence}</span>
+                        <span class="sr-only">, {ch.row.classification}.</span>
+                      </div>
+                      <div class="jacks">
+                        {ch.cells.map((jc) => (
+                          <div class={`jack jack-${jc.cell.kind}`} style={jc.i === null ? undefined : `--i:${jc.i}`}>
+                            <span class="tag" aria-hidden="true">
+                              {jc.cell.kind === 'secret' && (
+                                <svg class="lock" width="9" height="9">
+                                  <use href="#lock" />
+                                </svg>
+                              )}
+                              <span class="tag-text">{cellText(jc.cell)}</span>
+                              <span class="tag-glyph">{tagGlyph[jc.cell.kind]}</span>
+                            </span>
+                            <span class="ring" aria-hidden="true" />
+                            {jc.cell.kind === 'secret' && <span class="cap" aria-hidden="true" />}
+                            {jc.cell.kind === 'forbidden' && <span class="plate" aria-hidden="true" />}
+                            <span class={ledClass(jc.cell)} aria-hidden="true" />
+                            <span class="sr-only">
+                              {jc.env}: {cellLabel(jc.cell)}.
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  <div class="bank-label">
+                    <span class="bank-name">{bank.name}</span>
+                    {bank.allOrNone && <span class="bank-rule">all-or-none group</span>}
+                  </div>
+                </div>
+              ))
+            }
+
+            <svg
+              class="cables cables-m"
+              viewBox={`0 0 ${svgM.width} ${svgM.height}`}
+              width={svgM.width}
+              height={svgM.height}
+              aria-hidden="true"
+              focusable="false"
+            >
+              {
+                svgM.wires.map((w) => (
+                  <g class={`cable g${w.group}${w.draft ? ' draft' : ''}`} style={`--i:${w.i}`}>
+                    <path class="wire" d={w.d} pathLength="1" />
+                    <rect class="plug" x={w.jx - 12} y={w.jy - 3.5} width="10" height="7" rx="1.5" />
+                    <circle class="plug tip" cx={w.jx} cy={w.jy} r="4.5" />
+                  </g>
+                ))
+              }
+            </svg>
+            <svg
+              class="cables cables-d"
+              viewBox={`0 0 ${svgD.width} ${svgD.height}`}
+              width={svgD.width}
+              height={svgD.height}
+              aria-hidden="true"
+              focusable="false"
+            >
+              {
+                svgD.wires.map((w) => (
+                  <g class={`cable g${w.group}${w.draft ? ' draft' : ''}`} style={`--i:${w.i}`}>
+                    <path class="wire" d={w.d} pathLength="1" />
+                    <rect class="plug" x={w.jx - 12} y={w.jy - 3.5} width="10" height="7" rx="1.5" />
+                    <circle class="plug tip" cx={w.jx} cy={w.jy} r="4.5" />
+                  </g>
+                ))
+              }
+            </svg>
+          </div>
+        </section>
+
+        <!-- Readout: the readable matrix -->
+        <aside class="panel readout" aria-labelledby="readout-title">
+          <span class="screws" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+          <h2 id="readout-title" class="engraved">Readout</h2>
+          <ul class="legend" aria-label="Jack states">
+            {
+              legend.map((l) => (
+                <li>
+                  <span class="legend-jack">{l.jack}</span>
+                  <span class="legend-text">{l.text}</span>
+                </li>
+              ))
+            }
+          </ul>
+          {
+            envStats.map((s) => (
+              <details class="env" open={s.env === 'production'}>
+                <summary>
+                  <span class="env-name">{s.env}</span>
+                  <span class="env-count">
+                    {s.patched} patched
+                    {s.violations > 0 && ` · ${s.violations} violation`}
+                    {s.drafts > 0 && ` · ${s.drafts} draft`}
+                  </span>
+                </summary>
+                <ul class="env-list">
+                  {s.rows.map((r) => (
+                    <li class={`st st-${r.cell.kind}`}>
+                      <code class="st-key">{r.name}</code>
+                      <span class="st-val" aria-hidden="true">
+                        {cellText(r.cell)}
+                      </span>
+                      <span class="sr-only">{cellLabel(r.cell)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            ))
+          }
+        </aside>
+      </div>
+
+      <!-- Channel setup -->
+      <section class="panel copy" aria-labelledby="setup-title">
+        <span class="screws" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <h2 id="setup-title" class="engraved">Channel setup</h2>
+        <p class="lead">Declare before you set.</p>
+        <p>
+          A channel exists before any signal does. Declare the key, config or secret, its validation rule, and where it is
+          required or forbidden. A write that fails the rule is refused before state changes. A required value cannot be
+          cleared where its rule applies.
+        </p>
+        <pre class="cli" tabindex="0"><code>{cli.declare}</code></pre>
+      </section>
+
+      <!-- Reveal -->
+      <section class="panel copy" aria-labelledby="reveal-title">
+        <span class="screws" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <h2 id="reveal-title" class="engraved">Reveal is a manual patch</h2>
+        <p class="lead">Ordinary reads return presence and metadata.</p>
+        <p>
+          Reveal and copy are separate, deliberate actions: reauthenticate, write to a file, remask automatically, and
+          leave an audit event. Replacing a secret never reveals the old one.
+        </p>
+        <pre class="cli" tabindex="0"><code><span class="cmd">$ {cliRead.get}</span>
+{cliRead.getMasked}
+
+<span class="cmd">$ {cliRead.reveal}</span>
+<span class="cmt"># value written to {cliRead.outputFile}</span></code></pre>
+      </section>
+
+      <!-- I/O -->
+      <section class="panel io" aria-labelledby="io-title">
+        <span class="screws" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <h2 id="io-title" class="engraved">Inputs</h2>
+        <ul class="ports">
+          {
+            claims.surfaces.map((s) => (
+              <li>
+                <span class="port" aria-hidden="true" />
+                <span class="port-label">{s}</span>
+              </li>
+            ))
+          }
+          <li>
+            <span class="port port-power" aria-hidden="true"></span>
+            <span class="port-label">Self-hosted</span>
+          </li>
+        </ul>
+        <p>{claims.runtime} Your database, your root key.</p>
+        <dl class="io-spec">
+          <dt>Delivery</dt>
+          <dd>{claims.delivery.join(', ')}</dd>
+          <dt>Identity</dt>
+          <dd>{claims.identity.join(', ')}</dd>
+        </dl>
+        <a class="text-link" href={selfHostingUrl}>Self-hosting guide</a>
+      </section>
+
+      <!-- Spec plate -->
+      <section class="panel plate-spec" aria-labelledby="spec-title">
+        <span class="screws" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <h2 id="spec-title" class="engraved">Spec</h2>
+        <dl class="spec">
+          {
+            spec.map((s) => (
+              <div>
+                <dt>{s.k}</dt>
+                <dd>{s.v}</dd>
+              </div>
+            ))
+          }
+        </dl>
+      </section>
+
+      <!-- CTAs -->
+      <section class="panel cta" aria-labelledby="cta-title">
+        <span class="screws" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <h2 id="cta-title" class="engraved">Power</h2>
+        <div class="rockers">
+          <a class="rocker rocker-primary" href={gettingStartedUrl}>Get started</a>
+          <a class="rocker" href={repositoryUrl} rel="noopener">Source</a>
+        </div>
+        <a class="text-link" href={docsUrl}>Read the docs</a>
+      </section>
+    </main>
+
+    <HikyoSwitcher current={10} />
+  </body>
+</html>
+
+<style>
+  :global(html) {
+    background: oklch(0.2 0.01 250);
+  }
+  :global(body) {
+    margin: 0;
+    color: var(--label);
+    background: oklch(0.2 0.01 250);
+    font-family: var(--sans);
+    font-weight: 500;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+  :global(*),
+  :global(*::before),
+  :global(*::after) {
+    box-sizing: border-box;
+  }
+
+  .rack {
+    --sans: 'Barlow', system-ui, sans-serif;
+    --cond: 'Barlow Condensed', 'Barlow', system-ui, sans-serif;
+    --mono: 'Red Hat Mono Variable', ui-monospace, Menlo, monospace;
+    --panel: oklch(0.28 0.01 250);
+    --panel-edge: oklch(0.36 0.01 250);
+    --label: oklch(0.85 0.01 80);
+    --label-dim: oklch(0.72 0.01 80);
+    --hole: oklch(0.12 0.005 250);
+    --ring: oklch(0.55 0.01 250);
+    --led-on: oklch(0.8 0.2 145);
+    --led-amber: oklch(0.85 0.17 80);
+    --led-err: oklch(0.65 0.22 25);
+    --led-off: oklch(0.22 0.01 250);
+    --led-off-ring: oklch(0.42 0.01 250);
+    --engrave: 0 -1px 0 oklch(0 0 0 / 0.65), 0 1px 0 oklch(1 0 0 / 0.07);
+    display: grid;
+    gap: 0.75rem;
+    max-width: 72rem;
+    margin: 0 auto;
+    padding: 0.75rem 0.75rem 11rem;
+    font-family: var(--sans);
+  }
+
+  .skip {
+    position: absolute;
+    inset-inline-start: 0.75rem;
+    inset-block-start: -3rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--label);
+    color: oklch(0.2 0.01 250);
+    z-index: 2000;
+  }
+  .skip:focus {
+    inset-block-start: 0.75rem;
+  }
+  .defs {
+    position: absolute;
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  /* ---------- panels ---------- */
+  .panel {
+    position: relative;
+    min-width: 0;
+    padding: 1.25rem 1rem 1rem;
+    border-radius: 4px;
+    border: 1px solid var(--panel-edge);
+    border-top-color: oklch(0.4 0.01 250);
+    border-bottom-color: oklch(0.22 0.01 250);
+    background:
+      repeating-linear-gradient(180deg, transparent 0 2px, oklch(1 0 0 / 0.03) 2px 3px),
+      var(--panel);
+    box-shadow:
+      inset 0 1px 0 oklch(1 0 0 / 0.05),
+      0 2px 0 oklch(0 0 0 / 0.45);
+  }
+  .screws {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .screws i {
+    position: absolute;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, oklch(0.55 0.01 250), oklch(0.32 0.01 250) 70%);
+    box-shadow:
+      inset 0 0 0 1px oklch(0.2 0.01 250),
+      0 1px 0 oklch(1 0 0 / 0.08);
+  }
+  .screws i::after {
+    content: '';
+    position: absolute;
+    inset: 3.5px 1.5px;
+    background: oklch(0.15 0.005 250);
+    transform: rotate(var(--slot, 20deg));
+  }
+  .screws i:nth-child(1) {
+    top: 5px;
+    left: 5px;
+    --slot: 20deg;
+  }
+  .screws i:nth-child(2) {
+    top: 5px;
+    right: 5px;
+    --slot: -35deg;
+  }
+  .screws i:nth-child(3) {
+    bottom: 5px;
+    left: 5px;
+    --slot: 70deg;
+  }
+  .screws i:nth-child(4) {
+    bottom: 5px;
+    right: 5px;
+    --slot: -10deg;
+  }
+
+  .engraved,
+  .unit-name,
+  .unit-meta,
+  .cols,
+  .bank-label,
+  .rule,
+  .port-label,
+  .env-name,
+  .legend-jack,
+  .brand,
+  .marker {
+    font-family: var(--cond);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    text-shadow: var(--engrave);
+  }
+  h2.engraved {
+    margin: 0 0 0.75rem;
+    font-size: 0.8125rem;
+    color: var(--label-dim);
+  }
+
+  /* ---------- header ---------- */
+  .head-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  .brand {
+    font-size: 1.25rem;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    color: var(--label);
+    text-decoration: none;
+  }
+  .head-nav {
+    display: flex;
+    gap: 0.25rem;
+  }
+  .head-nav a,
+  .text-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    padding: 0 0.5rem;
+    color: var(--label-dim);
+    font-family: var(--cond);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+  }
+  h1 {
+    margin: 0 0 0.75rem;
+    font-family: var(--cond);
+    font-weight: 700;
+    font-size: clamp(2.25rem, 9vw, 4rem);
+    line-height: 0.95;
+    letter-spacing: -0.01em;
+    color: var(--label);
+    text-shadow: var(--engrave);
+  }
+  .normal {
+    margin: 0 0 1rem;
+    max-width: 38rem;
+    font-size: 1.0625rem;
+    color: var(--label);
+  }
+  .model {
+    margin: 0 0 1rem;
+    max-width: 38rem;
+    font-size: 0.9375rem;
+    color: var(--label-dim);
+  }
+  .marker {
+    margin: 0;
+    font-size: 0.6875rem;
+    color: var(--label-dim);
+  }
+
+  /* ---------- bay ---------- */
+  .deck {
+    display: grid;
+    gap: 0.75rem;
+    min-width: 0;
+  }
+  .bay {
+    padding-inline: 0.75rem;
+    --pitch: var(--pitch-m, 44px);
+    --block: var(--block-m, 146px);
+  }
+  .unit {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.25rem 1rem;
+    margin-bottom: 0.75rem;
+  }
+  .unit-name {
+    font-size: 0.875rem;
+    color: var(--label);
+  }
+  .unit-meta {
+    font-size: 0.6875rem;
+    color: var(--label-dim);
+  }
+  .cols {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--block);
+    font-size: 0.6875rem;
+    color: var(--label-dim);
+    height: 22px;
+    align-items: end;
+  }
+  .cols-block {
+    display: grid;
+    grid-template-columns: calc(var(--rail-w, 6px) + var(--pad, 8px)) repeat(3, var(--pitch));
+    text-align: center;
+  }
+  .cols-bus {
+    font-size: 0.5rem;
+    letter-spacing: 0.04em;
+    text-align: left;
+  }
+  .strip {
+    position: relative;
+  }
+  .rail {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: calc(100% - var(--block));
+    width: var(--rail-w);
+    background: linear-gradient(90deg, oklch(0.5 0.01 250), oklch(0.38 0.01 250));
+    box-shadow: inset 0 0 0 1px oklch(0.2 0.01 250);
+    z-index: 1;
+  }
+  .bank {
+    background: linear-gradient(180deg, oklch(1 0 0 / 0.06), oklch(1 0 0 / 0.06)) 0 100% / 100% 1px no-repeat;
+  }
+  .ch {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--block);
+    height: var(--row-h);
+    background: linear-gradient(180deg, oklch(0 0 0 / 0.25), oklch(0 0 0 / 0.25)) 0 100% / 100% 1px no-repeat;
+  }
+  .label {
+    position: relative;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 1px;
+    padding-right: 0.5rem;
+  }
+  .key {
+    font-family: var(--mono);
+    font-weight: 500;
+    font-size: 0.75rem;
+    line-height: 1.1;
+    color: var(--label);
+    text-shadow: var(--engrave);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .rule {
+    font-size: 0.625rem;
+    letter-spacing: 0.04em;
+    line-height: 1.1;
+    color: var(--label-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .jacks {
+    display: grid;
+    grid-template-columns: repeat(3, var(--pitch));
+    padding-left: calc(var(--rail-w) + var(--pad));
+  }
+  .jack {
+    position: relative;
+    height: var(--row-h);
+  }
+  .tag {
+    position: absolute;
+    top: 3px;
+    left: 1px;
+    right: 1px;
+    display: block;
+    font-family: var(--mono);
+    font-size: 0.53125rem;
+    line-height: 10px;
+    text-align: center;
+    color: var(--label);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .tag .lock {
+    vertical-align: -1px;
+    margin-right: 1px;
+  }
+  .tag-text {
+    display: none;
+  }
+  .tag-glyph {
+    font-size: 0.6875rem;
+    font-weight: 700;
+  }
+  .jack-missing .tag {
+    color: var(--led-err);
+  }
+  .jack-draft .tag {
+    color: var(--led-amber);
+  }
+  .jack-absent .tag,
+  .jack-forbidden .tag {
+    color: var(--label-dim);
+  }
+  .ring {
+    position: absolute;
+    top: 19px;
+    left: calc(50% - 10px);
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--hole);
+    border: 3px solid var(--ring);
+    box-shadow:
+      inset 0 1px 2px oklch(0 0 0 / 0.9),
+      0 1px 0 oklch(1 0 0 / 0.1);
+  }
+  .cap {
+    position: absolute;
+    top: 16px;
+    left: calc(50% - 13px);
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 2px dashed oklch(0.78 0.01 80);
+    z-index: 4;
+  }
+  .plate {
+    position: absolute;
+    top: 17px;
+    left: calc(50% - 13px);
+    width: 26px;
+    height: 24px;
+    border-radius: 2px;
+    background: oklch(0.34 0.01 250);
+    box-shadow:
+      inset 0 1px 0 oklch(1 0 0 / 0.1),
+      0 1px 2px oklch(0 0 0 / 0.5);
+    z-index: 4;
+  }
+  .plate::before,
+  .plate::after {
+    content: '';
+    position: absolute;
+    top: 9px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: oklch(0.2 0.01 250);
+    box-shadow: inset 0 0 0 1px oklch(0.5 0.01 250);
+  }
+  .plate::before {
+    left: 3px;
+  }
+  .plate::after {
+    right: 3px;
+  }
+  .led {
+    position: absolute;
+    top: 26px;
+    left: calc(50% + 12px);
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--led-off);
+    box-shadow: inset 0 0 0 1px var(--led-off-ring);
+  }
+  .led.on {
+    background: var(--led-on);
+    box-shadow:
+      0 0 2px 1px oklch(0.8 0.2 145 / 0.6),
+      inset 0 0 0 1px oklch(0.6 0.15 145);
+  }
+  .led.amber {
+    background: var(--led-amber);
+    box-shadow:
+      0 0 2px 1px oklch(0.85 0.17 80 / 0.6),
+      inset 0 0 0 1px oklch(0.65 0.14 80);
+  }
+  .led.err {
+    background: var(--led-err);
+    box-shadow:
+      0 0 2px 1px oklch(0.65 0.22 25 / 0.6),
+      inset 0 0 0 1px oklch(0.5 0.18 25);
+  }
+  .bank-label {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    height: var(--grp-h);
+    font-size: 0.625rem;
+    color: var(--label-dim);
+  }
+  .bank-rule {
+    color: var(--label);
+  }
+
+  /* cables */
+  .cables {
+    position: absolute;
+    top: 0;
+    right: 0;
+    pointer-events: none;
+    z-index: 3;
+    overflow: visible;
+  }
+  .cables-d {
+    display: none;
+  }
+  .cable {
+    --cable: oklch(0.62 0.12 250);
+  }
+  .cable.g1 {
+    --cable: oklch(0.62 0.14 25);
+  }
+  .cable.g2 {
+    --cable: oklch(0.64 0.12 150);
+  }
+  .cable.g3 {
+    --cable: oklch(0.72 0.13 60);
+  }
+  .wire {
+    fill: none;
+    stroke: var(--cable);
+    stroke-width: 3;
+    stroke-linecap: round;
+    stroke-dasharray: 1;
+    stroke-dashoffset: 0;
+  }
+  .draft .wire {
+    stroke-dasharray: 0.06 0.04;
+  }
+  .plug {
+    fill: var(--cable);
+    stroke: oklch(0.15 0.005 250);
+    stroke-width: 1;
+  }
+  .tip {
+    stroke-width: 1.5;
+  }
+
+  /* ---------- motion: power up, then patch top to bottom ---------- */
+  .strip {
+    --step: min(46ms, calc(1000ms / var(--cables, 22)));
+    --t0: 300ms;
+    --draw: 260ms;
+  }
+  .led {
+    animation: power 300ms steps(3, end) both;
+  }
+  .led.on {
+    animation:
+      power 300ms steps(3, end) both,
+      led-on 1ms steps(1, end) both;
+    animation-delay: 0ms, calc(var(--t0) + var(--i, 0) * var(--step) + var(--draw));
+  }
+  .led.err {
+    animation:
+      power 300ms steps(3, end) both,
+      blink 1s steps(1, end) infinite;
+    animation-delay: 0ms, 1600ms;
+  }
+  .wire {
+    animation: draw var(--draw) ease-out both;
+    animation-delay: calc(var(--t0) + var(--i, 0) * var(--step));
+  }
+  .draft .wire {
+    animation-name: wipe;
+  }
+  .plug {
+    animation: appear 1ms steps(1, end) both;
+    animation-delay: calc(var(--t0) + var(--i, 0) * var(--step) + var(--draw));
+  }
+  @keyframes power {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes led-on {
+    from {
+      background: var(--led-off);
+      box-shadow: inset 0 0 0 1px var(--led-off-ring);
+    }
+  }
+  @keyframes blink {
+    50% {
+      background: var(--led-off);
+      box-shadow: inset 0 0 0 1px var(--led-off-ring);
+    }
+  }
+  @keyframes draw {
+    from {
+      stroke-dashoffset: 1;
+    }
+  }
+  @keyframes wipe {
+    from {
+      clip-path: inset(-4px -4px -4px 100%);
+    }
+    to {
+      clip-path: inset(-4px);
+    }
+  }
+  @keyframes appear {
+    from {
+      opacity: 0;
+    }
+  }
+
+  /* ---------- readout ---------- */
+  .legend {
+    list-style: none;
+    margin: 0 0 1rem;
+    padding: 0;
+    display: grid;
+    gap: 0.25rem;
+    font-size: 0.75rem;
+  }
+  .legend li {
+    display: grid;
+    grid-template-columns: minmax(0, 9.5rem) minmax(0, 1fr);
+    gap: 0.5rem;
+    min-width: 0;
+  }
+  .legend-jack {
+    font-size: 0.625rem;
+    color: var(--label-dim);
+    line-height: 1.5;
+  }
+  .legend-text {
+    font-family: var(--mono);
+    font-size: 0.6875rem;
+    color: var(--label);
+  }
+  .env {
+    border-top: 1px solid oklch(0 0 0 / 0.35);
+    box-shadow: 0 -1px 0 oklch(1 0 0 / 0.06);
+  }
+  .env summary {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+    cursor: pointer;
+    list-style: none;
+  }
+  .env summary::-webkit-details-marker {
+    display: none;
+  }
+  .env summary::before {
+    content: '';
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--led-off);
+    box-shadow: inset 0 0 0 1px var(--led-off-ring);
+    flex: none;
+  }
+  .env[open] summary::before {
+    background: var(--led-on);
+    box-shadow: 0 0 2px 1px oklch(0.8 0.2 145 / 0.6);
+  }
+  .env-name {
+    flex: 1;
+    font-size: 0.75rem;
+    color: var(--label);
+  }
+  .env-count {
+    font-size: 0.6875rem;
+    color: var(--label-dim);
+    text-align: right;
+  }
+  .env-list {
+    list-style: none;
+    margin: 0 0 0.5rem;
+    padding: 0;
+    display: grid;
+    gap: 0.25rem;
+  }
+  .st {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.5rem;
+    min-width: 0;
+    font-family: var(--mono);
+    font-size: 0.6875rem;
+    line-height: 1.4;
+  }
+  .st-key {
+    font-family: inherit;
+    color: var(--label);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .st-val {
+    color: var(--label-dim);
+    text-align: right;
+    white-space: nowrap;
+  }
+  .st-set .st-val,
+  .st-secret .st-val {
+    color: var(--label);
+  }
+  .st-missing .st-val {
+    color: var(--led-err);
+  }
+  .st-draft .st-val {
+    color: var(--led-amber);
+  }
+
+  /* ---------- copy panels ---------- */
+  .copy p,
+  .io p {
+    margin: 0 0 0.75rem;
+    max-width: 38rem;
+    font-size: 0.9375rem;
+    color: var(--label-dim);
+  }
+  .copy .lead {
+    font-size: 1.125rem;
+    color: var(--label);
+  }
+  .cli {
+    margin: 0;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    padding: 0.75rem;
+    border-radius: 3px;
+    background: var(--hole);
+    box-shadow: inset 0 1px 3px oklch(0 0 0 / 0.8);
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: var(--label);
+    tab-size: 2;
+  }
+  .cli code {
+    font-family: inherit;
+  }
+  .cmd {
+    color: oklch(0.8 0.2 145);
+  }
+  .cmt {
+    color: var(--label-dim);
+  }
+
+  /* ---------- I/O ---------- */
+  .ports {
+    list-style: none;
+    margin: 0 0 1rem;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem 1rem;
+  }
+  .ports li {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+  .port {
+    flex: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--hole);
+    border: 3px solid var(--ring);
+    box-shadow: inset 0 1px 2px oklch(0 0 0 / 0.9);
+  }
+  .port-power {
+    border-radius: 3px;
+    border-color: oklch(0.65 0.01 250);
+  }
+  .port-label {
+    font-size: 0.8125rem;
+    color: var(--label);
+  }
+  .io-spec,
+  .spec {
+    margin: 0 0 0.5rem;
+    display: grid;
+    gap: 0.375rem;
+  }
+  .io-spec dt,
+  .spec dt {
+    font-family: var(--cond);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.6875rem;
+    color: var(--label-dim);
+    text-shadow: var(--engrave);
+  }
+  .io-spec dd,
+  .spec dd {
+    margin: 0 0 0.375rem;
+    font-size: 0.875rem;
+    color: var(--label);
+  }
+  .spec div {
+    display: grid;
+    grid-template-columns: 5rem minmax(0, 1fr);
+    gap: 0.5rem;
+    padding: 0.5rem 0;
+    border-top: 1px solid oklch(0 0 0 / 0.35);
+    box-shadow: 0 -1px 0 oklch(1 0 0 / 0.06);
+  }
+  .spec dd {
+    margin: 0;
+  }
+
+  /* ---------- CTA rockers ---------- */
+  .rockers {
+    display: grid;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+  }
+  .rocker {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 3.25rem;
+    padding: 0 1.25rem;
+    border-radius: 4px;
+    font-family: var(--cond);
+    font-weight: 700;
+    font-size: 1.0625rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    text-decoration: none;
+    color: var(--label);
+    background: linear-gradient(180deg, oklch(0.4 0.01 250), oklch(0.3 0.01 250));
+    border: 1px solid oklch(0.2 0.01 250);
+    box-shadow:
+      inset 0 1px 0 oklch(1 0 0 / 0.14),
+      inset 0 -3px 0 oklch(0 0 0 / 0.35),
+      0 2px 0 oklch(0 0 0 / 0.5);
+  }
+  .rocker-primary {
+    color: oklch(0.16 0.01 250);
+    background: linear-gradient(180deg, oklch(0.9 0.01 80), oklch(0.78 0.01 80));
+    text-shadow: none;
+  }
+  .rocker:active {
+    transform: translateY(1px);
+    box-shadow:
+      inset 0 1px 0 oklch(1 0 0 / 0.1),
+      inset 0 -1px 0 oklch(0 0 0 / 0.35);
+  }
+  .rocker:focus-visible,
+  .text-link:focus-visible,
+  .head-nav a:focus-visible,
+  .env summary:focus-visible,
+  .cli:focus-visible {
+    outline: 2px solid var(--led-on);
+    outline-offset: 2px;
+  }
+
+  /* ---------- desktop ---------- */
+  @media (min-width: 64rem) {
+    .rack {
+      padding: 1.5rem 1.5rem 11rem;
+    }
+    .panel {
+      padding: 1.5rem;
+    }
+    .deck {
+      grid-template-columns: minmax(0, 40rem) minmax(0, 1fr);
+      align-items: start;
+    }
+    .bay {
+      --pitch: var(--pitch-d);
+      --block: var(--block-d);
+    }
+    .cables-m {
+      display: none;
+    }
+    .cables-d {
+      display: block;
+    }
+    .key {
+      font-size: 0.875rem;
+    }
+    .tag {
+      font-size: 0.625rem;
+    }
+    .tag-text {
+      display: inline;
+    }
+    .tag-glyph {
+      display: none;
+    }
+    .rockers {
+      grid-template-columns: repeat(2, minmax(0, 16rem));
+    }
+    .ports {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .led,
+    .led.on,
+    .led.err,
+    .wire,
+    .draft .wire,
+    .plug {
+      animation: none;
+    }
+    .rocker:active {
+      transform: none;
+    }
+  }
+</style>

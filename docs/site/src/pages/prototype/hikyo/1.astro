@@ -1,0 +1,1561 @@
+---
+// Prototype 1: Schematic. An annotated technical drawing on linen paper.
+// The environment matrix is the part; the claims are the callouts.
+import '@fontsource/instrument-sans/400.css';
+import '@fontsource/instrument-sans/500.css';
+import '@fontsource/instrument-sans/700.css';
+import '@fontsource/ibm-plex-mono/400.css';
+import '@fontsource/ibm-plex-mono/500.css';
+import HikyoHead from '../../../components/prototype/HikyoHead.astro';
+import HikyoSwitcher from '../../../components/prototype/HikyoSwitcher.astro';
+import {
+  cellLabel,
+  cellText,
+  claims,
+  cli,
+  cliReferenceUrl,
+  coreConceptsUrl,
+  docsUrl,
+  environments,
+  gettingStartedUrl,
+  keyCount,
+  masked,
+  matrix,
+  project,
+  repositoryUrl,
+  selfHostingUrl,
+  type Environment,
+} from '../../../lib/prototype/hikyo';
+
+// Row geometry in CSS pixels. The leader-line SVG is drawn in these units, so
+// the table must use the same fixed row heights (see the .matrix rules below).
+const headH = 40;
+const groupH = 32;
+const rowH = 44;
+
+interface RowBox {
+  top: number;
+  mid: number;
+  bottom: number;
+}
+const rows = new Map<string, RowBox>();
+let cursor = headH;
+for (const group of matrix) {
+  rows.set(`group:${group.name}`, { top: cursor, mid: cursor + groupH / 2, bottom: cursor + groupH });
+  cursor += groupH;
+  for (const key of group.keys) {
+    rows.set(key.name, { top: cursor, mid: cursor + rowH / 2, bottom: cursor + rowH });
+    cursor += rowH;
+  }
+}
+const rowAt = (id: string): RowBox => {
+  const box = rows.get(id);
+  if (!box) throw new Error(`no matrix row named ${id}`);
+  return box;
+};
+
+// Horizontal geometry in percent of the overlay box. The table takes 88% of
+// the overlay; the remaining 12% is the balloon gutter. Column widths inside
+// the table: key 34%, then 22% per environment.
+const tableFrac = 0.88;
+const keyW = 34;
+const envW = 22;
+const balloonX = '94%';
+const pct = (v: number): string => `${v.toFixed(2)}%`;
+const envRight = (env: Environment): string =>
+  pct((keyW + envW * (environments.indexOf(env) + 1)) * tableFrac);
+
+type Anchor =
+  | { kind: 'head'; env: Environment }
+  | { kind: 'group'; group: string }
+  | { kind: 'cell'; key: string; env: Environment };
+
+interface Callout {
+  n: number;
+  at: Anchor;
+  title: string;
+  body: string;
+}
+
+const callouts: Callout[] = [
+  {
+    n: 1,
+    at: { kind: 'head', env: 'production' },
+    title: 'Protected environment',
+    body: 'Publishing to production is a protected flow. The column header names that state in text, not colour.',
+  },
+  {
+    n: 2,
+    at: { kind: 'cell', key: 'DATABASE_URL', env: 'production' },
+    title: 'Secret, masked',
+    body: 'The matrix shows presence, never the value. Reveal is a separate ceremony: reauthenticate, read, remask, audit event.',
+  },
+  {
+    n: 3,
+    at: { kind: 'cell', key: 'DATABASE_POOL_MAX', env: 'production' },
+    title: 'Draft, unpublished',
+    body: 'Δ 40 is staged, not live. Drafts publish atomically, and the cell says draft until then.',
+  },
+  {
+    n: 4,
+    at: { kind: 'cell', key: 'STRIPE_WEBHOOK_SECRET', env: 'production' },
+    title: 'Violation, shown',
+    body: 'Required in production, recorded absent. The matrix shows the gap. A write that fails its rule is refused before state changes.',
+  },
+  {
+    n: 5,
+    at: { kind: 'cell', key: 'PAYMENTS_MOCK_PROVIDER', env: 'production' },
+    title: 'Forbidden here',
+    body: 'The presence rule forbids this key in production. Absent is the correct state, and the cell says why.',
+  },
+  {
+    n: 6,
+    at: { kind: 'cell', key: 'STRIPE_SECRET_KEY', env: 'development' },
+    title: 'Absent, recorded',
+    body: 'Development records absent. Nothing is inherited from staging, nothing is defaulted. Empty never means inherited.',
+  },
+  {
+    n: 7,
+    at: { kind: 'group', group: 'smtp' },
+    title: 'All-or-none group',
+    body: 'In each environment, every key in smtp is set or none is. The group is named on its header row.',
+  },
+  {
+    n: 8,
+    at: { kind: 'cell', key: 'SMTP_PASSWORD', env: 'staging' },
+    title: 'Group rule, violated',
+    body: 'Staging has SMTP_HOST but not SMTP_PASSWORD, so the group rule reports the missing key as a violation.',
+  },
+];
+
+interface Seg {
+  x1: string;
+  y1: number;
+  x2: string;
+  y2: number;
+}
+interface Leader {
+  n: number;
+  dot: { x: string; y: number };
+  segs: Seg[];
+  by: number;
+}
+
+const leaderFor = (c: Callout): Leader => {
+  const at = c.at;
+  switch (at.kind) {
+    case 'head': {
+      const x = envRight(at.env);
+      const y = headH / 2;
+      return { n: c.n, dot: { x, y }, segs: [{ x1: x, y1: y, x2: balloonX, y2: y }], by: y };
+    }
+    case 'group': {
+      const x = pct(38);
+      const y = rowAt(`group:${at.group}`).mid;
+      return { n: c.n, dot: { x, y }, segs: [{ x1: x, y1: y, x2: balloonX, y2: y }], by: y };
+    }
+    case 'cell': {
+      const box = rowAt(at.key);
+      const x = envRight(at.env);
+      if (at.env === 'production') {
+        return { n: c.n, dot: { x, y: box.mid }, segs: [{ x1: x, y1: box.mid, x2: balloonX, y2: box.mid }], by: box.mid };
+      }
+      // Elbow: up the cell's own edge to the row's top hairline, then along it.
+      return {
+        n: c.n,
+        dot: { x, y: box.mid },
+        segs: [
+          { x1: x, y1: box.mid, x2: x, y2: box.top },
+          { x1: x, y1: box.top, x2: balloonX, y2: box.top },
+        ],
+        by: box.top,
+      };
+    }
+  }
+};
+const leaders = callouts.map(leaderFor);
+
+const cellCallout = (key: string, env: Environment): number | undefined =>
+  callouts.find((c) => c.at.kind === 'cell' && c.at.key === key && c.at.env === env)?.n;
+const groupCallout = (group: string): number | undefined =>
+  callouts.find((c) => c.at.kind === 'group' && c.at.group === group)?.n;
+const headCallout = (env: Environment): number | undefined =>
+  callouts.find((c) => c.at.kind === 'head' && c.at.env === env)?.n;
+
+const isProtected = (env: Environment): boolean => project.protectedEnvironments.some((p) => p === env);
+
+const legend = [
+  { sample: '20', label: 'set, shown in plain text' },
+  { sample: masked, label: 'secret, masked; lock on the key', lock: true },
+  { sample: '· absent', label: 'explicitly absent' },
+  { sample: '! required · absent', label: 'violation', tone: 'missing' },
+  { sample: 'Δ 40', label: 'draft, unpublished', tone: 'draft' },
+];
+
+const bom = [
+  { item: 'Runtime', spec: claims.runtime },
+  { item: 'Storage', spec: 'SQLite or PostgreSQL. Your database, on your host.' },
+  { item: 'Encryption', spec: 'Envelope encryption with operator-held root key material.' },
+  { item: 'Identity', spec: claims.identity.join(', ') },
+  { item: 'Surfaces', spec: claims.surfaces.join(', ') },
+  { item: 'Delivery', spec: claims.delivery.join(', ') },
+  { item: 'Imports', spec: claims.imports.join(', ') },
+  { item: 'Lifecycle', spec: claims.lifecycle.join(', ') },
+  { item: 'Audit', spec: claims.audit },
+  { item: 'Scanning', spec: claims.scanning },
+  { item: 'License', spec: `${claims.license}. ${claims.noEnterpriseTier}` },
+];
+
+const revealStates = [
+  { state: 'reauthentication', note: 'required before any reveal or copy' },
+  { state: 'authorization', note: 'one capability-and-scope decision, same as every other caller' },
+  { state: 'written', note: 'the value goes to ./whsec, the file you named' },
+  { state: 'audit event', note: 'actor, object, outcome, decision context; no secret material' },
+  { state: 'remasked', note: 'automatically, after the reveal' },
+];
+
+const surfaces = [
+  {
+    name: 'Web UI',
+    note: 'Embedded in the binary. The environment matrix is its signature surface: every key by every environment, each state named in text.',
+  },
+  {
+    name: 'CLI',
+    note: 'hikyo key, hikyo values, hikyo run. Same declarations, same refusals, same masking as the UI.',
+  },
+  {
+    name: 'HTTP API',
+    note: 'Humans, machine identities, and local break-glass go through one authorization chokepoint. Unauthorized resources look identical to resources that do not exist.',
+  },
+];
+
+let rowIndex = 0;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <HikyoHead
+      title="Hikyo prototype 1: Schematic"
+      description="Hikyo, a self-hosted control plane for secrets and configuration, drawn as an annotated engineering sheet."
+      themeColor="#f0f4f5"
+    />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+
+    <header class="top">
+      <div class="wrap top-row">
+        <a class="brand" href="/" aria-label="Hikyo home">
+          <img src="/favicon.svg" alt="" width="22" height="22" />
+          <span>hikyo</span>
+        </a>
+        <span class="marker">Prototype 1 · Schematic</span>
+        <nav class="top-nav" aria-label="Primary">
+          <a href={docsUrl}>Docs</a>
+          <a href={repositoryUrl} rel="noopener">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero wrap" aria-labelledby="hero-heading">
+        <div class="hero-copy">
+          <p class="eyebrow">Sheet 1 of 1 · {project.organisation}/{project.name} · rev {project.revision}</p>
+          <h1 id="hero-heading">Set or absent.<br />Never assumed.</h1>
+          <p class="lede">{claims.positioning}</p>
+          <div class="actions">
+            <a class="btn btn-primary" href={repositoryUrl} rel="noopener">View on GitHub</a>
+            <a class="btn" href={docsUrl}>Read the docs</a>
+          </div>
+
+          <dl class="legend" aria-label="Reading key for the drawing">
+            {
+              legend.map((l) => (
+                <div class="legend-row">
+                  <dt class:list={['mono', l.tone && `st-${l.tone}`]}>
+                    {l.sample}
+                    {l.lock && (
+                      <svg class="lock" viewBox="0 0 10 12" aria-hidden="true">
+                        <rect x="1" y="5" width="8" height="6.5" rx="1" />
+                        <path d="M3 5V3.5a2 2 0 0 1 4 0V5" fill="none" />
+                      </svg>
+                    )}
+                  </dt>
+                  <dd>{l.label}</dd>
+                </div>
+              ))
+            }
+          </dl>
+        </div>
+
+        <figure class="drawing" aria-labelledby="drawing-caption">
+          <figcaption id="drawing-caption" class="sr-only">
+            Example environment matrix for {project.name}, drawn as an annotated sheet with numbered callouts.
+          </figcaption>
+
+          <div class="scroll">
+            <div class="plate">
+              <div class="dim-h">
+                <span class="dim-h-span"><span class="dim-label">{environments.length} environments · no inheritance</span></span>
+              </div>
+
+              <div class="dim-v">
+                <span class="dim-label">{keyCount} keys · {matrix.length} groups</span>
+              </div>
+
+              <div class="overlay">
+                <table class="matrix">
+                  <caption class="sr-only">
+                    Keys by environment for {project.name}. Each cell states set, secret, absent, violation, or draft.
+                  </caption>
+                  <colgroup>
+                    <col class="c-key" />
+                    {environments.map(() => <col class="c-env" />)}
+                  </colgroup>
+                  <thead>
+                    <tr style={`--i:${rowIndex++}`}>
+                      <th scope="col" class="mono key-head">key</th>
+                      {
+                        environments.map((env) => (
+                          <th scope="col" class="mono">
+                            {env}
+                            {isProtected(env) && <span class="prot"> · protected</span>}
+                            {headCallout(env) !== undefined && (
+                              <sup class="bl">
+                                <span class="sr-only">callout </span>
+                                {headCallout(env)}
+                              </sup>
+                            )}
+                          </th>
+                        ))
+                      }
+                    </tr>
+                  </thead>
+                  {
+                    matrix.map((group) => (
+                      <tbody>
+                        <tr class="group" style={`--i:${rowIndex++}`}>
+                          <th scope="rowgroup" colspan={environments.length + 1} class="mono">
+                            {group.name}
+                            {group.allOrNone && <span class="aon"> · all or none</span>}
+                            <span class="count"> · {group.keys.length} keys</span>
+                            {groupCallout(group.name) !== undefined && (
+                              <sup class="bl">
+                                <span class="sr-only">callout </span>
+                                {groupCallout(group.name)}
+                              </sup>
+                            )}
+                          </th>
+                        </tr>
+                        {group.keys.map((key) => (
+                          <tr style={`--i:${rowIndex++}`}>
+                            <th scope="row" class="mono key">
+                              {key.name}
+                              {key.classification === 'secret' && (
+                                <>
+                                  <svg class="lock" viewBox="0 0 10 12" aria-hidden="true">
+                                    <rect x="1" y="5" width="8" height="6.5" rx="1" />
+                                    <path d="M3 5V3.5a2 2 0 0 1 4 0V5" fill="none" />
+                                  </svg>
+                                  <span class="sr-only"> secret</span>
+                                </>
+                              )}
+                            </th>
+                            {environments.map((env) => {
+                              const cell = key.cells[env];
+                              const n = cellCallout(key.name, env);
+                              return (
+                                <td class:list={['mono', `st-${cell.kind}`]}>
+                                  <span aria-hidden={cell.kind === 'set' ? undefined : 'true'}>{cellText(cell)}</span>
+                                  {cell.kind !== 'set' && <span class="sr-only">{cellLabel(cell)}</span>}
+                                  {n !== undefined && (
+                                    <sup class="bl">
+                                      <span class="sr-only">callout </span>
+                                      {n}
+                                    </sup>
+                                  )}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    ))
+                  }
+                </table>
+
+                <svg class="leads" aria-hidden="true" focusable="false">
+                  {
+                    leaders.map((l) => (
+                      <g style={`--n:${l.n}`}>
+                        {l.segs.map((s, i) => (
+                          <line class:list={['lead', i === 1 && 'lead-2']} x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} pathLength="1" />
+                        ))}
+                        <circle class="dot" cx={l.dot.x} cy={l.dot.y} r="3" />
+                        <circle class="balloon" cx={balloonX} cy={l.by} r="11" />
+                        <text class="balloon-n" x={balloonX} y={l.by}>
+                          {l.n}
+                        </text>
+                      </g>
+                    ))
+                  }
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          <div class="callouts">
+            <p class="eyebrow">Callouts</p>
+            <ol>
+              {
+                callouts.map((c) => (
+                  <li>
+                    <span class="bl bl-lg" aria-hidden="true">{c.n}</span>
+                    <p>
+                      <strong>{c.title}.</strong> {c.body}
+                    </p>
+                  </li>
+                ))
+              }
+            </ol>
+          </div>
+
+          <dl class="title-block" aria-label="Title block">
+            <div><dt>Project</dt><dd>{project.name}</dd></div>
+            <div><dt>Org</dt><dd>{project.organisation}</dd></div>
+            <div><dt>Rev</dt><dd>{project.revision}</dd></div>
+            <div><dt>Sheet</dt><dd>1 of 1</dd></div>
+            <div><dt>Scale</dt><dd>none</dd></div>
+            <div><dt>License</dt><dd>{claims.license}</dd></div>
+            <div><dt>Status</dt><dd>0.x, pre-1.0</dd></div>
+            <div><dt>Drawn</dt><dd>hikyo</dd></div>
+          </dl>
+        </figure>
+      </section>
+
+      <section class="sec notes wrap" aria-labelledby="notes-heading">
+        <div class="sec-head">
+          <p class="eyebrow">Notes</p>
+          <h2 id="notes-heading">Read before use.</h2>
+          <p class="sec-lede">Five rules the sheet is drawn to. They hold on every surface.</p>
+        </div>
+        <ol class="note-list">
+          {
+            claims.pillars.map((p, i) => (
+              <li>
+                <span class="note-n mono">{String(i + 1).padStart(2, '0')}</span>
+                <div>
+                  <h3>{p.title}</h3>
+                  <p>{p.body}</p>
+                </div>
+              </li>
+            ))
+          }
+        </ol>
+      </section>
+
+      <section class="sec bom wrap" aria-labelledby="bom-heading">
+        <div class="sec-head">
+          <p class="eyebrow">Bill of materials</p>
+          <h2 id="bom-heading">One binary. Your database. Your root key.</h2>
+          <p class="sec-lede">Everything needed to run it in production is in the open-source build.</p>
+          <a class="text-link" href={selfHostingUrl}>Self-hosting guide</a>
+        </div>
+        <table class="bom-table">
+          <caption class="sr-only">Self-hosting specification</caption>
+          <thead>
+            <tr>
+              <th scope="col" class="mono">No.</th>
+              <th scope="col" class="mono">Item</th>
+              <th scope="col" class="mono">Specification</th>
+            </tr>
+          </thead>
+          <tbody>
+            {
+              bom.map((row, i) => (
+                <tr>
+                  <td class="mono bom-n">{String(i + 1).padStart(2, '0')}</td>
+                  <th scope="row">{row.item}</th>
+                  <td>{row.spec}</td>
+                </tr>
+              ))
+            }
+          </tbody>
+        </table>
+      </section>
+
+      <section class="sec proc wrap" aria-labelledby="proc-heading">
+        <div class="sec-head">
+          <p class="eyebrow">Procedure</p>
+          <h2 id="proc-heading">Declare, set, read, reveal.</h2>
+          <p class="sec-lede">The order is the point. A value cannot exist before its declaration.</p>
+          <a class="text-link" href={cliReferenceUrl}>CLI reference</a>
+        </div>
+        <ol class="steps">
+          <li>
+            <div class="step-head">
+              <span class="step-n mono">Step 1</span>
+              <h3>Declare the key</h3>
+            </div>
+            <p>Classification, validation rule, presence rule. Values come after, never before.</p>
+            <pre class="mono"><code>{cli.declare}</code></pre>
+          </li>
+          <li>
+            <div class="step-head">
+              <span class="step-n mono">Step 2</span>
+              <h3>Set the value</h3>
+            </div>
+            <p>
+              The value arrives from a file, is checked against the declaration and scanned on ingress. An invalid
+              write is refused before state changes.
+            </p>
+            <pre class="mono"><code>{cli.set}</code></pre>
+          </li>
+          <li>
+            <div class="step-head">
+              <span class="step-n mono">Step 3</span>
+              <h3>Read it</h3>
+            </div>
+            <p>An ordinary read returns presence and metadata. The value stays masked.</p>
+            <pre class="mono"><code>{cli.get}</code></pre>
+            <pre class="mono out" aria-label="Command output"><code>{cli.getMasked}</code></pre>
+          </li>
+          <li>
+            <div class="step-head">
+              <span class="step-n mono">Step 4</span>
+              <h3>Reveal, deliberately</h3>
+            </div>
+            <p>Reveal is a ceremony with its own states. Replacing a secret never reveals the old one.</p>
+            <pre class="mono"><code>{cli.reveal}</code></pre>
+            <ol class="states" aria-label="Reveal ceremony states">
+              {
+                revealStates.map((s) => (
+                  <li>
+                    <span class="mono state">{s.state}</span>
+                    <span>{s.note}</span>
+                  </li>
+                ))
+              }
+            </ol>
+          </li>
+        </ol>
+      </section>
+
+      <section class="sec views wrap" aria-labelledby="views-heading">
+        <div class="sec-head">
+          <p class="eyebrow">Views</p>
+          <h2 id="views-heading">Three surfaces, one state.</h2>
+          <p class="sec-lede">What the UI shows, the CLI and the API show.</p>
+          <a class="text-link" href={coreConceptsUrl}>Core concepts</a>
+        </div>
+        <div class="views-body">
+          <ul class="surfaces">
+            {
+              surfaces.map((s) => (
+                <li>
+                  <h3 class="mono">{s.name}</h3>
+                  <p>{s.note}</p>
+                </li>
+              ))
+            }
+          </ul>
+          <dl class="targets">
+            <div>
+              <dt class="eyebrow">Delivery targets</dt>
+              <dd>
+                <ul class="mono">{claims.delivery.map((d) => <li>{d}</li>)}</ul>
+              </dd>
+            </div>
+            <div>
+              <dt class="eyebrow">Imports from</dt>
+              <dd>
+                <ul class="mono">{claims.imports.map((d) => <li>{d}</li>)}</ul>
+              </dd>
+            </div>
+          </dl>
+        </div>
+      </section>
+
+      <section class="closing wrap" aria-labelledby="closing-heading">
+        <div class="closing-inner">
+          <p class="eyebrow">Sheet ends</p>
+          <h2 id="closing-heading">Run the drawing.</h2>
+          <p class="lede">{claims.runtime} Start a local instance in development mode and put the matrix on your own screen.</p>
+          <pre class="mono"><code>{cli.dev}</code></pre>
+          <div class="actions">
+            <a class="btn btn-primary" href={repositoryUrl} rel="noopener">View on GitHub</a>
+            <a class="btn" href={gettingStartedUrl}>Getting started</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <div class="wrap foot-row">
+        <p class="mono">{claims.license} · {claims.maturity}</p>
+        <p class="mono foot-links">
+          <a href={docsUrl}>Docs</a>
+          <a href={repositoryUrl} rel="noopener">GitHub</a>
+          <a href="/prototype/hikyo/">Prototypes</a>
+        </p>
+      </div>
+    </footer>
+
+    <HikyoSwitcher current={1} />
+  </body>
+</html>
+
+<style>
+  :root {
+    color-scheme: light;
+    --paper: oklch(0.965 0.008 200);
+    --paper-2: oklch(0.935 0.01 200);
+    --ink: oklch(0.25 0.03 225);
+    --ink-2: oklch(0.44 0.02 220);
+    --ink-3: oklch(0.46 0.02 218);
+    --line: oklch(0.64 0.012 210);
+    --rule: oklch(0.8388 0.00752 204.4);
+    --accent: oklch(0.45 0.085 210);
+    --accent-soft: oklch(0.45 0.085 210 / 0.1);
+    --danger: oklch(0.48 0.14 30);
+    --danger-soft: oklch(0.48 0.14 30 / 0.1);
+    --slate: oklch(0.5 0.05 250);
+    --slate-soft: oklch(0.5 0.05 250 / 0.12);
+    --ease: cubic-bezier(0.25, 1, 0.5, 1);
+    --sans: 'Instrument Sans', system-ui, sans-serif;
+    --mono: 'IBM Plex Mono', ui-monospace, monospace;
+    --head-h: 40px;
+    --group-h: 32px;
+    --row-h: 44px;
+    --gutter: 0%;
+    --key-w: 34%;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 1rem;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    font-kerning: normal;
+  }
+  h1,
+  h2,
+  h3,
+  p,
+  ol,
+  ul,
+  dl,
+  dd,
+  figure,
+  pre {
+    margin: 0;
+  }
+  ol,
+  ul {
+    padding: 0;
+    list-style: none;
+  }
+  a {
+    color: var(--accent);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.15em;
+  }
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .mono {
+    font-family: var(--mono);
+    font-variant-ligatures: none;
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .skip {
+    position: absolute;
+    left: 0.75rem;
+    top: -4rem;
+    padding: 0.75rem 1rem;
+    background: var(--ink);
+    color: var(--paper);
+    border-radius: 4px;
+    z-index: 20;
+  }
+  .skip:focus-visible {
+    top: 0.75rem;
+  }
+  .wrap {
+    width: min(100% - 2rem, 77.5rem);
+    margin-inline: auto;
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  /* Header */
+  .top {
+    border-bottom: 1px solid var(--rule);
+  }
+  .top-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 1rem;
+    min-height: 3.5rem;
+    padding-block: 0.375rem;
+  }
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+    color: var(--ink);
+    text-decoration: none;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    font-size: 1.125rem;
+  }
+  .marker {
+    font-family: var(--mono);
+    font-size: 0.6875rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 0.2rem 0.45rem;
+  }
+  .top-nav {
+    margin-left: auto;
+    display: flex;
+    gap: 0.25rem;
+  }
+  .top-nav a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    padding-inline: 0.625rem;
+    color: var(--ink);
+    text-decoration: none;
+    font-weight: 500;
+    border-radius: 4px;
+  }
+  .top-nav a:hover {
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  /* Buttons */
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.625rem;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    padding: 0 1.125rem;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    color: var(--ink);
+    text-decoration: none;
+    font-weight: 500;
+    transition:
+      color 150ms var(--ease),
+      background-color 150ms var(--ease),
+      border-color 150ms var(--ease);
+  }
+  .btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .btn-primary {
+    background: var(--ink);
+    border-color: var(--ink);
+    color: var(--paper);
+  }
+  .btn-primary:hover {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--paper);
+  }
+  .text-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    font-weight: 500;
+  }
+
+  /* Hero */
+  .hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2.5rem;
+    padding-block: clamp(2rem, 6vw, 4.5rem) clamp(3rem, 8vw, 6rem);
+  }
+  .hero-copy {
+    max-width: 34rem;
+  }
+  .hero-copy .eyebrow {
+    margin-bottom: 1.25rem;
+  }
+  h1 {
+    font-size: clamp(2.375rem, 1.3rem + 3.8vw, 4.25rem);
+    font-weight: 700;
+    line-height: 1.02;
+    letter-spacing: -0.035em;
+    margin-left: -0.04em;
+  }
+  .lede {
+    margin-top: 1.25rem;
+    font-size: 1.125rem;
+    line-height: 1.5;
+    color: var(--ink-2);
+    max-width: 30rem;
+  }
+  .hero .actions {
+    margin-top: 1.75rem;
+  }
+  .legend {
+    margin-top: 2.5rem;
+    border-top: 1px solid var(--rule);
+    max-width: 26rem;
+  }
+  .legend-row {
+    display: grid;
+    grid-template-columns: 11.5rem 1fr;
+    gap: 0.75rem;
+    align-items: baseline;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--rule);
+    font-size: 0.875rem;
+  }
+  .legend dt {
+    font-size: 0.75rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  .legend dd {
+    color: var(--ink-2);
+  }
+
+  /* The drawing */
+  .drawing {
+    position: relative;
+    border: 1px solid var(--ink);
+    box-shadow:
+      inset 0 0 0 3px var(--paper),
+      inset 0 0 0 4px var(--line);
+    padding: clamp(1rem, 2vw, 1.5rem);
+    background-color: var(--paper);
+    background-image:
+      repeating-linear-gradient(0deg, oklch(0.25 0.03 225 / 0.04) 0 1px, transparent 1px 8px),
+      repeating-linear-gradient(90deg, oklch(0.25 0.03 225 / 0.04) 0 1px, transparent 1px 8px),
+      repeating-linear-gradient(0deg, oklch(0.25 0.03 225 / 0.07) 0 1px, transparent 1px 40px),
+      repeating-linear-gradient(90deg, oklch(0.25 0.03 225 / 0.07) 0 1px, transparent 1px 40px);
+    animation: fade 220ms var(--ease) backwards;
+  }
+  .scroll {
+    overflow-x: auto;
+    margin-inline: calc(0.375rem - clamp(1rem, 2vw, 1.5rem));
+    padding-inline: calc(clamp(1rem, 2vw, 1.5rem) - 0.375rem);
+  }
+  .plate {
+    min-width: 36rem;
+    display: grid;
+    grid-template-columns: 1.5rem minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    column-gap: 0.5rem;
+  }
+
+  /* Dimension lines */
+  .dim-label {
+    font-family: var(--mono);
+    font-size: 0.625rem;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+    background: var(--paper);
+    padding: 0.125rem 0.375rem;
+    white-space: nowrap;
+    position: relative;
+    z-index: 1;
+  }
+  .dim-h {
+    grid-column: 2;
+    display: grid;
+    grid-template-columns: var(--key-w) minmax(0, 1fr) var(--gutter);
+    height: 1.75rem;
+    margin-bottom: 0.25rem;
+  }
+  .dim-h-span {
+    grid-column: 2;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .dim-h-span::before {
+    content: '';
+    position: absolute;
+    inset: 50% 0 auto 0;
+    height: 8px;
+    transform: translateY(-50%);
+    border-left: 1px solid var(--line);
+    border-right: 1px solid var(--line);
+  }
+  .dim-h-span::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    border-top: 1px solid var(--line);
+  }
+  .dim-v {
+    grid-column: 1;
+    grid-row: 2;
+    position: relative;
+    margin-top: var(--head-h);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .dim-v::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 8px;
+    transform: translateX(-50%);
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+  .dim-v::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    border-left: 1px solid var(--line);
+  }
+  .dim-v .dim-label {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    padding: 0.375rem 0.125rem;
+  }
+
+  /* Matrix */
+  .overlay {
+    grid-column: 2;
+    grid-row: 2;
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--gutter);
+  }
+  .matrix {
+    grid-column: 1;
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 0;
+    border-top: 1px solid var(--ink);
+    border-right: 1px solid var(--line);
+    font-size: 0.75rem;
+    line-height: 1.2;
+  }
+  .c-key {
+    width: 34%;
+  }
+  .matrix th,
+  .matrix td {
+    text-align: left;
+    vertical-align: middle;
+    padding: 0 0.375rem;
+    border-bottom: 1px solid var(--rule);
+    font-weight: 400;
+    overflow-wrap: normal;
+  }
+  .matrix thead tr {
+    height: var(--head-h);
+  }
+  .matrix thead th {
+    background: var(--paper-2);
+    color: var(--ink);
+    font-weight: 500;
+    border-bottom: 1px solid var(--ink);
+  }
+  .matrix thead th .prot {
+    color: var(--ink-2);
+  }
+  .matrix tr.group {
+    height: var(--group-h);
+  }
+  .matrix tr.group th {
+    font-size: 0.6875rem;
+    letter-spacing: 0.04em;
+    color: var(--ink-2);
+    font-weight: 500;
+    border-bottom: 1px solid var(--line);
+    padding-top: 0.5rem;
+  }
+  .matrix tr.group .aon {
+    color: var(--accent);
+  }
+  .matrix tr.group .count {
+    color: var(--ink-3);
+    font-weight: 400;
+  }
+  .matrix tbody tr:not(.group) {
+    height: var(--row-h);
+  }
+  .matrix tbody tr:not(.group):hover td,
+  .matrix tbody tr:not(.group):hover th {
+    background: oklch(0.25 0.03 225 / 0.035);
+  }
+  .matrix .key {
+    color: var(--ink);
+    font-weight: 500;
+  }
+  .lock {
+    width: 10px;
+    height: 12px;
+    margin-left: 0.3rem;
+    vertical-align: -1px;
+    stroke: var(--ink-2);
+    stroke-width: 1.25;
+    fill: var(--ink-2);
+  }
+  .st-set {
+    color: var(--ink);
+  }
+  .st-secret {
+    color: var(--ink-2);
+    letter-spacing: 0.04em;
+  }
+  .st-absent,
+  .st-forbidden {
+    color: var(--ink-3);
+  }
+  .st-missing {
+    color: var(--danger);
+    font-weight: 500;
+  }
+  .st-draft {
+    color: var(--slate);
+    font-weight: 500;
+  }
+  td.st-missing {
+    background: var(--danger-soft);
+    box-shadow: inset 0 0 0 1px var(--danger);
+  }
+  td.st-draft {
+    background: var(--slate-soft);
+    box-shadow: inset 0 0 0 1px var(--slate);
+  }
+  td.st-draft > span:first-child::before {
+    content: '';
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--slate);
+    margin-right: 0.3rem;
+    vertical-align: 1px;
+  }
+
+  /* Balloons in cells (mobile), and in the callout list */
+  .bl {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 0.9375rem;
+    height: 0.9375rem;
+    margin-left: 0.3rem;
+    vertical-align: 0.15em;
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 0.5625rem;
+    font-weight: 500;
+    line-height: 1;
+  }
+  .bl-lg {
+    width: 1.5rem;
+    height: 1.5rem;
+    margin: 0;
+    vertical-align: middle;
+    font-size: 0.75rem;
+    border-color: var(--ink);
+    color: var(--ink);
+  }
+
+  /* Leader lines (desktop only) */
+  .leads {
+    display: none;
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+  }
+  .lead {
+    stroke: var(--accent);
+    stroke-width: 1.25;
+    stroke-dasharray: 1;
+    stroke-dashoffset: 0;
+    animation: draw 200ms var(--ease) backwards;
+    animation-delay: calc(560ms + var(--n) * 45ms);
+  }
+  .lead-2 {
+    animation-delay: calc(560ms + var(--n) * 45ms + 140ms);
+  }
+  .dot {
+    fill: var(--accent);
+    animation: fade 120ms var(--ease) backwards;
+    animation-delay: calc(560ms + var(--n) * 45ms);
+  }
+  .balloon {
+    fill: var(--paper);
+    stroke: var(--ink);
+    stroke-width: 1;
+    animation: fade 150ms var(--ease) backwards;
+    animation-delay: calc(560ms + var(--n) * 45ms + 200ms);
+  }
+  .balloon-n {
+    font: 500 11px var(--mono);
+    fill: var(--ink);
+    text-anchor: middle;
+    dominant-baseline: central;
+    animation: fade 150ms var(--ease) backwards;
+    animation-delay: calc(560ms + var(--n) * 45ms + 200ms);
+  }
+
+  /* Callout list */
+  .callouts {
+    margin-top: 1.75rem;
+    border-top: 1px solid var(--line);
+    padding-top: 0.875rem;
+  }
+  .callouts ol {
+    margin-top: 0.625rem;
+    display: grid;
+    gap: 0.625rem 2rem;
+  }
+  .callouts li {
+    display: grid;
+    grid-template-columns: 1.5rem minmax(0, 1fr);
+    gap: 0.625rem;
+    align-items: start;
+    font-size: 0.875rem;
+    line-height: 1.45;
+    color: var(--ink-2);
+  }
+  .callouts strong {
+    color: var(--ink);
+    font-weight: 700;
+  }
+
+  /* Title block */
+  .title-block {
+    margin-top: 1.5rem;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    border: 1px solid var(--ink);
+    background: var(--paper);
+  }
+  .title-block > div {
+    padding: 0.375rem 0.625rem;
+    border-right: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+    min-width: 0;
+  }
+  .title-block > div:nth-child(2n) {
+    border-right: 0;
+  }
+  .title-block > div:nth-last-child(-n + 2) {
+    border-bottom: 0;
+  }
+  .title-block dt {
+    font-family: var(--mono);
+    font-size: 0.625rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .title-block dd {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--ink);
+    overflow-wrap: anywhere;
+  }
+
+  /* Sections */
+  .sec {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.75rem;
+    border-top: 1px solid var(--rule);
+    padding-block: clamp(2.75rem, 6vw, 4.5rem);
+  }
+  .sec-head h2,
+  .closing h2 {
+    margin-top: 0.75rem;
+    font-size: clamp(1.625rem, 1rem + 1.8vw, 2.375rem);
+    font-weight: 700;
+    line-height: 1.08;
+    letter-spacing: -0.025em;
+  }
+  .sec-lede {
+    margin-top: 0.75rem;
+    color: var(--ink-2);
+    max-width: 26rem;
+  }
+  .sec-head .text-link {
+    margin-top: 0.5rem;
+  }
+  h3 {
+    font-size: 1.0625rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1.3;
+  }
+
+  /* Notes */
+  .notes {
+    padding-top: clamp(2.5rem, 5vw, 3.5rem);
+  }
+  .note-list {
+    border-top: 1px solid var(--ink);
+  }
+  .note-list li {
+    display: grid;
+    grid-template-columns: 2.5rem minmax(0, 1fr);
+    gap: 0.5rem 1rem;
+    padding: 1.125rem 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .note-list p {
+    margin-top: 0.375rem;
+    color: var(--ink-2);
+    max-width: 40rem;
+  }
+  .note-n {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--ink-3);
+    padding-top: 0.2rem;
+  }
+
+  /* Bill of materials */
+  .bom {
+    padding-block: clamp(2.25rem, 5vw, 3.5rem);
+  }
+  .bom-table {
+    width: 100%;
+    border-collapse: collapse;
+    border-top: 1px solid var(--ink);
+    font-size: 0.9375rem;
+  }
+  .bom-table th,
+  .bom-table td {
+    text-align: left;
+    vertical-align: top;
+    padding: 0.625rem 0.75rem 0.625rem 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .bom-table thead th {
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    border-bottom: 1px solid var(--line);
+  }
+  .bom-table tbody th {
+    font-weight: 700;
+    white-space: nowrap;
+    width: 7.5rem;
+  }
+  .bom-table td {
+    color: var(--ink-2);
+  }
+  .bom-n {
+    width: 2.5rem;
+    font-size: 0.8125rem;
+    color: var(--ink-3);
+  }
+
+  /* Procedure */
+  pre {
+    padding: 0.875rem 1rem;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    background: var(--paper-2);
+    font-size: 0.8125rem;
+    line-height: 1.55;
+    overflow-x: auto;
+    color: var(--ink);
+  }
+  pre.out {
+    background: transparent;
+    border-style: dashed;
+    color: var(--ink-2);
+  }
+  .steps {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2rem;
+  }
+  .steps > li {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.625rem;
+  }
+  .step-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+  }
+  .step-n {
+    font-size: 0.6875rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 500;
+  }
+  .steps p {
+    color: var(--ink-2);
+    max-width: 40rem;
+  }
+  .states {
+    margin-top: 0.25rem;
+    border-top: 1px solid var(--line);
+    counter-reset: state;
+  }
+  .states li {
+    display: grid;
+    grid-template-columns: 1.25rem 9.5rem minmax(0, 1fr);
+    gap: 0.5rem;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--rule);
+    font-size: 0.875rem;
+    color: var(--ink-2);
+    counter-increment: state;
+  }
+  .states li::before {
+    content: counter(state);
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--ink-3);
+  }
+  .state {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--ink);
+    padding-top: 0.1rem;
+  }
+
+  /* Views */
+  .views-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2rem;
+  }
+  .surfaces {
+    border-top: 1px solid var(--ink);
+  }
+  .surfaces li {
+    display: grid;
+    gap: 0.375rem;
+    padding: 1rem 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .surfaces h3 {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+  }
+  .surfaces p {
+    color: var(--ink-2);
+    max-width: 40rem;
+  }
+  .targets {
+    display: grid;
+    gap: 1.5rem;
+  }
+  .targets ul {
+    margin-top: 0.5rem;
+    font-size: 0.8125rem;
+  }
+  .targets li {
+    padding: 0.375rem 0;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  /* Closing */
+  .closing {
+    border-top: 1px solid var(--ink);
+    padding-block: clamp(3rem, 8vw, 6rem);
+  }
+  .closing-inner {
+    max-width: 38rem;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.25rem;
+  }
+  .closing h2 {
+    margin-top: 0;
+    font-size: clamp(2rem, 1.2rem + 3vw, 3.25rem);
+    letter-spacing: -0.03em;
+  }
+  .closing .lede {
+    margin-top: 0;
+    max-width: none;
+  }
+
+  /* Footer */
+  .foot {
+    border-top: 1px solid var(--rule);
+    padding-block: 1.5rem 5.5rem;
+    font-size: 0.75rem;
+    color: var(--ink-2);
+  }
+  .foot-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.5rem;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .foot-links {
+    display: flex;
+    gap: 0.25rem;
+  }
+  .foot-links a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    padding-inline: 0.5rem;
+    color: var(--ink);
+  }
+
+  /* Motion */
+  @keyframes fade {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes row-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+  }
+  @keyframes draw {
+    from {
+      stroke-dashoffset: 1;
+    }
+  }
+  .matrix tr {
+    animation: row-in 180ms var(--ease) backwards;
+    animation-delay: calc(120ms + var(--i, 0) * 20ms);
+  }
+
+  /* Wider layouts */
+  @media (min-width: 40rem) {
+    .callouts ol {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .title-block {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      width: fit-content;
+      margin-left: auto;
+    }
+    .title-block > div {
+      min-width: 7rem;
+    }
+    .title-block > div:nth-child(2n) {
+      border-right: 1px solid var(--rule);
+    }
+    .title-block > div:nth-child(4n) {
+      border-right: 0;
+    }
+    .title-block > div:nth-last-child(-n + 2) {
+      border-bottom: 1px solid var(--rule);
+    }
+    .title-block > div:nth-last-child(-n + 4) {
+      border-bottom: 0;
+    }
+    .targets {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  @media (min-width: 50rem) {
+    .sec {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+      gap: 3rem;
+    }
+    .views-body {
+      grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+      gap: 3rem;
+    }
+  }
+  @media (min-width: 62.5rem) {
+    :root {
+      --gutter: 12%;
+      --key-w: 35.2%;
+    }
+    .hero {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.9fr);
+      gap: 3.5rem;
+      align-items: start;
+    }
+    .plate {
+      min-width: 0;
+    }
+    .leads {
+      display: block;
+    }
+    .matrix .bl {
+      display: none;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation: none !important;
+      transition: none !important;
+    }
+  }
+</style>

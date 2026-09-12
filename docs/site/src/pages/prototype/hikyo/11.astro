@@ -1,0 +1,1398 @@
+---
+// Prototype 11: the live homepage, kept, with the matrix and the artifacts
+// demonstrating the product instead of illustrating it. Markup and copy are
+// the live index.astro; only the matrix data (shared module) and the motion
+// layer are new. Every claim below is reviewed live copy.
+import HikyoHead from '../../../components/prototype/HikyoHead.astro';
+import HikyoSwitcher from '../../../components/prototype/HikyoSwitcher.astro';
+import {
+  cliRead,
+  environments,
+  masked,
+  matrix,
+  project,
+  type CellState,
+  type Environment,
+  type KeyRow,
+} from '../../../lib/prototype/hikyo';
+import { repositoryUrl, siteUrl, themeBootstrapScript } from '../../../lib/site';
+import '../../../styles/landing.css';
+
+const base = siteUrl();
+const repository = repositoryUrl;
+const links = {
+  contributing: `${base}contributing/`,
+  docs: `${base}docs/`,
+  governance: `${base}governance/`,
+  license: `${base}license/`,
+  security: `${base}security/`,
+  support: `${base}support/`,
+};
+const title = 'Hikyo: explicit secrets and configuration across environments';
+const description =
+  'Hikyo is a fully open-source, self-hosted control plane that makes configuration state explicit across every environment.';
+const faq = [
+  {
+    question: 'What problem does Hikyo solve?',
+    answer:
+      'Hikyo gives each environment an explicit value state. A key is set or absent, so production cannot silently inherit a development default.',
+  },
+  {
+    question: 'Is Hikyo ready for a stable production rollout?',
+    answer:
+      'Hikyo is under active 0.x development and has not published its stable 1.0 release. Review the implementation-status ledger and deploy from a reviewed commit if you evaluate it today.',
+  },
+  {
+    question: 'Does self-hosting require a Hikyo cloud account?',
+    answer:
+      'No Hikyo cloud account is required. You run the Go binary and embedded web UI on infrastructure you operate, with SQLite or PostgreSQL as the datastore.',
+  },
+  {
+    question: 'When can a workload receive secret plaintext?',
+    answer:
+      'Only after an operator enables the project machine-reveal policy and grants that machine principal reveal access for the environment. Otherwise secret delivery refuses before the workload starts.',
+  },
+  {
+    question: 'Where does Hikyo keep the root key?',
+    answer:
+      'The operator supplies root key material separately from the SQLite or PostgreSQL datastore. The self-hosting guide documents the supported custody options and startup checks.',
+  },
+  {
+    question: 'Are production capabilities hidden in a paid edition?',
+    answer:
+      'Hikyo keeps its production path in the same MPL-2.0 repository. There is no separate enterprise-only implementation directory.',
+  },
+];
+
+// The live page's pill wording, extended to the two states the shared matrix
+// adds (draft, forbidden). Glyph plus word, never colour alone.
+const stateText = (cell: CellState): string => {
+  switch (cell.kind) {
+    case 'set':
+      return `✓ ${cell.value}`;
+    case 'secret':
+      return '● set · secret';
+    case 'absent':
+      return '○ absent';
+    case 'missing':
+      return '! required · absent';
+    case 'forbidden':
+      return '○ absent (forbidden)';
+    case 'draft':
+      return `Δ ${cell.value}`;
+  }
+};
+const stateClass = (cell: CellState): string => (cell.kind === 'secret' ? 'masked' : cell.kind);
+
+// Flatten tbody rows (group headers included) so callout geometry and the
+// column-major resolve order both come from one index space.
+type FlatRow =
+  | { kind: 'group'; name: string; count: number; allOrNone: boolean }
+  | { kind: 'key'; key: KeyRow; keyIndex: number; rowIndex: number };
+const rows: FlatRow[] = [];
+let keyIndex = 0;
+for (const group of matrix) {
+  rows.push({ kind: 'group', name: group.name, count: group.keys.length, allOrNone: group.allOrNone === true });
+  for (const key of group.keys) {
+    rows.push({ kind: 'key', key, keyIndex, rowIndex: rows.length });
+    keyIndex += 1;
+  }
+}
+const keyTotal = keyIndex;
+const envIndex = (env: Environment): number => environments.indexOf(env);
+
+// Fixed geometry mirrored in CSS (--head-h, --row-h): the SVG leaders are
+// computed here, never measured in JS.
+const HEAD = 36;
+const ROW = 40;
+const NOTES_W = 128;
+const rowCentre = (rowIndex: number): number => HEAD + (rowIndex + 0.5) * ROW;
+const rowIndexOf = (name: string): number => {
+  const row = rows.find((r) => r.kind === 'key' && r.key.name === name);
+  if (!row || row.kind !== 'key') throw new Error(`matrix has no key ${name}`);
+  return row.rowIndex;
+};
+const callouts = [
+  { n: 1, key: 'STRIPE_WEBHOOK_SECRET', env: 'production', note: 'required here, absent: publish refuses', shift: -22 },
+  { n: 2, key: 'DATABASE_POOL_MAX', env: 'production', note: 'Δ draft, unpublished', shift: 0 },
+  { n: 3, key: 'PAYMENTS_MOCK_PROVIDER', env: 'production', note: 'forbidden, correctly absent', shift: 30 },
+].map((c) => {
+  const y = rowCentre(rowIndexOf(c.key));
+  const by = y + c.shift;
+  const d = c.shift === 0 ? `M0 ${y} H22` : `M0 ${y} H10 V${by} H22`;
+  return { ...c, y: by, d };
+});
+const notesHeight = HEAD + rows.length * ROW;
+const avatar = project.organisation.slice(0, 2).toUpperCase();
+const stackList = ['Go', 'SQLite', 'PostgreSQL', 'Helm', 'OpenAPI'];
+---
+
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <HikyoHead title={title} description={description} themeColor="#1b2225" />
+    <script is:inline set:html={themeBootstrapScript}></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <nav class="wrap nav" aria-label="Primary navigation">
+        <a class="brand" href={base} aria-label="Hikyo home">
+          <img class="brand-logo" src={`${base}favicon.svg`} alt="" aria-hidden="true" />
+          <span>hikyo</span>
+        </a>
+        <div class="nav-links">
+          <a href="#matrix">Product</a>
+          <a href="#self-host">Self-hosting</a>
+          <a href="#compare">Compare</a>
+          <a href={links.docs}>Docs</a>
+        </div>
+        <div class="nav-actions">
+          <button class="theme-toggle" type="button" aria-label="Switch to light theme">
+            <span class="theme-icon" aria-hidden="true">◐</span>
+            <span class="theme-label">Light</span>
+          </button>
+          <a
+            class="button button-primary header-cta"
+            href={repository}
+            data-posthog-event="github_cta_clicked"
+            data-posthog-placement="header"
+          ><span>Explore on </span>GitHub</a>
+        </div>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero">
+        <div class="wrap hero-grid">
+          <div class="hero-copy">
+            <p class="eyebrow"><span class="live" aria-hidden="true"></span> 0.x · one Go binary · self-hosted</p>
+            <h1>Every environment<br /><span>answers for itself.</span></h1>
+            <p class="lede">
+              Hikyo gives <strong>self-hosting</strong> teams one view of validated configuration and secrets. Every value is
+              explicit: see what is set, catch what is missing, and require <strong>deliberate access</strong> before sensitive
+              values move.
+            </p>
+            <div class="hero-actions">
+              <a
+                class="button button-primary"
+                href={repository}
+                data-posthog-event="github_cta_clicked"
+                data-posthog-placement="hero"
+              >Explore on GitHub <span aria-hidden="true">↗</span></a>
+              <a
+                class="text-link"
+                href={links.docs}
+                data-posthog-event="documentation_cta_clicked"
+                data-posthog-placement="hero"
+              >Read the docs <span aria-hidden="true">→</span></a>
+            </div>
+            <p class="subtrust">
+              <strong>MPL-2.0.</strong> Active 0.x development. No enterprise-only directory.
+            </p>
+          </div>
+
+          <div class="surface hero-surface" id="matrix" data-matrix-surface>
+            <div class="surface-bar">
+              <div class="crumb"><span class="avatar">{avatar}</span> <strong>{project.organisation}</strong><span>/</span> {project.name}</div>
+              <div class="environment-chips" aria-label="Visible environments" data-env-tabs>
+                {environments.map((env) => (
+                  <button type="button" data-env={env} disabled>{env}</button>
+                ))}
+              </div>
+            </div>
+            <div class="matrix-scroll">
+              <table class="matrix" data-matrix>
+                <caption class="sr-only">Example configuration matrix for three environments</caption>
+                <thead>
+                  <tr><th>Key</th>{environments.map((env) => <th class={`env-${env}`}>{env}</th>)}</tr>
+                </thead>
+                <tbody>
+                  {rows.map((row) =>
+                    row.kind === 'group' ? (
+                      <tr class="group"><th colspan="4" data-group>{row.name} <span>{row.count}</span>{row.allOrNone && <small>all or none</small>}</th></tr>
+                    ) : (
+                      <tr>
+                        <th>{row.key.name}</th>
+                        {environments.map((env) => (
+                          <td class={`env-${env}`} style={`--i:${envIndex(env) * keyTotal + row.keyIndex};--r:${row.keyIndex}`}>
+                            <span class={`state ${stateClass(row.key.cells[env])}`}>{stateText(row.key.cells[env])}</span>
+                          </td>
+                        ))}
+                      </tr>
+                    ),
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div class="callouts" style={`--notes-h:${notesHeight}px`}>
+              <svg
+                class="leaders"
+                width={NOTES_W}
+                height={notesHeight}
+                viewBox={`0 0 ${NOTES_W} ${notesHeight}`}
+                aria-hidden="true"
+                focusable="false"
+              >
+                {callouts.map((c) => <path d={c.d} pathLength="1" />)}
+              </svg>
+              {callouts.map((c) => (
+                <p class="balloon" style={`--y:${c.y}px`}><b>{c.n}</b><span>{c.note}</span></p>
+              ))}
+            </div>
+            <ol class="callout-list">
+              {callouts.map((c) => (
+                <li><b>{c.n}</b><code>{c.key} · {c.env}</code><span>{c.note}</span></li>
+              ))}
+            </ol>
+            <div class="surface-foot" aria-label="Value state legend">
+              <span class="sample-label">example data</span>
+              <span><i class="dot set-dot"></i> set here</span>
+              <span><i class="dot absent-dot"></i> absent</span>
+              <span><i class="dot masked-dot"></i> secret set</span>
+              <span><i class="dot missing-dot"></i> required, absent</span>
+              <span><i class="dot draft-dot"></i> Δ draft</span>
+              <span><i class="dot absent-dot"></i> forbidden</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="stack">
+        <div class="wrap stack-inner">
+          <p>Built for infrastructure you own</p>
+          <div class="stack-marquee">
+            <div class="stack-list">
+              {stackList.map((item) => <span>{item}</span>)}
+              {stackList.map((item) => <span class="dup" aria-hidden="true">{item}</span>)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <section class="block flow" aria-labelledby="flow-heading" data-section>
+        <div class="wrap flow-grid">
+          <div>
+            <p class="kicker">// one path from intent to runtime</p>
+            <h2 id="flow-heading">Declare once. Decide per environment.</h2>
+            <p class="section-lede">
+              Hikyo separates the <strong>shape of a key</strong> from each environment's value, then keeps delivery inside the
+              same <strong>authorization model</strong>.
+            </p>
+          </div>
+          <ol class="steps" data-flow-steps>
+            <li>
+              <span>01</span>
+              <div><h3>Declare the contract</h3><p>Choose config or secret, add validation, and state where the key is required.</p></div>
+              <code>key create</code>
+            </li>
+            <li>
+              <span>02</span>
+              <div><h3>Set and review state</h3><p>Work in an explicit matrix where absence, invalid input, and pending changes stay visible.</p></div>
+              <code>values set</code>
+            </li>
+            <li>
+              <span>03</span>
+              <div><h3>Deliver with intent</h3><p>Fetch at runtime, render for Compose, reconcile Kubernetes, or use a declared adapter.</p></div>
+              <code>hikyo run</code>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="block" aria-labelledby="product-heading" data-section>
+        <div class="wrap">
+          <p class="kicker">// explicit state, deliberate access</p>
+          <h2 id="product-heading">A dense surface that stays honest.</h2>
+          <p class="section-lede">
+            A growing key catalogue across several environments should <strong>stay scannable</strong>. Hikyo makes <strong>absence visible</strong> and keeps secret material behind a separate <strong>disclosure path</strong>.
+          </p>
+
+          <article class="feature-row">
+            <div class="feature-copy">
+              <h3>Every environment answers for itself.</h3>
+              <p>
+                Values never fall through a <strong>hidden inheritance</strong> chain. Each cell is <strong>explicitly set or absent</strong>, so
+                production cannot quietly borrow a development default.
+              </p>
+              <p class="feature-note"><span>▸</span> Flat values: no inheritance, no hidden fallback.</p>
+            </div>
+            <div class="artifact frame" data-demo="coverage">
+              <div class="frame-head"><i></i><i></i><i></i><span>DATABASE_POOL_MAX · coverage</span></div>
+              <div class="frame-body coverage">
+                <div><span>development</span><code>10</code><b>set ✓</b></div>
+                <div><span>staging</span><code>20</code><b>set ✓</b></div>
+                <div class="active"><span>production</span><code>40</code><b>set ✓</b></div>
+                <p>3 environments · 3 explicit values · <span class="flip"><span class="flip-q" aria-hidden="true">?</span><span class="flip-n">0</span></span> fallbacks</p>
+              </div>
+            </div>
+          </article>
+
+          <article class="feature-row flip">
+            <div class="feature-copy">
+              <h3>Revealing a secret is a ceremony.</h3>
+              <p>
+                Secrets <strong>stay masked</strong> until you deliberately re-authenticate. Reveal windows remask automatically,
+                and clipboard copies become individual <strong>audited disclosures</strong>.
+              </p>
+              <p class="feature-note"><span>▸</span> Write-only replacement never needs the current plaintext.</p>
+            </div>
+            <div class="artifact frame" data-demo="reveal">
+              <div class="frame-head"><i></i><i></i><i></i><span>STRIPE_SECRET_KEY · production</span></div>
+              <div class="frame-body reveal">
+                <div class="gate"><span>⌾</span> Re-authentication required <small>protected environment</small></div>
+                <div class="secret-stage"><span>before</span><code>{masked}</code></div>
+                <div class="secret-stage"><span>after</span><code class="shown" data-reveal-out data-masked={masked}>value written to {cliRead.outputFile}</code><b>remask <span data-remask>0:18</span></b></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="feature-row">
+            <div class="feature-copy">
+              <h3>Invalid changes stop at write time.</h3>
+              <p>
+                Key declarations distinguish config from secrets and attach <strong>validation rules</strong>. Invalid values are
+                refused, and a value required in an environment <strong>cannot be cleared</strong> there.
+              </p>
+              <p class="feature-note"><span>▸</span> The server validates the value and presence rule together.</p>
+            </div>
+            <div class="artifact frame" data-demo="checks">
+              <div class="frame-head"><i></i><i></i><i></i><span>SENTRY_DSN · production · clear</span></div>
+              <div class="frame-body checks">
+                <div><b class="ok">✓</b><span>current value is set</span><code>secret</code></div>
+                <div><b class="bad">!</b><span>clear requested in <strong>production</strong></span><code>change</code></div>
+                <div><b class="ok">✓</b><span>presence rule is required</span><code>required_in</code></div>
+                <div><b class="bad">×</b><span>clear refused; value unchanged</span><code>fail-closed</code></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="feature-row flip">
+            <div class="feature-copy">
+              <h3>Delivery fails closed at the boundary.</h3>
+              <p>
+                A workload gets configuration through its <strong>scoped identity</strong>. Secret plaintext also requires the
+                project <strong>machine-reveal opt-in</strong> and a <strong>reveal grant</strong>; otherwise delivery stops before the child starts.
+              </p>
+              <p class="feature-note"><span>▸</span> The happy path writes no plaintext file to the host disk.</p>
+            </div>
+            <div class="artifact frame terminal" data-demo="terminal">
+              <div class="frame-head"><i></i><i></i><i></i><span>hikyo run · production</span></div>
+              <pre><i class="ln" style="--n:0"><span># start a process with an authorized environment</span></i><i class="ln" style="--n:1"><b>hikyo run</b> -- ./payments-api</i><i class="ln" style="--n:2">  <em>✓</em> identity verified</i><i class="ln" style="--n:3">  <em>✓</em> grant constrained to project + environment</i><i class="ln" style="--n:4">  <em>✓</em> config ready for the child process</i><i class="ln" style="--n:5">  <span>→ secret plaintext needs explicit machine reveal</span></i><i class="ln" style="--n:6">  <strong>!</strong> inaccessible secret stops launch</i></pre>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="self-host" id="self-host" aria-labelledby="self-host-heading" data-section>
+        <div class="wrap self-host-grid">
+          <div>
+            <p class="kicker">// runs where you do</p>
+            <h2 id="self-host-heading">Own the keys. Own the data.</h2>
+            <p class="section-lede">
+              Self-hosting is the product, <strong>not a paid tier</strong>. Run one binary with its embedded web UI, choose SQLite
+              or PostgreSQL, and hold the root key <strong>outside the datastore</strong> it protects.
+            </p>
+            <div class="section-actions">
+              <a class="button button-primary" href={repository} data-posthog-event="github_cta_clicked" data-posthog-placement="self_host">Inspect the source</a>
+              <a class="button button-line" href={links.security}>Read the security policy</a>
+            </div>
+          </div>
+          <dl class="specs">
+            <div><dt>runtime</dt><dd><strong>One Go binary</strong> with an embedded web interface.</dd></div>
+            <div><dt>storage</dt><dd><strong>SQLite or PostgreSQL</strong>, selected explicitly.</dd></div>
+            <div><dt>encryption</dt><dd>Envelope encryption with <strong>operator-held root key material</strong>.</dd></div>
+            <div><dt>deploy</dt><dd>A first-party <strong>Helm chart</strong> for Kubernetes and K3s.</dd></div>
+          </dl>
+        </div>
+      </section>
+
+      <section class="block comparison" id="compare" aria-labelledby="comparison-heading" data-section>
+        <div class="wrap">
+          <div class="comparison-intro">
+            <div>
+              <p class="kicker">// choose with the gaps visible</p>
+              <h2 id="comparison-heading">Different tools, different jobs.</h2>
+            </div>
+            <p class="section-lede">
+              Hikyo starts with <strong>explicit environment state</strong> and validated values. OpenBao leads on dynamic
+              infrastructure credentials; Infisical and Phase pair broad delivery workflows with paid tiers.
+            </p>
+          </div>
+
+          <div class="comparison-scroll" role="region" aria-labelledby="comparison-heading" tabindex="0">
+            <table class="comparison-table">
+              <caption class="sr-only">
+                Product capability comparison between Hikyo, OpenBao, Infisical, and Phase
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Capability</th>
+                  <th class="hikyo-column" scope="col"><span>Hikyo</span><small>fully open</small></th>
+                  <th scope="col">OpenBao</th>
+                  <th scope="col">Infisical</th>
+                  <th scope="col">Phase</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">Self-hosted</th>
+                  <td class="hikyo-column"><span class="comparison-status yes" aria-label="Included">✓</span></td>
+                  <td><span class="comparison-status yes" aria-label="Included">✓</span></td>
+                  <td><span class="comparison-status yes" aria-label="Included">✓</span></td>
+                  <td><span class="comparison-status yes" aria-label="Included">✓</span></td>
+                </tr>
+                <tr>
+                  <th scope="row">Fully open production path</th>
+                  <td class="hikyo-column"><span class="comparison-status yes" aria-label="Included">✓</span></td>
+                  <td><span class="comparison-status yes" aria-label="Included">✓</span></td>
+                  <td><span class="comparison-status partial" aria-label="Partial support">—</span></td>
+                  <td><span class="comparison-status partial" aria-label="Partial support">—</span></td>
+                </tr>
+                <tr>
+                  <th scope="row">Config and secrets</th>
+                  <td class="hikyo-column"><span class="comparison-status yes" aria-label="Included">✓</span></td>
+                  <td><span class="comparison-status partial" aria-label="Partial support">—</span></td>
+                  <td><span class="comparison-status yes" aria-label="Included">✓</span></td>
+                  <td><span class="comparison-status yes" aria-label="Included">✓</span></td>
+                </tr>
+                <tr>
+                  <th scope="row">Explicit environment matrix</th>
+                  <td class="hikyo-column"><span class="comparison-status yes" aria-label="Included">✓</span></td>
+                  <td><span class="comparison-status no" aria-label="Not available">×</span></td>
+                  <td><span class="comparison-status partial" aria-label="Partial support">—</span></td>
+                  <td><span class="comparison-status partial" aria-label="Partial support">—</span></td>
+                </tr>
+                <tr>
+                  <th scope="row">Value and presence validation</th>
+                  <td class="hikyo-column"><span class="comparison-status yes" aria-label="Included">✓</span></td>
+                  <td><span class="comparison-status no" aria-label="Not available">×</span></td>
+                  <td><span class="comparison-status no" aria-label="Not available">×</span></td>
+                  <td><span class="comparison-status no" aria-label="Not available">×</span></td>
+                </tr>
+                <tr>
+                  <th scope="row">Workload plaintext delivery</th>
+                  <td class="hikyo-column"><span class="comparison-status yes" aria-label="Included">✓</span></td>
+                  <td><span class="comparison-status yes" aria-label="Included">✓</span></td>
+                  <td><span class="comparison-status yes" aria-label="Included">✓</span></td>
+                  <td><span class="comparison-status yes" aria-label="Included">✓</span></td>
+                </tr>
+                <tr>
+                  <th scope="row">Dynamic secrets</th>
+                  <td class="hikyo-column">
+                    <a class="comparison-status yes" href="/docs/dynamic-secrets/" aria-label="Included on main: PostgreSQL dynamic credentials">✓</a>
+                  </td>
+                  <td><span class="comparison-status yes" aria-label="Included">✓</span></td>
+                  <td><span class="comparison-status tier" aria-label="Advanced paid tier">Adv</span></td>
+                  <td><span class="comparison-status tier" aria-label="Enterprise tier">EE</span></td>
+                </tr>
+                <tr>
+                  <th scope="row">Automated secret rotation</th>
+                  <td class="hikyo-column">
+                    <a class="comparison-status planned" href={`${repository}/issues/148`} aria-label="Planned after 1.0, issue 148"><span>◷ <small>post-1.0</small></span></a>
+                  </td>
+                  <td><span class="comparison-status yes" aria-label="Included">✓</span></td>
+                  <td><span class="comparison-status tier" aria-label="Paid Pro tier">Pro</span></td>
+                  <td><span class="comparison-status tier" aria-label="Paid Pro tier">Pro</span></td>
+                </tr>
+                <tr>
+                  <th scope="row">SCIM provisioning</th>
+                  <td class="hikyo-column"><span class="comparison-status yes" aria-label="Included">✓</span></td>
+                  <td><span class="comparison-status no" aria-label="Not available">×</span></td>
+                  <td><span class="comparison-status tier" aria-label="Enterprise tier">EE</span></td>
+                  <td><span class="comparison-status tier" aria-label="Enterprise tier">EE</span></td>
+                </tr>
+                <tr>
+                  <th scope="row">Native multi-node HA</th>
+                  <td class="hikyo-column">
+                    <a class="comparison-status yes" href="/docs/high-availability/" aria-label="Included on main: multi-node high availability">✓</a>
+                  </td>
+                  <td><span class="comparison-status yes" aria-label="Included">✓</span></td>
+                  <td><span class="comparison-status partial" aria-label="Deployment dependent">—</span></td>
+                  <td><span class="comparison-status partial" aria-label="Deployment dependent">—</span></td>
+                </tr>
+                <tr>
+                  <th scope="row">Application-level recovery</th>
+                  <td class="hikyo-column"><span class="comparison-status yes" aria-label="Included">✓</span></td>
+                  <td><span class="comparison-status partial" aria-label="Partial support">—</span></td>
+                  <td><span class="comparison-status tier" aria-label="Paid Pro tier">Pro</span></td>
+                  <td><span class="comparison-status tier" aria-label="Paid Pro tier">Pro</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="comparison-notes">
+            <p><span class="yes">✓ included</span><span>— partial or indirect</span><span>× unavailable</span><span>Adv/Pro paid tier</span><span>EE enterprise tier</span></p>
+            <p>
+              Hikyo entries describe main-branch capabilities; the <a href="/docs/roadmap/">1.0 roadmap</a> records remaining release gates.
+              Clocks mark post-1.0 work without a promised minor version. Other products were compared against public self-hosted documentation and plan
+              availability on 25 August 2026: <a href="https://openbao.org/docs/use-cases/">OpenBao</a>,
+              <a href="https://infisical.com/pricing">Infisical</a>, and <a href="https://phase.dev/pricing/">Phase</a>.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="block" id="why" aria-labelledby="why-heading" data-section>
+        <div class="wrap why">
+          <p class="kicker">// why hikyo exists</p>
+          <h2 id="why-heading">Operational capability should not be an enterprise upsell.</h2>
+          <div class="why-body">
+            <p>
+              Secrets products often make audit, SSO, SCIM, or recovery the reason to upgrade. Hikyo keeps the
+              production path in the same open repository under the Mozilla Public License 2.0.
+            </p>
+            <p>
+              The environment matrix is the core idea: <strong>explicit state you can inspect</strong>, disclosure
+              you <strong>must intend</strong>, and refusals that name the <strong>safe</strong> next action.
+            </p>
+            <p>No badge wall. <strong>No hidden operational tier</strong>. Infrastructure you can reason about.</p>
+          </div>
+          <p class="signature">Built in the open · MPL-2.0 · no <code>/ee</code></p>
+        </div>
+      </section>
+
+      <section class="block faq" id="faq" aria-labelledby="faq-heading" data-section>
+        <div class="wrap faq-grid">
+          <div class="faq-intro">
+            <p class="kicker">// before you evaluate it</p>
+            <h2 id="faq-heading">Questions worth answering plainly.</h2>
+            <p class="section-lede">
+              Hikyo is open, self-hosted, and still <strong>pre-1.0</strong>. These boundaries matter before you place it near real
+              configuration or secret material.
+            </p>
+            <a
+              class="text-link"
+              href={links.docs}
+              data-posthog-event="documentation_cta_clicked"
+              data-posthog-placement="faq"
+            >Read the complete documentation <span aria-hidden="true">→</span></a>
+          </div>
+          <dl class="faq-list">
+            {faq.map((item) => (
+              <div>
+                <dt>{item.question}</dt>
+                <dd>{item.answer}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      </section>
+
+      <section class="final-cta" aria-labelledby="final-heading">
+        <div class="wrap">
+          <h2 id="final-heading">Config you can reason about.</h2>
+          <p>Hikyo is under active 0.x development. Read the code, inspect the decisions, and follow the <strong>road to 1.0</strong>.</p>
+          <div class="section-actions">
+            <a
+              class="button button-primary"
+              href={repository}
+              data-posthog-event="github_cta_clicked"
+              data-posthog-placement="final"
+            >Explore on GitHub <span aria-hidden="true">↗</span></a>
+            <a
+              class="text-link"
+              href={links.docs}
+              data-posthog-event="documentation_cta_clicked"
+              data-posthog-placement="final"
+            >Read the docs <span aria-hidden="true">→</span></a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-grid">
+        <div class="footer-brand">
+          <a class="brand" href={base}><img class="brand-logo" src={`${base}favicon.svg`} alt="" aria-hidden="true" /><span>hikyo</span></a>
+          <p>Fully open-source secrets and configuration across environments.</p>
+        </div>
+        <div>
+          <h3>Project</h3>
+          <a href={links.docs}>Documentation</a><a href={links.governance}>Governance</a><a href={links.license}>License</a>
+        </div>
+        <div>
+          <h3>Operate</h3>
+          <a href={links.security}>Security</a><a href={links.support}>Support</a><a href={`${base}release/signing/`}>Release trust</a>
+        </div>
+        <div>
+          <h3>Contribute</h3>
+          <a href={repository}>GitHub</a><a href={links.contributing}>Contributing</a><a href={`${repository}/issues`}>Issues</a>
+        </div>
+      </div>
+      <div class="wrap footer-bar">
+        <span>© 2026 Hikyo contributors</span><span>MPL-2.0 · self-hosted</span>
+      </div>
+    </footer>
+
+    <HikyoSwitcher current={11} />
+
+    <script>
+      import { themeStorageKey } from '../../../lib/site';
+
+      const motionOk = matchMedia('(prefers-reduced-motion: no-preference)').matches;
+      const root = document.documentElement;
+
+      // ---------------------------------------------------------- theme
+      const button = document.querySelector<HTMLButtonElement>('.theme-toggle');
+      const label = button?.querySelector<HTMLElement>('.theme-label');
+
+      const renderTheme = (theme: 'dark' | 'light') => {
+        root.dataset.theme = theme;
+        if (label) label.textContent = theme === 'dark' ? 'Light' : 'Dark';
+        button?.setAttribute('aria-label', `Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`);
+      };
+
+      renderTheme(root.dataset.theme === 'light' ? 'light' : 'dark');
+      let themeTimer = 0;
+      button?.addEventListener('click', () => {
+        const theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+        localStorage.setItem(themeStorageKey, theme);
+        if (motionOk) {
+          root.classList.add('theme-transition');
+          clearTimeout(themeTimer);
+          themeTimer = window.setTimeout(() => root.classList.remove('theme-transition'), 260);
+        }
+        renderTheme(theme);
+      });
+
+      // ------------------------------------------------------ flow steps
+      const flowSteps = document.querySelector<HTMLOListElement>('[data-flow-steps]');
+
+      if (flowSteps) {
+        const prepareFlowReveal = () => {
+          const rect = flowSteps.getBoundingClientRect();
+          const alreadyVisible = rect.top < window.innerHeight && rect.bottom > 0;
+          const fragmentId = window.location.hash.slice(1);
+          const fragmentTarget = fragmentId ? document.getElementById(fragmentId) : null;
+          const flowSection = flowSteps.closest('.flow');
+          const fragmentTargetsFlow = fragmentTarget !== null && flowSection?.contains(fragmentTarget) === true;
+
+          if (alreadyVisible || fragmentTargetsFlow || !('IntersectionObserver' in window)) return;
+
+          flowSteps.dataset.motionReady = 'true';
+
+          const observer = new IntersectionObserver(
+            ([entry]) => {
+              if (!entry?.isIntersecting) return;
+
+              flowSteps.dataset.revealed = 'true';
+              observer.disconnect();
+            },
+            { threshold: 0.25 },
+          );
+
+          observer.observe(flowSteps);
+        };
+
+        const scheduleFlowReveal = () => requestAnimationFrame(prepareFlowReveal);
+
+        if (document.readyState === 'complete') {
+          scheduleFlowReveal();
+        } else {
+          window.addEventListener('load', scheduleFlowReveal, { once: true });
+        }
+      }
+
+      // ------------------------------------------- matrix: resolve + tabs
+      const surface = document.querySelector<HTMLElement>('[data-matrix-surface]');
+      const table = surface?.querySelector<HTMLTableElement>('[data-matrix]');
+      const chips = surface?.querySelector<HTMLElement>('[data-env-tabs]');
+      const tabs = chips ? Array.from(chips.querySelectorAll<HTMLButtonElement>('button[data-env]')) : [];
+      const groupHeads = table ? Array.from(table.querySelectorAll<HTMLTableCellElement>('[data-group]')) : [];
+      const mobile = matchMedia('(max-width: 43rem)');
+      const settleMs = (visible: number) => visible * 35 + 160 + 240 + 60;
+
+      const showEnv = (env: string, animate: boolean) => {
+        if (!surface || !table) return;
+        table.dataset.env = env;
+        for (const tab of tabs) {
+          const on = tab.dataset.env === env;
+          tab.setAttribute('aria-selected', on ? 'true' : 'false');
+          tab.tabIndex = on ? 0 : -1;
+        }
+        if (animate && motionOk) {
+          surface.classList.remove('is-pending', 'is-switching');
+          void table.offsetWidth;
+          surface.classList.add('is-pending', 'is-switching');
+          window.setTimeout(() => surface.classList.remove('is-pending', 'is-switching'), 10 * 20 + 100 + 60);
+        }
+      };
+
+      const applyMode = () => {
+        if (!surface || !table || !chips) return;
+        if (mobile.matches) {
+          surface.classList.add('has-tabs');
+          chips.setAttribute('role', 'tablist');
+          for (const head of groupHeads) head.colSpan = 2;
+          for (const tab of tabs) {
+            tab.disabled = false;
+            tab.setAttribute('role', 'tab');
+          }
+          showEnv(table.dataset.env ?? 'production', false);
+        } else {
+          surface.classList.remove('has-tabs');
+          chips.removeAttribute('role');
+          for (const head of groupHeads) head.colSpan = 4;
+          for (const tab of tabs) {
+            tab.disabled = true;
+            tab.removeAttribute('role');
+            tab.removeAttribute('aria-selected');
+            tab.removeAttribute('tabindex');
+          }
+          delete table.dataset.env;
+        }
+      };
+
+      if (surface && table && chips) {
+        applyMode();
+        mobile.addEventListener('change', applyMode);
+
+        for (const tab of tabs) {
+          tab.addEventListener('click', () => showEnv(tab.dataset.env ?? 'production', true));
+        }
+        chips.addEventListener('keydown', (event) => {
+          if (!mobile.matches) return;
+          const current = tabs.findIndex((tab) => tab.getAttribute('aria-selected') === 'true');
+          let next = -1;
+          if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (current + 1) % tabs.length;
+          else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (current - 1 + tabs.length) % tabs.length;
+          else if (event.key === 'Home') next = 0;
+          else if (event.key === 'End') next = tabs.length - 1;
+          if (next < 0) return;
+          event.preventDefault();
+          const tab = tabs[next];
+          if (!tab) return;
+          tab.focus();
+          showEnv(tab.dataset.env ?? 'production', true);
+        });
+
+        if (motionOk) {
+          // Placeholders now (the surface is still inside its enter fade), the
+          // staggered resolve once that fade has finished.
+          surface.classList.add('is-pending');
+          Promise.all(surface.getAnimations().map((a) => a.finished))
+            .catch(() => undefined)
+            .then(() => {
+              surface.classList.add('is-resolving');
+              const visible = mobile.matches ? 10 : 30;
+              window.setTimeout(() => {
+                surface.classList.remove('is-pending', 'is-resolving');
+                surface.classList.add('is-settled');
+              }, settleMs(visible));
+            });
+        } else {
+          surface.classList.add('is-settled');
+        }
+      }
+
+      // ------------------------------------------------- artifact demos
+      const frames = Array.from(document.querySelectorAll<HTMLElement>('[data-demo]'));
+      const masked = (el: HTMLElement) => el.dataset.masked ?? '';
+
+      const playReveal = (frame: HTMLElement) => {
+        const out = frame.querySelector<HTMLElement>('[data-reveal-out]');
+        const counter = frame.querySelector<HTMLElement>('[data-remask]');
+        if (!out || !counter) return;
+        let left = 18;
+        const tick = () => {
+          counter.textContent = `0:${String(left).padStart(2, '0')}`;
+          if (left === 0) {
+            out.textContent = masked(out);
+            out.classList.remove('shown');
+            frame.classList.add('is-remasked');
+            return;
+          }
+          left -= 1;
+          window.setTimeout(tick, 3000 / 18);
+        };
+        window.setTimeout(tick, 700);
+      };
+
+      if (motionOk && 'IntersectionObserver' in window && frames.length > 0) {
+        for (const frame of frames) frame.classList.add('is-armed');
+        const observer = new IntersectionObserver(
+          (entries) => {
+            for (const entry of entries) {
+              if (!entry.isIntersecting) continue;
+              const frame = entry.target;
+              if (!(frame instanceof HTMLElement)) continue;
+              frame.classList.add('is-playing');
+              if (frame.dataset.demo === 'reveal') playReveal(frame);
+              observer.unobserve(frame);
+            }
+          },
+          { threshold: 0.4 },
+        );
+        for (const frame of frames) observer.observe(frame);
+      }
+
+      // -------------------------------------------- current section cursor
+      const sections = Array.from(document.querySelectorAll<HTMLElement>('[data-section]'));
+      if ('IntersectionObserver' in window && sections.length > 0) {
+        const observer = new IntersectionObserver(
+          (entries) => {
+            for (const entry of entries) entry.target.classList.toggle('is-current', entry.isIntersecting);
+          },
+          { rootMargin: '-45% 0px -45% 0px', threshold: 0 },
+        );
+        for (const section of sections) observer.observe(section);
+      }
+    </script>
+
+    <style>
+      /* ------------------------------------------------ shared primitives */
+      @keyframes appear {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+      @keyframes vanish {
+        from { opacity: 1; }
+        to { opacity: 0; }
+      }
+      @keyframes rise {
+        from { opacity: 0; transform: translateY(0.25rem); }
+        to { opacity: 1; transform: none; }
+      }
+
+      .artifact,
+      .hero-surface,
+      .matrix-scroll {
+        min-width: 0;
+      }
+
+      /* Room for the fixed prototype switcher. */
+      .site-footer {
+        padding-block-end: 4rem;
+      }
+
+      /* ------------------------------------------------ 6. theme cross-fade */
+      html.theme-transition body,
+      html.theme-transition .surface,
+      html.theme-transition .frame,
+      html.theme-transition .site-header {
+        transition:
+          background-color 240ms ease,
+          color 240ms ease;
+      }
+
+      /* ------------------------------------------------ 5a. scroll progress */
+      .site-header::after {
+        position: absolute;
+        inset-block-end: -1px;
+        inset-inline-start: 0;
+        width: 100%;
+        height: 2px;
+        background: var(--accent);
+        content: '';
+        pointer-events: none;
+        transform: scaleX(0);
+        transform-origin: 0 50%;
+      }
+      @supports (animation-timeline: scroll()) {
+        .site-header::after {
+          animation: header-progress linear both;
+          animation-timeline: scroll(root);
+        }
+      }
+      @keyframes header-progress {
+        from { transform: scaleX(0); }
+        to { transform: scaleX(1); }
+      }
+
+      /* ------------------------------------------------ 5b. section cursor */
+      .kicker::after {
+        display: inline-block;
+        width: 0.5em;
+        height: 1em;
+        margin-inline-start: 0.35em;
+        background: var(--accent);
+        content: '';
+        opacity: 0;
+        vertical-align: -0.15em;
+      }
+      .is-current .kicker::after {
+        opacity: 1;
+        animation: cursor-blink 1.1s steps(2, start) infinite;
+      }
+      @keyframes cursor-blink {
+        50% { opacity: 0; }
+      }
+
+      /* ------------------------------------------------ 5c. stack marquee */
+      .stack-list .dup {
+        display: none;
+      }
+      @media (max-width: 43rem) {
+        .stack-inner {
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 0.6rem;
+        }
+        .stack-marquee {
+          width: 100%;
+          overflow: hidden;
+          mask-image: linear-gradient(to right, transparent, #000 8%, #000 92%, transparent);
+        }
+        .stack-list {
+          width: max-content;
+          flex-wrap: nowrap;
+          gap: 0;
+        }
+        .stack-list span {
+          margin-inline-end: 1.75rem;
+        }
+        .stack-list .dup {
+          display: inline;
+        }
+      }
+      @media (max-width: 43rem) and (prefers-reduced-motion: no-preference) {
+        .stack-list {
+          animation: marquee 24s linear infinite;
+        }
+        .stack-marquee:hover .stack-list,
+        .stack-marquee:focus-within .stack-list {
+          animation-play-state: paused;
+        }
+      }
+      @keyframes marquee {
+        to { transform: translateX(-50%); }
+      }
+
+      /* ------------------------------------------------ 1. matrix states */
+      .hero-surface {
+        --head-h: 36px;
+        --row-h: 40px;
+        --notes-w: 108px;
+        --step: 35ms;
+        --fade: 160ms;
+        --settle: calc(30 * var(--step) + var(--fade));
+        position: relative;
+      }
+      .hero-surface .matrix {
+        min-width: 0;
+        border-collapse: separate;
+        border-spacing: 0;
+      }
+      .matrix thead tr {
+        height: var(--head-h);
+      }
+      .matrix tbody tr {
+        height: var(--row-h);
+      }
+      .matrix th,
+      .matrix td {
+        padding-block: 0;
+        padding-inline: 0.5rem;
+        vertical-align: middle;
+      }
+      .matrix th:first-child,
+      .matrix td:first-child {
+        padding-inline-start: 1rem;
+      }
+      .matrix .group th {
+        padding-block: 0;
+      }
+      .matrix .group small {
+        margin-inline-start: 0.6rem;
+        color: var(--text-faint);
+        font-size: 0.625rem;
+        letter-spacing: 0.06em;
+        text-transform: none;
+      }
+      .matrix td {
+        position: relative;
+      }
+      .state {
+        padding-inline: 0.4rem;
+      }
+      /* The two longest pills wrap to two lines inside the fixed 40px row so
+         the full matrix fits beside the copy at 1280 without inner scroll. */
+      .state.missing,
+      .state.forbidden {
+        max-width: 5.75rem;
+        border-radius: 0.6rem;
+        line-height: 1.3;
+        text-align: start;
+        white-space: normal;
+      }
+      .state.draft {
+        background: color-mix(in oklab, var(--warning) 16%, transparent);
+        color: var(--warning);
+        font-weight: 500;
+      }
+      .state.forbidden {
+        border: 1px solid var(--line);
+        color: var(--text-dim);
+      }
+      .draft-dot {
+        background: var(--warning);
+      }
+
+      /* Placeholder while unresolved. JS adds is-pending only when motion is
+         allowed, so no-JS and reduced-motion readers get the final state. */
+      .is-pending .matrix td::before {
+        position: absolute;
+        inset-inline-start: 0.5rem;
+        inset-block-start: 50%;
+        color: var(--text-faint);
+        content: '···';
+        font-family: var(--mono);
+        font-size: 0.6875rem;
+        letter-spacing: 0.1em;
+        transform: translateY(-50%);
+      }
+      .is-pending .matrix .state {
+        opacity: 0;
+      }
+      .is-pending .matrix td {
+        --d: calc(var(--i) * var(--step));
+      }
+      .is-pending .matrix[data-env] td {
+        --d: calc(var(--r) * var(--step));
+      }
+      .is-switching {
+        --step: 20ms;
+        --fade: 100ms;
+      }
+      .is-pending.is-resolving .matrix td::before,
+      .is-pending.is-switching .matrix td::before {
+        animation: vanish 1ms steps(1, end) var(--d) both;
+      }
+      .is-pending.is-resolving .matrix .state,
+      .is-pending.is-switching .matrix .state {
+        animation: appear var(--fade) ease-out var(--d) both;
+      }
+      .hero-surface .matrix[data-env] {
+        --settle: calc(10 * var(--step) + var(--fade));
+      }
+      .is-pending.is-resolving .matrix .state.missing {
+        animation:
+          appear var(--fade) ease-out var(--d) both,
+          violation-blink 240ms steps(2, end) var(--settle) both;
+      }
+      @keyframes violation-blink {
+        0% { outline: 1px solid var(--warning); outline-offset: 1px; }
+        50% { outline: 1px solid var(--danger); outline-offset: 1px; }
+        100% { outline: 1px solid transparent; outline-offset: 1px; }
+      }
+
+      /* ------------------------------------------------ 3. mobile env tabs */
+      .environment-chips button {
+        padding: 0.2rem 0.5rem;
+        border: 1px solid var(--line);
+        border-radius: 3px;
+        background: transparent;
+        color: var(--text-dim);
+        font-family: var(--mono);
+        font-size: 0.6875rem;
+        cursor: default;
+      }
+      .environment-chips button:disabled {
+        opacity: 1;
+      }
+      @media (max-width: 43rem) {
+        .environment-chips button {
+          display: none;
+        }
+        .has-tabs .surface-bar {
+          flex-wrap: wrap;
+          padding-block-end: 0.65rem;
+        }
+        .has-tabs .environment-chips {
+          flex: 1 1 100%;
+          margin-inline-start: 0;
+          gap: 0.3rem;
+        }
+        .has-tabs .environment-chips::after {
+          content: none;
+        }
+        .has-tabs .environment-chips button {
+          display: inline-flex;
+          min-height: 2.75rem;
+          flex: 1 1 0;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+        }
+        .has-tabs .environment-chips button[aria-selected='true'] {
+          border-color: var(--accent);
+          background: var(--accent-quiet);
+          color: var(--text);
+        }
+      }
+      .matrix[data-env='development'] .env-staging,
+      .matrix[data-env='development'] .env-production,
+      .matrix[data-env='staging'] .env-development,
+      .matrix[data-env='staging'] .env-production,
+      .matrix[data-env='production'] .env-development,
+      .matrix[data-env='production'] .env-staging {
+        display: none;
+      }
+
+      /* ------------------------------------------------ 2. callouts */
+      .callouts {
+        display: none;
+      }
+      .callout-list {
+        display: grid;
+        gap: 0.5rem;
+        margin: 0;
+        padding: 0.8rem 1rem;
+        border-block-start: 1px solid var(--line-soft);
+        list-style: none;
+        color: var(--text-dim);
+        font-family: var(--mono);
+        font-size: 0.6875rem;
+        line-height: 1.45;
+      }
+      .callout-list li {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 0.1rem 0.6rem;
+      }
+      .callout-list b,
+      .balloon b {
+        display: inline-grid;
+        width: 1.125rem;
+        height: 1.125rem;
+        place-items: center;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        color: var(--accent);
+        font-weight: 500;
+      }
+      .callout-list b {
+        grid-row: 1 / 3;
+        align-self: start;
+      }
+      .callout-list code {
+        color: var(--text);
+        font-family: inherit;
+        overflow-wrap: anywhere;
+      }
+      /* Balloons need the table and a notes column side by side without inner
+         scroll; that only fits from 80rem, so the desktop range below it keeps
+         the live hero and renders the callouts as the list. */
+      @media (min-width: 80rem) {
+        .hero-grid {
+          --max-width: 84rem;
+          grid-template-columns: minmax(27.5rem, 0.55fr) minmax(0, 1fr);
+          gap: 2.5rem;
+        }
+        /* Balloons hang past the surface edge like tags on a drawing frame,
+           so the surface stops clipping and its bar/foot round their own corners. */
+        .hero-surface {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) var(--notes-w);
+          overflow: visible;
+        }
+        .hero-surface .surface-bar {
+          border-start-start-radius: 5px;
+          border-start-end-radius: 5px;
+        }
+        .hero-surface .surface-foot {
+          border-end-start-radius: 5px;
+          border-end-end-radius: 5px;
+        }
+        .hero-surface .matrix tbody th {
+          font-size: 0.6875rem;
+        }
+        .surface-bar,
+        .surface-foot {
+          grid-column: 1 / -1;
+        }
+        .callout-list {
+          display: none;
+        }
+        .callouts {
+          position: relative;
+          display: block;
+          height: var(--notes-h);
+          border-inline-start: 1px solid var(--line-soft);
+          font-family: var(--mono);
+        }
+        .leaders {
+          position: absolute;
+          inset: 0;
+          display: block;
+          overflow: visible;
+          fill: none;
+          stroke: var(--rule-open);
+          stroke-width: 1;
+          stroke-linejoin: round;
+        }
+        .leaders path {
+          stroke-dasharray: 1;
+          stroke-dashoffset: 0;
+        }
+        .is-pending .leaders path {
+          stroke-dashoffset: 1;
+        }
+        .is-settled .leaders path {
+          animation: leader-draw 480ms var(--ease-out) both;
+        }
+        .is-settled .leaders path:nth-child(2) { animation-delay: 140ms; }
+        .is-settled .leaders path:nth-child(3) { animation-delay: 280ms; }
+        .balloon {
+          position: absolute;
+          inset-inline-start: 22px;
+          inset-block-start: var(--y);
+          width: 7.25rem;
+          margin: 0;
+          padding: 0.35rem 0.45rem;
+          border: 1px solid var(--line);
+          border-radius: 3px;
+          background: var(--bg-raised);
+          color: var(--text-dim);
+          font-size: 0.625rem;
+          line-height: 1.4;
+          transform: translateY(-50%);
+        }
+        .balloon b {
+          float: left;
+          margin: 0.05rem 0.35rem 0 0;
+          font-size: 0.625rem;
+        }
+        .is-pending .balloon {
+          opacity: 0;
+        }
+        .is-settled .balloon {
+          animation: appear 240ms ease-out both;
+        }
+        .is-settled .balloon:nth-of-type(1) { animation-delay: 160ms; }
+        .is-settled .balloon:nth-of-type(2) { animation-delay: 300ms; }
+        .is-settled .balloon:nth-of-type(3) { animation-delay: 440ms; }
+      }
+      @keyframes leader-draw {
+        from { stroke-dashoffset: 1; }
+        to { stroke-dashoffset: 0; }
+      }
+
+      /* ------------------------------------------------ 4. artifact demos */
+      .coverage > div {
+        position: relative;
+        overflow: hidden;
+      }
+      .coverage > div::before {
+        position: absolute;
+        inset: 0;
+        z-index: 0;
+        background: var(--accent-quiet);
+        content: '';
+        opacity: 0;
+        transform: scaleX(0);
+        transform-origin: 0 50%;
+      }
+      .coverage > div > * {
+        position: relative;
+        z-index: 1;
+      }
+      .flip {
+        display: inline-grid;
+      }
+      .flip > * {
+        grid-area: 1 / 1;
+      }
+      .flip-q {
+        display: none;
+      }
+      .is-armed .flip-q {
+        display: inline;
+      }
+      .is-armed .flip-n,
+      .is-armed .coverage b {
+        opacity: 0;
+      }
+      .is-armed .coverage > div::before {
+        opacity: 1;
+      }
+      .is-playing .coverage > div::before {
+        animation: wipe 240ms linear calc(var(--k) * 240ms) both;
+      }
+      .is-playing .coverage b {
+        animation: appear 1ms steps(1, end) calc(var(--k) * 240ms + 240ms) both;
+      }
+      .coverage > div:nth-child(1) { --k: 0; }
+      .coverage > div:nth-child(2) { --k: 1; }
+      .coverage > div:nth-child(3) { --k: 2; }
+      .is-playing .flip-q {
+        animation: vanish 1ms steps(1, end) 860ms both;
+      }
+      .is-playing .flip-n {
+        animation: appear 1ms steps(1, end) 860ms both;
+      }
+      @keyframes wipe {
+        from { transform: scaleX(0); }
+        to { transform: scaleX(1); }
+      }
+
+      .is-armed .reveal .secret-stage:last-child code,
+      .is-armed .reveal .secret-stage:last-child b {
+        opacity: 0;
+      }
+      .is-playing .reveal .gate {
+        animation: gate-pulse 700ms ease-in-out 2;
+      }
+      .is-playing .reveal .secret-stage:last-child code,
+      .is-playing .reveal .secret-stage:last-child b {
+        animation: appear 160ms ease-out 700ms both;
+      }
+      .is-remasked .reveal .secret-stage:last-child b {
+        color: var(--text-faint);
+      }
+      @keyframes gate-pulse {
+        0%, 100% { box-shadow: 0 0 0 1px transparent; }
+        50% { box-shadow: 0 0 0 1px var(--accent); }
+      }
+
+      .is-armed .checks > div {
+        opacity: 0;
+      }
+      .is-playing .checks > div {
+        animation: rise 200ms var(--ease-out) calc(var(--k) * 140ms) both;
+      }
+      .checks > div:nth-child(1) { --k: 0; }
+      .checks > div:nth-child(2) { --k: 1; }
+      .checks > div:nth-child(3) { --k: 2; }
+      .checks > div:nth-child(4) { --k: 3; }
+      .is-playing .checks > div:last-child code {
+        animation: chip-flash 360ms steps(2, end) 560ms;
+      }
+      @keyframes chip-flash {
+        0%, 50% { color: var(--danger); background: var(--danger-quiet); }
+        100% { color: var(--text-faint); background: transparent; }
+      }
+
+      .terminal pre {
+        white-space: normal;
+      }
+      .terminal .ln {
+        display: block;
+        font-style: normal;
+        white-space: pre;
+      }
+      .is-armed .terminal .ln {
+        opacity: 0;
+      }
+      .is-playing .terminal .ln {
+        animation: appear 1ms steps(1, end) calc(var(--n) * 120ms) both;
+      }
+
+      /* ------------------------------------------------ reduced motion */
+      @media (prefers-reduced-motion: reduce) {
+        .site-header::after {
+          animation-duration: auto !important;
+        }
+        .is-current .kicker::after {
+          animation: none;
+        }
+        .stack-list {
+          animation: none;
+        }
+      }
+    </style>
+  </body>
+</html>

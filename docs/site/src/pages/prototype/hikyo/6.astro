@@ -1,0 +1,436 @@
+---
+// Prototype 6: Receipt. The whole page is one thermal receipt printed by
+// `hikyo values list`. Paper, not a terminal. All facts come from
+// src/lib/prototype/hikyo.ts; nothing is invented.
+import '@fontsource/courier-prime/400.css';
+import '@fontsource/courier-prime/700.css';
+import '@fontsource-variable/inter-tight/wght.css';
+import HikyoHead from '../../../components/prototype/HikyoHead.astro';
+import HikyoSwitcher from '../../../components/prototype/HikyoSwitcher.astro';
+import {
+  cellText,
+  claims,
+  cli,
+  cliRead,
+  docsUrl,
+  environments,
+  gettingStartedUrl,
+  keyCount,
+  matrix,
+  project,
+  repositoryUrl,
+  type CellState,
+  type Environment,
+} from '../../../lib/prototype/hikyo';
+
+const headline = 'Every value itemised. Nothing carried over.';
+
+const envShort: Record<Environment, string> = { development: 'dev', staging: 'stg', production: 'prod' };
+
+// The receipt is a flat list of printed lines. Each gets a running index for
+// the print stagger; the tear edge takes the last one.
+type Line =
+  | { k: 'brand'; text: string }
+  | { k: 'head'; text: string }
+  | { k: 'center'; text: string }
+  | { k: 'rule' }
+  | { k: 'section'; text: string }
+  | { k: 'key'; name: string; classification: string }
+  | { k: 'cell'; env: string; cell: CellState }
+  | { k: 'note'; text: string; wrap?: boolean }
+  | { k: 'item'; label: string; value: string; bold?: boolean; red?: boolean }
+  | { k: 'text'; text: string }
+  | { k: 'pre'; code: string }
+  | { k: 'link'; label: string; href: string; external?: boolean };
+
+const lines: Line[] = [];
+
+lines.push({ k: 'brand', text: 'HIKYO' });
+lines.push({ k: 'head', text: headline });
+lines.push({ k: 'center', text: claims.positioning });
+lines.push({ k: 'center', text: `${project.organisation} / ${project.name}  rev ${project.revision}` });
+lines.push({ k: 'center', text: environments.map((e) => envShort[e]).join(' · ') });
+lines.push({ k: 'center', text: `protected: ${project.protectedEnvironments.map((e) => envShort[e]).join(', ')}` });
+lines.push({ k: 'rule' });
+
+for (const group of matrix) {
+  lines.push({ k: 'section', text: group.name });
+  for (const key of group.keys) {
+    lines.push({ k: 'key', name: key.name, classification: key.classification });
+    for (const env of environments) lines.push({ k: 'cell', env: envShort[env], cell: key.cells[env] });
+    lines.push({ k: 'note', text: key.presence });
+    lines.push({ k: 'note', text: key.rule, wrap: true });
+  }
+  if (group.allOrNone) lines.push({ k: 'note', text: 'group rule: all or none' });
+}
+lines.push({ k: 'rule' });
+
+const counts: Record<CellState['kind'], number> = { set: 0, secret: 0, draft: 0, absent: 0, missing: 0, forbidden: 0 };
+for (const g of matrix) for (const key of g.keys) for (const env of environments) counts[key.cells[env].kind] += 1;
+const cellCount = environments.length * keyCount;
+lines.push({ k: 'item', label: 'KEYS', value: String(keyCount) });
+lines.push({ k: 'item', label: 'ENVIRONMENTS', value: String(environments.length) });
+lines.push({ k: 'item', label: 'CELLS', value: String(cellCount), bold: true });
+lines.push({ k: 'item', label: 'SET', value: String(counts.set) });
+lines.push({ k: 'item', label: 'SECRET', value: String(counts.secret) });
+lines.push({ k: 'item', label: 'DRAFT', value: String(counts.draft) });
+lines.push({ k: 'item', label: 'ABSENT', value: String(counts.absent) });
+lines.push({ k: 'item', label: 'FORBIDDEN', value: String(counts.forbidden) });
+lines.push({ k: 'item', label: 'VIOLATIONS', value: String(counts.missing), bold: true, red: counts.missing > 0 });
+lines.push({ k: 'item', label: 'INHERITED', value: '0', bold: true });
+lines.push({ k: 'rule' });
+
+lines.push({ k: 'section', text: 'declare before you set' });
+lines.push({ k: 'text', text: 'Config or secret, a validation rule, a presence rule. Declared first. A write that breaks the rule is refused before state changes.' });
+lines.push({ k: 'pre', code: `$ ${cli.declare}` });
+lines.push({ k: 'item', label: 'INVALID WRITE', value: 'REFUSED', red: true });
+lines.push({ k: 'rule' });
+
+lines.push({ k: 'section', text: 'reveal is a ceremony' });
+lines.push({ k: 'text', text: 'An ordinary read prints presence and metadata. Reveal reauthenticates, writes to a file, remasks, and logs its own audit event.' });
+lines.push({ k: 'pre', code: `$ ${cliRead.get}\n${cliRead.getMasked}` });
+lines.push({ k: 'pre', code: `$ ${cliRead.reveal}` });
+lines.push({ k: 'item', label: 'REVEAL', value: 'AUDITED', bold: true });
+lines.push({ k: 'item', label: 'OLD VALUE ON REPLACE', value: 'never shown' });
+lines.push({ k: 'rule' });
+
+lines.push({ k: 'section', text: 'surfaces' });
+lines.push({ k: 'item', label: 'WEB UI', value: 'embedded' });
+lines.push({ k: 'item', label: 'CLI', value: 'included' });
+lines.push({ k: 'item', label: 'HTTP API', value: 'included' });
+lines.push({ k: 'item', label: 'SELF-HOSTED', value: 'one Go binary' });
+lines.push({ k: 'item', label: 'DATABASE', value: 'SQLite or Postgres' });
+lines.push({ k: 'item', label: 'ROOT KEY', value: 'operator-held' });
+lines.push({ k: 'rule' });
+
+lines.push({ k: 'section', text: 'status' });
+lines.push({ k: 'item', label: 'VERSION', value: '0.x, pre-1.0' });
+lines.push({ k: 'item', label: 'LICENSE', value: claims.license });
+lines.push({ k: 'item', label: '/ee DIRECTORY', value: 'none' });
+lines.push({ k: 'rule' });
+
+lines.push({ k: 'link', label: 'GET STARTED', href: gettingStartedUrl });
+lines.push({ k: 'link', label: 'SOURCE', href: repositoryUrl, external: true });
+lines.push({ k: 'link', label: 'DOCS', href: docsUrl });
+lines.push({ k: 'center', text: 'thank you for declaring' });
+
+const lineCount = lines.length + 1;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <HikyoHead title="Hikyo · Every value itemised" description={claims.positioning} themeColor="#2a2622" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <main id="main">
+      <div class="receipt" style={`--n:${lineCount}`}>
+        <div class="paper">
+          {
+            lines.map((l, i) => (
+              <>
+                {l.k === 'brand' && (
+                  <p class="l brand" style={`--i:${i}`}>
+                    {l.text}
+                  </p>
+                )}
+                {l.k === 'head' && (
+                  <h1 class="l head" style={`--i:${i}`}>
+                    {l.text}
+                  </h1>
+                )}
+                {l.k === 'center' && (
+                  <p class="l center" style={`--i:${i}`}>
+                    {l.text}
+                  </p>
+                )}
+                {l.k === 'rule' && <div class="l rule" style={`--i:${i}`} aria-hidden="true" />}
+                {l.k === 'section' && (
+                  <h2 class="l section" style={`--i:${i}`}>
+                    {l.text}
+                  </h2>
+                )}
+                {l.k === 'key' && (
+                  <p class="l row key" style={`--i:${i}`}>
+                    <span class="lbl">{l.name}</span>
+                    <span class="lead" />
+                    <span class="val">{l.classification}</span>
+                  </p>
+                )}
+                {l.k === 'cell' && (
+                  <p class={`l row cell ${l.cell.kind === 'missing' ? 'red' : ''}`} style={`--i:${i}`}>
+                    <span class="lbl">{l.env}</span>
+                    <span class="lead" />
+                    <span class="val">{cellText(l.cell)}</span>
+                  </p>
+                )}
+                {l.k === 'note' && (
+                  <p class={`l note ${l.wrap ? 'wrap' : ''}`} style={`--i:${i}`}>
+                    {l.text}
+                  </p>
+                )}
+                {l.k === 'item' && (
+                  <p class={`l row item ${l.bold ? 'bold' : ''} ${l.red ? 'red' : ''}`} style={`--i:${i}`}>
+                    <span class="lbl">{l.label}</span>
+                    <span class="lead" />
+                    <span class="val">{l.value}</span>
+                  </p>
+                )}
+                {l.k === 'text' && (
+                  <p class="l text" style={`--i:${i}`}>
+                    {l.text}
+                  </p>
+                )}
+                {l.k === 'pre' && (
+                  <pre class="l" style={`--i:${i}`}><code>{l.code}</code></pre>
+                )}
+                {l.k === 'link' && (
+                  <a class="l row link" style={`--i:${i}`} href={l.href} rel={l.external ? 'noopener' : undefined}>
+                    <span class="lbl">{l.label}</span>
+                    <span class="lead" />
+                    <span class="val">{l.external ? l.href.replace('https://', '') : l.href}</span>
+                  </a>
+                )}
+              </>
+            ))
+          }
+        </div>
+        <div class="l tear" style={`--i:${lineCount - 1}`} aria-hidden="true" />
+      </div>
+      <p class="caption">prototype 6 of 10 · receipt</p>
+    </main>
+    <HikyoSwitcher current={6} />
+  </body>
+</html>
+
+<style>
+  :root {
+    --room: oklch(0.17 0.01 60);
+    --paper: oklch(0.97 0.01 85);
+    --ink: oklch(0.27 0.012 60);
+    --ink-soft: oklch(0.42 0.012 60);
+    --stamp: oklch(0.5 0.18 27);
+    --caption: oklch(0.72 0.01 70);
+    --mono: 'Courier Prime', 'Courier New', monospace;
+    --ui: 'Inter Tight Variable', system-ui, sans-serif;
+  }
+  * {
+    box-sizing: border-box;
+  }
+  html {
+    background: var(--room);
+    color: var(--ink);
+  }
+  body {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 0.875rem;
+    line-height: 1.45;
+    text-rendering: geometricPrecision;
+    -webkit-font-smoothing: antialiased;
+  }
+  .skip {
+    position: absolute;
+    left: -100vw;
+    top: 0;
+    padding: 0.75rem 1rem;
+    background: var(--paper);
+    color: var(--ink);
+  }
+  .skip:focus {
+    left: 0.5rem;
+    top: 0.5rem;
+    z-index: 2;
+  }
+  main {
+    display: grid;
+    justify-items: center;
+    padding: 1.5rem 0.75rem 11rem;
+  }
+  @media (min-width: 48rem) {
+    main {
+      padding: 4rem 1rem 11rem;
+    }
+  }
+
+  .receipt {
+    width: 100%;
+    max-width: 26rem;
+    min-width: 0;
+    filter: drop-shadow(0 1.5rem 2rem oklch(0 0 0 / 0.55));
+  }
+  .paper {
+    background-color: var(--paper);
+    background-image: repeating-linear-gradient(0deg, transparent 0 3px, oklch(0 0 0 / 0.03) 3px 4px);
+    padding: 1.75rem 1rem 1rem;
+    min-width: 0;
+  }
+  .tear {
+    height: 0.75rem;
+    background: conic-gradient(from -45deg at 50% 100%, var(--paper) 90deg, transparent 0) 0 0 / 0.75rem 0.75rem repeat-x;
+  }
+
+  /* ---------- printed lines ---------- */
+  .l {
+    margin: 0;
+    min-width: 0;
+  }
+  .brand {
+    text-align: center;
+    font-weight: 700;
+    font-size: 1.75rem;
+    letter-spacing: 0.35em;
+    padding-left: 0.35em;
+    line-height: 1.1;
+    margin-bottom: 0.75rem;
+  }
+  .head {
+    text-align: center;
+    font-weight: 700;
+    font-size: 1rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 0.5rem;
+  }
+  .center {
+    text-align: center;
+    font-size: 0.8125rem;
+    color: var(--ink-soft);
+    margin: 0.25rem 0;
+  }
+  .rule {
+    margin: 0.9rem 0;
+    height: 0;
+    border-top: 2px dashed var(--ink-soft);
+  }
+  .section {
+    font-size: 0.8125rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    margin: 0.25rem 0 0.35rem;
+  }
+  .section + .section,
+  .note + .section,
+  .note + .key {
+    margin-top: 0.6rem;
+  }
+  .row {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5ch;
+  }
+  .row .lbl {
+    flex: none;
+    white-space: nowrap;
+  }
+  .row .lead {
+    flex: 1 1 0;
+    min-width: 1ch;
+    overflow: hidden;
+    white-space: nowrap;
+    color: var(--ink-soft);
+  }
+  .row .lead::before {
+    content: '................................................................................';
+  }
+  .row .val {
+    flex: 0 1 auto;
+    min-width: 0;
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+  .key {
+    font-weight: 700;
+    margin-top: 0.35rem;
+  }
+  .key .val {
+    font-weight: 400;
+    font-size: 0.75rem;
+    color: var(--ink-soft);
+  }
+  .cell {
+    padding-left: 2ch;
+  }
+  .note {
+    padding-left: 2ch;
+    font-size: 0.6875rem;
+    line-height: 1.35;
+    color: var(--ink-soft);
+  }
+  .note.wrap {
+    overflow-wrap: anywhere;
+  }
+  .bold {
+    font-weight: 700;
+  }
+  .red {
+    color: var(--stamp);
+  }
+  .red .lead {
+    color: var(--stamp);
+  }
+  .text {
+    font-size: 0.8125rem;
+    margin: 0 0 0.5rem;
+  }
+  pre {
+    font: inherit;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    margin: 0.35rem 0 0.6rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px dashed var(--ink-soft);
+    overflow-x: auto;
+    white-space: pre;
+    max-width: 100%;
+  }
+  .link {
+    color: var(--ink);
+    text-decoration: none;
+    min-height: 2.75rem;
+    align-items: center;
+    font-weight: 700;
+  }
+  .link .lbl {
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+    text-decoration-thickness: 2px;
+  }
+  .link .val {
+    font-weight: 400;
+    font-size: 0.75rem;
+    color: var(--ink-soft);
+  }
+  .link:hover .lbl,
+  .link:focus-visible .lbl {
+    text-decoration-thickness: 3px;
+  }
+  .caption {
+    font-family: var(--ui);
+    font-size: 0.75rem;
+    letter-spacing: 0.02em;
+    color: var(--caption);
+    margin: 1.5rem 0 0;
+  }
+
+  /* ---------- motion: the receipt prints ---------- */
+  @keyframes print {
+    from {
+      visibility: hidden;
+    }
+    to {
+      visibility: visible;
+    }
+  }
+  .l {
+    animation: print 0.18s steps(1) both;
+    animation-delay: calc(var(--i) / var(--n) * 1400ms);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .l {
+      animation: none;
+    }
+  }
+</style>
