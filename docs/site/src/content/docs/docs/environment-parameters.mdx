@@ -137,7 +137,11 @@ The supported consumers are `values export` and the Kubernetes operator. Compose
 accept parameter inputs and refuse parameterized delivery. They never substitute
 defaults or deploy unresolved templates. Use concrete environments for those
 consumers. Copying a template requires declaring its parameters in the destination
-before publication. Clone-at-creation cannot predeclare parameters on its new
-destination, so cloning a source containing config references is refused
-atomically. Use a concrete source for cloning, or create the destination, declare
-its parameters and copy explicitly. No copy creates a live source relationship.
+before publication. The destination's declarations determine how copied config is
+interpreted: literal `${PORT}` from a source with no declarations becomes a
+template when copied into a destination that declares `PORT`. To deliver those
+bytes literally, stage `$${PORT}` directly in the destination instead.
+Clone-at-creation cannot predeclare parameters on its new destination, so cloning
+a source with live parameter declarations is refused atomically. Use a concrete
+source for cloning, or create the destination, declare its parameters and copy
+explicitly. No copy creates a live source relationship.

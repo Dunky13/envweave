@@ -204,6 +204,20 @@ controlled failure of the real global setup confirmed both output streams appear
 at the unchanged 30-second deadline. Web typecheck and all 960 tests passed.
 Timeouts and retry behavior are unchanged; the next CI run must verify startup.
 
+### Final review and merge authorization
+
+The third external review verified all code findings fixed and requested one
+documentation clarification: a literal `${PORT}` copied from a source without
+declarations becomes a template in a destination that declares `PORT`. The user
+guide now states that destination interpretation explicitly and explains how to
+stage escaped literal bytes. Its clone wording also matches the live-declaration
+guard. No runtime behavior changed in this final review follow-up.
+
+All 46 checks passed on `a91539bc`, including desktop startup, all browser shards,
+SQLite/PostgreSQL isolation, race checks and native Kubernetes acceptance. On
+2026-09-13 the user authorized merging after this last review is addressed and CI
+is green on the final commit, superseding the earlier merge hold.
+
 Migrations 51 and 52 apply to SQLite and PostgreSQL. The generated development
 compatibility manifest includes both. Generated Go, TypeScript and CRD artifacts
 belong to this change; regenerate them from their source definitions.
