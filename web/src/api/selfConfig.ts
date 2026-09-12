@@ -14,9 +14,37 @@ export type SelfConfigStatus = z.infer<typeof zInstanceConfigStatus>;
 export type SelfConfigIntent = z.infer<typeof zSelfConfigReauthIntent>;
 const configKey = ['self-config'];
 
+/** The Hikyo system organisation and project ids, from the self-configuration binding. */
+export type SystemScope = { readonly org: string; readonly project: string };
+
+/**
+ * The surfaces the protected system profile refuses outright (permission-model
+ * ADR, 2026-09-06 amendment: machine consumers, adapters, SCIM). The sidebar
+ * omits them in the system scope and their routes answer a deep link with the
+ * reason; both read this one list.
+ */
+export const SYSTEM_SCOPE_REFUSED_SURFACES = ['machine-access', 'adapters', 'scim'] as const;
+export type SystemScopeSurface = (typeof SYSTEM_SCOPE_REFUSED_SURFACES)[number];
+
 export function useSelfConfig(enabled = true) {
   const transport = useTransport();
   return useQuery({ queryKey: configKey, queryFn: () => parsed(getInstanceConfigOp, { ...transport }), enabled, refetchInterval: (query) => query.state.status === 'error' ? false : 2000, retry: false });
+}
+
+/**
+ * The Hikyo system organisation and project, or null while the binding is
+ * unknown (not adopted, not disclosed to this session, or not yet read).
+ * Shares the self-config query so a page that polls it keeps this fresh; on
+ * its own it re-reads once a minute rather than every two seconds. Disabled
+ * for anyone but an instance operator: the status read needs
+ * `instance-config` and records its denial, and the protected hierarchy is
+ * hidden from everyone else anyway.
+ */
+export function useSystemScope(enabled: boolean): { readonly pending: boolean; readonly scope: SystemScope | null } {
+  const transport = useTransport();
+  const query = useQuery({ queryKey: configKey, queryFn: () => parsed(getInstanceConfigOp, { ...transport }), enabled, staleTime: 60_000, retry: false });
+  const binding = query.data?.binding;
+  return { pending: enabled && query.isPending, scope: binding === undefined || binding === null ? null : { org: binding.org_id, project: binding.project_id } };
 }
 
 export function useSelfConfigActions() {

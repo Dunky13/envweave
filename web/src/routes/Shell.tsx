@@ -18,6 +18,7 @@ import {
 } from 'react-router';
 
 import { useLogout, useOrgs, type WhoAmI } from '../api/session.ts';
+import { useSystemScope } from '../api/selfConfig.ts';
 import { useProjects } from '../api/settings.ts';
 import { retentionBanner, storageBanner, useRetentionHealth } from '../api/retention.ts';
 import {
@@ -128,6 +129,10 @@ export function Shell({ session }: { session: WhoAmI }) {
   const membersProjectId = here?.surface.id === 'members' ? search.get('project') ?? '' : '';
   const routeProjectId = pathProjectId === '' ? membersProjectId : pathProjectId;
   const remote = search.get('remote') ?? '';
+  // The system scope is this instance's; a remote workspace's config read
+  // would be an audited denial on the remote, and its project links are
+  // disabled here anyway.
+  const systemScope = useSystemScope(isInstanceOperator && remote === '').scope;
 
   // A deep link is a selection too. Persist it only after the organisation
   // listing confirms the id, then unscoped destinations keep the same tenant.
@@ -309,6 +314,7 @@ export function Shell({ session }: { session: WhoAmI }) {
     routeProjectId: routeProjectId === '' ? '' : activeProjectId,
     remote,
     isInstanceOperator,
+    systemScope,
   });
 
   return (

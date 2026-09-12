@@ -4,12 +4,21 @@ import { generatePath, Link, useOutletContext } from 'react-router';
 import { createProjectRefusalText, useCreateProject, useProjects } from '../api/settings.ts';
 import { surfaceById } from '../app/navigation.ts';
 import { Alert, JumpIndex, Panel } from './Sections.tsx';
+import { useInSystemScope } from './SystemScope.tsx';
 
 /** Projects is a real data surface; keeping it out of Placeholder preserves the chrome skeleton seam. */
 export function Projects() {
   const { activeOrgId } = useOutletContext<{ readonly activeOrgId: string }>();
   const projects = useProjects(activeOrgId);
   const items = projects.data?.items ?? [];
+  // The system organisation holds exactly one project, the instance's own
+  // configuration; the protected profile refuses another (permission-model
+  // ADR, 2026-09-06 amendment), so the form is absent rather than refused.
+  // While the answer is pending the form waits too: showing it and then
+  // taking it away would lose whatever was typed in between.
+  const scope = useInSystemScope(activeOrgId, null);
+  const systemOrg = scope === 'system';
+  const formReady = scope === 'ordinary';
 
   return (
     <div className="page page--chrome projects">
@@ -31,7 +40,7 @@ export function Projects() {
           <JumpIndex
             sections={[
               { id: 'projects-list', label: 'All projects' },
-              { id: 'projects-new', label: 'New project' },
+              ...(formReady ? [{ id: 'projects-new', label: 'New project' }] : []),
             ]}
           />
           <Panel id="projects-list" title="Projects">
@@ -44,7 +53,15 @@ export function Projects() {
             ) : null}
             {items.length === 0 ? null : <ProjectList org={activeOrgId} items={items} />}
           </Panel>
-          <NewProjectForm org={activeOrgId} />
+          {systemOrg ? (
+            <p className="hint-wrap" role="status">
+              This is the Hikyo system organisation: it holds this instance's own configuration
+              and no other project. Create an organisation of your own under Instance settings
+              for your projects.
+            </p>
+          ) : formReady ? (
+            <NewProjectForm org={activeOrgId} />
+          ) : null}
         </>
       )}
     </div>

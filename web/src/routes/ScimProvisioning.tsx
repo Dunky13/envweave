@@ -42,6 +42,7 @@ import { writeClipboard } from '../app/clipboard.ts';
 import { Alert, Done, Explain, JumpIndex, Panel, TypedNameConfirm } from './Sections.tsx';
 import { useFeedback, useModalDialog } from './useModalDialog.ts';
 import { useNavigationGuard } from './MachineAccess.tsx';
+import { gateSystemScope } from './SystemScope.tsx';
 
 /**
  * SCIM provisioning administration (registry surface `scim`, #501; #73,
@@ -60,7 +61,10 @@ import { useNavigationGuard } from './MachineAccess.tsx';
  * its own, the binding teardown, the revocation bite, is factual and drawn
  * from the contract, never a guess about scope reach.
  */
-export function ScimProvisioning() {
+/** Deep links into the Hikyo system organisation answer with the profile refusal. */
+export const ScimProvisioning = gateSystemScope('scim', ScimProvisioningPage);
+
+function ScimProvisioningPage() {
   const params = useParams();
   const org = params['org'] ?? '';
   const [search, setSearch] = useSearchParams();

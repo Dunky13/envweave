@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router';
 
+import { AuthProvider } from '../app/AuthProvider.tsx';
+import { authenticatedIdentity } from '../testkit/identity.ts';
 import { created, renderForm, settle, settleTask, typeInto } from '../testkit/renderForm.tsx';
 import { Overview } from './Placeholder.tsx';
 import { NewProjectForm, Projects } from './Projects.tsx';
@@ -108,6 +110,37 @@ describe('Projects', () => {
     expect(empty?.compareDocumentPosition(form ?? empty) ?? 0).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
+    await unmount();
+  });
+
+  it('offers no project form in the Hikyo system organisation and says why', async () => {
+    const binding = { org_id: 'org_1', project_id: 'prj_system', environment_id: 'env_system', schema_version: 1 };
+    const status = { owner_instance_id: 'instance_local', managed: true, binding, generation: 1, desired_revision: 1, latest_revision: 1, state: 'active', nodes: [], job: null };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const request = input instanceof Request ? input : new Request(input, init);
+        const path = new URL(request.url).pathname;
+        const body =
+          path === '/api/v1/instance/config'
+            ? status
+            : path === '/api/v1/auth/whoami'
+              ? authenticatedIdentity
+              : { items: [project], count: 1 };
+        return Promise.resolve(Response.json(body));
+      }),
+    );
+    const { container, unmount } = await renderForm(
+      <AuthProvider>{inShell(<Projects />, 'org_1', '/projects')}</AuthProvider>,
+    );
+    await settleTask();
+    await settle();
+
+    expect(container.querySelector('#projects-new')).toBeNull();
+    expect(container.querySelector('form')).toBeNull();
+    expect([...container.querySelectorAll('.jump__link')].map((a) => a.textContent)).toEqual(['All projects']);
+    const statuses = [...container.querySelectorAll('[role="status"]')].map((s) => s.textContent ?? '');
+    expect(statuses.some((text) => text.includes('Hikyo system organisation'))).toBe(true);
     await unmount();
   });
 

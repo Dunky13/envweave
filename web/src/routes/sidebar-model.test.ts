@@ -8,6 +8,7 @@ const base = {
   routeProjectId: '',
   remote: '',
   isInstanceOperator: true,
+  systemScope: null,
 };
 
 function mustFind(links: readonly SidebarLink[] | undefined, id: string): SidebarLink {
@@ -118,5 +119,53 @@ describe('sidebarModel', () => {
     expect(isLinkActive(orgMembers, '/orgs/org_1/members', '')).toBe(true);
     expect(isLinkActive(members, '/orgs/org_1/members', '')).toBe(false);
     expect(isLinkActive(members, '/orgs/org_1/settings', '?project=prj_1')).toBe(false);
+  });
+});
+
+describe('sidebarModel in the Hikyo system scope', () => {
+  // The self-configuration hierarchy refuses machine consumers, adapters and
+  // SCIM by profile (permission-model ADR, 2026-09-06 amendment), so the
+  // sidebar must not offer them there: a link to a page that always refuses
+  // is a 404 dressed as navigation.
+  const systemScope = { org: 'org_1', project: 'prj_1' };
+
+  it('drops machine access and adapters from the system project block', () => {
+    const model = sidebarModel({
+      ...base,
+      surface: surfaceById('matrix'),
+      routeProjectId: 'prj_1',
+      systemScope,
+    });
+    expect(model.context?.links.map((l) => l.label)).toEqual([
+      'Environment matrix',
+      'Change approvals',
+      'Project audit',
+      'Members',
+      'Project settings',
+    ]);
+  });
+
+  it('drops SCIM provisioning from the system organisation block', () => {
+    const model = sidebarModel({ ...base, surface: surfaceById('projects'), systemScope });
+    expect(model.organisation?.links.map((l) => l.id)).toEqual([
+      'overview',
+      'projects',
+      'remotes',
+      'members',
+      'org-settings',
+      'audit',
+    ]);
+  });
+
+  it('leaves every other organisation and project untouched', () => {
+    const model = sidebarModel({
+      ...base,
+      surface: surfaceById('matrix'),
+      activeOrgId: 'org_2',
+      routeProjectId: 'prj_2',
+      systemScope,
+    });
+    expect(model.context?.links.map((l) => l.id)).toContain('machine-access');
+    expect(model.organisation?.links.map((l) => l.id)).toContain('scim');
   });
 });

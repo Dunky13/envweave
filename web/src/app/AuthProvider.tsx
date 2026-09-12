@@ -638,3 +638,16 @@ export function useAuth(): AuthContextValue {
   }
   return value;
 }
+
+/**
+ * The disclosure-safe operator hint from the live session: null while the
+ * provider has not yet resolved a session, so a caller can wait rather than
+ * act on a guess; false outside any provider. For reads that only an
+ * instance operator may make, so a non-operator's chrome never provokes an
+ * audited denial on every mount.
+ */
+export function useInstanceOperator(): boolean | null {
+  const value = useContext(AuthContext);
+  if (value === null) return false;
+  return value.identity?.capabilities.instance_operator ?? null;
+}

@@ -18,7 +18,7 @@
     "api/revisionDiff.ts": "5dca7d0ddb63c8832d7507eb62ecc1ea7b49080a72a329ad38043e342017d21f",
     "api/samlProviders.ts": "d0079f3a6e1b85a6fa36b78c433ec2e8307bf9bade861eb2df20b9b202e860ac",
     "api/scim.ts": "b4858db3cae9c346b56372862801e87aaaea33c9fd93b741ed02a512f0c33248",
-    "api/selfConfig.ts": "2bedf96c857e37ea5975e624a0e44d100a39d5c7c576e497625cff90a8f4c046",
+    "api/selfConfig.ts": "db82504969754873dcab67552459f37ab07ff8f3dcbd96702c3dd880aa751c40",
     "api/sensitiveMutation.ts": "5a585ae0e42073f165a4356e329dc84336c0bc5115d681e7e6154f3091fe983c",
     "api/session.ts": "76a8a2dc57ae817feb5cfdccfcc3d86f3b13fb785d2b3b28d3bbbf27fe5e55c5",
     "api/settings.ts": "8db8611b316f062b29a4fe61103ec25ce703455bc966079a9e78db8fa96fa61e",

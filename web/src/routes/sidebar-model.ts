@@ -1,6 +1,7 @@
 import { generatePath } from 'react-router';
 
 import { needsOrg, sectionsFor, surfaceById, type Surface } from '../app/navigation.ts';
+import { SYSTEM_SCOPE_REFUSED_SURFACES, type SystemScope } from '../api/selfConfig.ts';
 import { withRemote } from '../api/transport.tsx';
 
 export type SidebarLink = {
@@ -31,6 +32,9 @@ export type SidebarModel = {
 
 const localOnly = (label: string) => `${label} is local-instance only`;
 
+/** Every other project and organisation surface stays reachable in the system scope. */
+const SYSTEM_SCOPE_REFUSES: ReadonlySet<string> = new Set(SYSTEM_SCOPE_REFUSED_SURFACES);
+
 function link(surface: Surface, to: string, disabledReason: string | null = null): SidebarLink {
   return { id: surface.id, label: surface.label, to, disabledReason };
 }
@@ -53,8 +57,17 @@ export function sidebarModel(input: {
   readonly routeProjectId: string;
   readonly remote: string;
   readonly isInstanceOperator: boolean;
+  /**
+   * The Hikyo system organisation and project (the self-configuration
+   * binding), or null while unknown. The protected profile refuses machine
+   * consumers, adapters and SCIM there by design (permission-model ADR,
+   * 2026-09-06 amendment), so those entries are absent rather than dead.
+   */
+  readonly systemScope: SystemScope | null;
 }): SidebarModel {
-  const { surface, activeOrgId, routeProjectId, remote, isInstanceOperator } = input;
+  const { surface, activeOrgId, routeProjectId, remote, isInstanceOperator, systemScope } = input;
+  const systemOrg = systemScope !== null && systemScope.org === activeOrgId;
+  const systemProject = systemOrg && systemScope.project === routeProjectId;
 
   // An org-scoped destination needs an organisation to point at. With none
   // active the entry is absent rather than dead: a link that resolves to
@@ -64,6 +77,7 @@ export function sidebarModel(input: {
     title: 'Organisation',
     links: sectionsFor('organisation')
       .filter((item) => !needsOrg(item) || activeOrgId !== '')
+      .filter((item) => !systemOrg || !SYSTEM_SCOPE_REFUSES.has(item.id))
       .map((item) =>
         link(item, needsOrg(item) ? generatePath(item.path, { org: activeOrgId }) : item.path),
       ),
@@ -88,11 +102,13 @@ export function sidebarModel(input: {
     const params = { org: activeOrgId, project: routeProjectId };
     const membersSurface = surfaceById('members');
     const membersPath = `${generatePath(membersSurface.path, { org: activeOrgId })}?project=${encodeURIComponent(routeProjectId)}`;
-    const projectLinks = sectionsFor('project').map((item) => {
-      const path = generatePath(item.path, params);
-      if (item.id === 'matrix') return link(item, withRemote(path, remote));
-      return link(item, path, remote === '' ? null : localOnly(item.label));
-    });
+    const projectLinks = sectionsFor('project')
+      .filter((item) => !systemProject || !SYSTEM_SCOPE_REFUSES.has(item.id))
+      .map((item) => {
+        const path = generatePath(item.path, params);
+        if (item.id === 'matrix') return link(item, withRemote(path, remote));
+        return link(item, path, remote === '' ? null : localOnly(item.label));
+      });
     // The filtered members projection sits before Project settings, so the
     // block reads narrow to wide: matrix, machine access, members, settings.
     const members: SidebarLink = {

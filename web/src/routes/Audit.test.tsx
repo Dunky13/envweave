@@ -90,3 +90,23 @@ it('shows the actor name in the row while retaining its ID in event details', as
     expect(container.querySelector('#audit-detail')?.textContent).toContain('Principal IDprn_dana');
   } finally { await unmount(); }
 });
+
+it.each([
+  ['/orgs/acme/audit', '/orgs/:org/audit', 'this organisation'],
+  ['/orgs/acme/projects/app/audit', '/orgs/:org/projects/:project/audit', 'this project'],
+])('names the audit-read grant and its scope when %s refuses', async (path, pattern, where) => {
+  vi.stubGlobal('fetch', async () =>
+    Response.json({ error: { code: 'not_found', message: 'not found' } }, { status: 404 }),
+  );
+  const rendered = await renderForm(
+    <MemoryRouter initialEntries={[path]}>
+      <Routes><Route path={pattern} element={<Audit />} /></Routes>
+    </MemoryRouter>,
+  );
+  await settleTask();
+  const alert = rendered.container.querySelector('[role="alert"]')?.textContent ?? '';
+  expect(alert).toContain('This trail is not available, or you may not read it.');
+  expect(alert).toContain(`audit-read grant on ${where}`);
+  expect(alert).toContain('No role template includes audit-read');
+  await rendered.unmount();
+});

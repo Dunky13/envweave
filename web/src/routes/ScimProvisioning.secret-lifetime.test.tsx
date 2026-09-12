@@ -19,6 +19,12 @@ vi.mock('../api/scim.ts', async (importActual) => ({
   useScimDirectoryGroups: () => ({ data: { items: [] }, isSuccess: true }),
   useScimDirectoryUsers: () => ({ data: { items: [] }, isSuccess: true }),
 }));
+// The system-scope gate reads the self-config binding; this test stubs no
+// fetch, so answer it directly as an ordinary organisation.
+vi.mock('../api/selfConfig.ts', async (importActual) => ({
+  ...(await importActual<typeof import('../api/selfConfig.ts')>()),
+  useSystemScope: () => ({ pending: false, scope: null }),
+}));
 vi.mock('../api/settings.ts', async (importActual) => ({
   ...(await importActual<typeof import('../api/settings.ts')>()),
   useOrg: () => ({ data: { id: 'org', name: 'fixture' }, isSuccess: true }),

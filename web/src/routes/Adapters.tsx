@@ -49,6 +49,7 @@ import {
   runAdapterTOTPCeremony,
 } from '../api/values.ts';
 import { useFeedback, useModalDialog } from './useModalDialog.ts';
+import { gateSystemScope } from './SystemScope.tsx';
 
 /**
  * Deployment adapters (#157): the multi-target synchronization surface.
@@ -116,7 +117,10 @@ function projectRef(org: string | undefined, project: string | undefined): Proje
   return { org, project };
 }
 
-export function Adapters() {
+/** Deep links into the Hikyo system project answer with the profile refusal. */
+export const Adapters = gateSystemScope('adapters', AdaptersPage);
+
+function AdaptersPage() {
   const params = useParams();
   const ref = useMemo(() => projectRef(params.org, params.project), [params.org, params.project]);
   const [search, setSearch] = useSearchParams();
