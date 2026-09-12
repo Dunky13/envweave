@@ -1,0 +1,854 @@
+---
+// Prototype 9: Inventory. The environment matrix drawn like a game inventory grid,
+// one bag per environment, one slot per key. 16-bit RPG UI: indigo panels,
+// bevelled slots, parchment text, pixel glyphs drawn with box-shadow.
+// All facts come from src/lib/prototype/hikyo.ts; nothing is invented.
+import '@fontsource-variable/pixelify-sans/wght.css';
+import '@fontsource/vt323/400.css';
+import '@fontsource/silkscreen/400.css';
+import HikyoHead from '../../../components/prototype/HikyoHead.astro';
+import HikyoSwitcher from '../../../components/prototype/HikyoSwitcher.astro';
+import {
+  cellLabel,
+  cellText,
+  claims,
+  cli,
+  cliRead,
+  docsUrl,
+  environments,
+  gettingStartedUrl,
+  keyCount,
+  matrix,
+  project,
+  repositoryUrl,
+  selfHostingUrl,
+  type CellState,
+  type Environment,
+  type KeyRow,
+} from '../../../lib/prototype/hikyo';
+
+// Bags open in this order: production first (it holds the violations), then
+// development, then staging. One running slot index drives the drop stagger.
+const bagOrder: Environment[] = ['production', 'development', 'staging'];
+const short: Record<Environment, string> = { development: 'DEV', staging: 'STG', production: 'PROD' };
+const keys: KeyRow[] = matrix.flatMap((g) => g.keys);
+
+interface Slot {
+  key: KeyRow;
+  cell: CellState;
+  i: number;
+}
+interface Bag {
+  env: Environment;
+  p: number;
+  isProtected: boolean;
+  slots: Slot[];
+  groups: { name: string; allOrNone: boolean; rows: Slot[] }[];
+}
+
+let counter = 0;
+const bags: Bag[] = bagOrder.map((env, p) => {
+  const byName = new Map<string, Slot>();
+  const slots: Slot[] = keys.map((key) => {
+    const slot: Slot = { key, cell: key.cells[env], i: counter++ };
+    byName.set(key.name, slot);
+    return slot;
+  });
+  const groups = matrix.map((g) => ({
+    name: g.name,
+    allOrNone: g.allOrNone === true,
+    rows: g.keys.flatMap((k) => {
+      const s = byName.get(k.name);
+      return s ? [s] : [];
+    }),
+  }));
+  return { env, p, isProtected: project.protectedEnvironments.includes(env), slots, groups };
+});
+
+const count = (kind: CellState['kind']): number =>
+  keys.reduce((n, k) => n + environments.filter((e) => k.cells[e].kind === kind).length, 0);
+const violations = count('missing');
+const drafts = count('draft');
+const cells = keyCount * environments.length;
+
+// Sprite per state. Absent is an empty slot; forbidden is a barred plate.
+const sprite: Record<CellState['kind'], string> = {
+  set: 'gl gl-key',
+  draft: 'gl gl-key ghost',
+  secret: 'gl gl-chest',
+  missing: 'gl gl-warn',
+  forbidden: 'plate',
+  absent: '',
+};
+const corner: Record<CellState['kind'], string> = {
+  set: '',
+  draft: 'Δ',
+  secret: '',
+  missing: '!',
+  forbidden: 'x',
+  absent: '',
+};
+
+const headline = 'An empty slot stays empty until you fill it.';
+const version = `HIKYO 0.x · PRE-1.0 · ${claims.license} · NO /ee`;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <HikyoHead title="Hikyo · Every slot accounted for" description={claims.positioning} themeColor="#1b1a2e" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+
+    <header class="bar">
+      <p class="brand">HIKYO</p>
+      <p class="pos">{claims.positioning}</p>
+      <p class="party">
+        <span>{project.organisation}/{project.name}</span>
+        <span>REV {project.revision}</span>
+        <span>{keyCount} KEYS</span>
+        <span>{environments.length} BAGS</span>
+        <span>{cells} SLOTS</span>
+        <span class="bad">{violations} VIOLATIONS</span>
+        <span>{drafts} DRAFT</span>
+      </p>
+    </header>
+
+    <main id="main">
+      <section class="hero">
+        <h1>{headline}</h1>
+        <p class="lede">
+          {claims.tagline} Three bags, {keyCount} slots each. A slot holds what someone put there, or it holds nothing.
+          No bag borrows from another bag.
+        </p>
+      </section>
+
+      <section class="bags" aria-label="Environment inventory">
+        {
+          bags.map((bag) => (
+            <section class="bag" style={`--p:${bag.p}`} aria-labelledby={`bag-${bag.env}`}>
+              <h2 class="bag-title" id={`bag-${bag.env}`}>
+                <span class="bag-name">{bag.env}</span>
+                <span class="micro">{short[bag.env]}</span>
+                {bag.isProtected && <span class="micro tag">PROTECTED</span>}
+              </h2>
+
+              <ol class="slots">
+                {bag.slots.map((s) => (
+                  <li class="cell" style={`--i:${s.i}`}>
+                    <div class={`slot slot-${s.cell.kind}`}>
+                      {sprite[s.cell.kind] && <span class={`item ${sprite[s.cell.kind]}`} aria-hidden="true" />}
+                      {corner[s.cell.kind] && (
+                        <span class="corner" aria-hidden="true">
+                          {corner[s.cell.kind]}
+                        </span>
+                      )}
+                      {s.cell.kind === 'secret' && <span class="corner gl gl-lock" aria-hidden="true" />}
+                      <span class="sr-only">
+                        {s.key.name}: {cellLabel(s.cell)}
+                      </span>
+                    </div>
+                    <span class="slot-name" aria-hidden="true">
+                      {s.key.name}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+
+              {bag.groups.map((g) => (
+                <div class="group">
+                  <h3 class="group-title">
+                    <span>{g.name}</span>
+                    {g.allOrNone && <span class="micro tag">ALL OR NONE</span>}
+                  </h3>
+                  <ul class="cards">
+                    {g.rows.map((s) => (
+                      <li class={`card card-${s.cell.kind}`}>
+                        <span class={`mini ${sprite[s.cell.kind]}`} aria-hidden="true" />
+                        <span class="card-name">{s.key.name}</span>
+                        <span class="card-state">{cellText(s.cell)}</span>
+                        <span class="card-rule">{s.key.presence}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </section>
+          ))
+        }
+      </section>
+
+      <details class="panel codex">
+        <summary>
+          <span class="micro">ITEM CODEX</span>
+          <span class="codex-title">Declarations, one per key</span>
+        </summary>
+        <ul class="codex-list">
+          {
+            keys.map((k) => (
+              <li>
+                <span class="card-name">{k.name}</span>
+                <span class="micro">{k.classification.toUpperCase()}</span>
+                <code>{k.rule}</code>
+                <span class="card-rule">{k.presence}</span>
+              </li>
+            ))
+          }
+        </ul>
+      </details>
+
+      <section class="panel" aria-labelledby="craft-title">
+        <p class="micro">CRAFTING RECIPE</p>
+        <h2 id="craft-title">Declare before you set.</h2>
+        <p>{claims.pillars[1].body}</p>
+        <pre tabindex="0"><code>{cli.declare}</code></pre>
+      </section>
+
+      <section class="panel" aria-labelledby="quest-title">
+        <p class="micro">QUEST</p>
+        <h2 id="quest-title">Reveal is a quest, not a glance.</h2>
+        <p>{claims.pillars[2].body}</p>
+        <p class="micro">INSPECT</p>
+        <pre class="inspect" tabindex="0"><code>{cliRead.getMasked}</code></pre>
+        <p class="micro">OPEN</p>
+        <pre tabindex="0"><code>{cliRead.reveal}</code></pre>
+        <p>
+          The chest opens onto a file, <code class="inline">{cliRead.outputFile}</code>, not onto the screen. The read is
+          its own audit event.
+        </p>
+      </section>
+
+      <section class="panel" aria-labelledby="doors-title">
+        <p class="micro">THREE DOORS</p>
+        <h2 id="doors-title">Same rules through every door.</h2>
+        <ul class="menu">
+          {claims.surfaces.map((s) => <li>{s}</li>)}
+          <li>
+            Self-hosted: {claims.runtime} <a href={selfHostingUrl}>Self-hosting guide</a>
+          </li>
+        </ul>
+      </section>
+
+      <section class="cta" aria-label="Get started">
+        <a class="btn btn-gold" href={gettingStartedUrl}>GET STARTED</a>
+        <a class="btn" href={repositoryUrl} rel="noopener">SOURCE</a>
+        <a class="doc-link" href={docsUrl}>Read the docs</a>
+      </section>
+
+      <footer class="foot">
+        <p class="micro">{version}</p>
+        <p>{claims.maturity} {claims.noEnterpriseTier}</p>
+        <p class="micro">EXAMPLE DATA · PROTOTYPE 9 · INVENTORY</p>
+      </footer>
+    </main>
+
+    <HikyoSwitcher current={9} />
+  </body>
+</html>
+
+<style>
+  :root {
+    --bg: oklch(0.2 0.03 285);
+    --panel: oklch(0.24 0.035 285);
+    --slot: oklch(0.3 0.04 285);
+    --lo: oklch(0.13 0.03 285);
+    --hi: oklch(0.46 0.05 285);
+    --text: oklch(0.92 0.03 85);
+    --dim: oklch(0.76 0.03 85);
+    --gold: oklch(0.8 0.13 85);
+    --red: oklch(0.6 0.2 25);
+    --red-text: oklch(0.74 0.18 25);
+    --pixel: 'Pixelify Sans Variable', sans-serif;
+    --body: 'VT323', ui-monospace, monospace;
+    --micro: 'Silkscreen', 'VT323', monospace;
+    --step: min(40ms, calc(1000ms / 30));
+  }
+
+  * {
+    box-sizing: border-box;
+    border-radius: 0;
+  }
+  html {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--body);
+    font-size: 20px;
+    line-height: 1.25;
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    margin: 0;
+  }
+  main {
+    padding: 0 12px calc(170px + env(safe-area-inset-bottom));
+    max-width: 72rem;
+    margin: 0 auto;
+    display: grid;
+    gap: 14px;
+  }
+  main > * {
+    min-width: 0;
+  }
+  h1,
+  h2,
+  h3 {
+    font-family: var(--pixel);
+    font-weight: 600;
+    font-variant-ligatures: none;
+    margin: 0;
+    line-height: 1.1;
+  }
+  p {
+    margin: 0;
+  }
+  code {
+    font-family: inherit;
+    font-size: inherit;
+  }
+  a {
+    color: var(--gold);
+  }
+  a:focus-visible,
+  pre:focus-visible,
+  summary:focus-visible {
+    outline: 2px solid var(--gold);
+    outline-offset: 2px;
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .skip {
+    position: absolute;
+    left: -999px;
+    top: 8px;
+    background: var(--gold);
+    color: var(--lo);
+    padding: 8px 12px;
+    font-family: var(--micro);
+    font-size: 11px;
+    text-decoration: none;
+  }
+  .skip:focus {
+    left: 8px;
+    z-index: 2;
+  }
+  .micro {
+    font-family: var(--micro);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+  .tag {
+    color: var(--lo);
+    background: var(--gold);
+    padding: 2px 5px 1px;
+  }
+
+  /* Status bar */
+  .bar {
+    display: grid;
+    gap: 4px;
+    padding: 10px 12px;
+    margin: 0 0 14px;
+    background: var(--panel);
+    box-shadow:
+      inset 0 2px 0 var(--hi),
+      inset 0 -2px 0 var(--lo);
+  }
+  .brand {
+    font-family: var(--pixel);
+    font-weight: 700;
+    font-size: 26px;
+    letter-spacing: 0.06em;
+    color: var(--gold);
+  }
+  .pos {
+    color: var(--dim);
+  }
+  .party {
+    display: none;
+    gap: 14px;
+    flex-wrap: wrap;
+    font-family: var(--micro);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--dim);
+  }
+  .party .bad {
+    color: var(--red-text);
+  }
+
+  /* Hero */
+  h1 {
+    font-size: clamp(30px, 8.5vw, 52px);
+    color: var(--gold);
+  }
+  .hero {
+    display: grid;
+    gap: 10px;
+    padding: 6px 0;
+  }
+  .lede {
+    font-size: 22px;
+  }
+
+  /* Bags */
+  .bags {
+    display: grid;
+    gap: 14px;
+  }
+  .bag {
+    min-width: 0;
+    padding: 10px;
+    background: var(--panel);
+    box-shadow:
+      inset 2px 2px 0 var(--hi),
+      inset -2px -2px 0 var(--lo);
+    animation: flick 1ms steps(1, start) both;
+    animation-delay: calc(var(--p, 0) * 10 * var(--step));
+  }
+  .bag-title {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 24px;
+    text-transform: capitalize;
+    margin-bottom: 10px;
+  }
+  .bag-title .micro {
+    text-transform: uppercase;
+  }
+  .slots {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px 4px;
+  }
+  .cell {
+    min-width: 0;
+  }
+  .slot {
+    position: relative;
+    aspect-ratio: 1;
+    min-height: 44px;
+    background: var(--slot);
+    box-shadow:
+      inset 2px 2px 0 var(--lo),
+      inset -2px -2px 0 var(--hi);
+    animation: flick 1ms steps(1, start) both;
+    animation-delay: calc(var(--i, 0) * var(--step));
+  }
+  .slot-missing {
+    outline: 2px solid var(--red);
+    outline-offset: -2px;
+    animation:
+      flick 1ms steps(1, start) both,
+      blink 200ms steps(1, start) 2 both;
+    animation-delay:
+      calc(var(--i, 0) * var(--step)),
+      calc(var(--i, 0) * var(--step) + 200ms);
+  }
+  .slot-forbidden {
+    background: var(--lo);
+    box-shadow: inset 0 0 0 2px var(--panel);
+  }
+  .slot-name {
+    display: block;
+    margin-top: 3px;
+    font-family: var(--micro);
+    font-size: 11px;
+    color: var(--dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Items */
+  .item {
+    position: absolute;
+    inset: 0;
+    transform-origin: 50% 100%;
+    animation: drop 200ms both;
+    animation-delay: calc(var(--i, 0) * var(--step));
+  }
+  .item.ghost {
+    opacity: 0.45;
+  }
+  .plate {
+    position: absolute;
+    left: 25%;
+    right: 25%;
+    top: 40%;
+    height: 20%;
+    border-top: 2px solid var(--hi);
+    border-bottom: 2px solid var(--hi);
+    background: var(--lo);
+  }
+  .corner {
+    position: absolute;
+    right: 5px;
+    top: 3px;
+    font-family: var(--micro);
+    font-size: 11px;
+    line-height: 1;
+    color: var(--text);
+  }
+  .slot-missing .corner {
+    color: var(--red-text);
+  }
+  .corner.gl {
+    right: 4px;
+    top: 4px;
+    width: 10px;
+    height: 12px;
+    --px: 2;
+  }
+
+  /* Pixel sprites: one 1px ::before, box-shadow stack, scaled */
+  .gl {
+    --px: 3;
+    color: var(--gold);
+  }
+  .gl-chest,
+  .gl-lock {
+    color: var(--text);
+  }
+  .gl-warn {
+    color: var(--red-text);
+  }
+  .gl::before {
+    content: '';
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    left: calc(50% - (var(--w) * var(--px) * 1px) / 2);
+    top: calc(50% - (var(--h) * var(--px) * 1px) / 2);
+    transform: scale(var(--px));
+    transform-origin: 0 0;
+  }
+  .gl-key {
+    --w: 7;
+    --h: 5;
+  }
+  .gl-key::before {
+    box-shadow: 1px 0px, 2px 0px, 3px 0px, 0px 1px, 4px 1px, 0px 2px, 4px 2px, 5px 2px, 6px 2px, 0px 3px, 4px 3px, 6px 3px, 1px 4px, 2px 4px, 3px 4px;
+  }
+  .gl-chest {
+    --w: 7;
+    --h: 6;
+  }
+  .gl-chest::before {
+    box-shadow: 1px 0px, 2px 0px, 3px 0px, 4px 0px, 5px 0px, 0px 1px, 6px 1px, 0px 2px, 1px 2px, 2px 2px, 3px 2px, 4px 2px, 5px 2px, 6px 2px, 0px 3px, 3px 3px, 6px 3px, 0px 4px, 6px 4px, 0px 5px, 1px 5px, 2px 5px, 3px 5px, 4px 5px, 5px 5px, 6px 5px;
+  }
+  .gl-warn {
+    --w: 7;
+    --h: 7;
+  }
+  .gl-warn::before {
+    box-shadow: 3px 0px, 2px 1px, 4px 1px, 2px 2px, 4px 2px, 1px 3px, 3px 3px, 5px 3px, 1px 4px, 5px 4px, 0px 5px, 3px 5px, 6px 5px, 0px 6px, 1px 6px, 2px 6px, 3px 6px, 4px 6px, 5px 6px, 6px 6px;
+  }
+  .gl-lock {
+    --w: 5;
+    --h: 6;
+  }
+  .gl-lock::before {
+    box-shadow: 1px 0px, 2px 0px, 3px 0px, 0px 1px, 4px 1px, 0px 2px, 4px 2px, 0px 3px, 1px 3px, 2px 3px, 3px 3px, 4px 3px, 0px 4px, 1px 4px, 3px 4px, 4px 4px, 0px 5px, 1px 5px, 2px 5px, 3px 5px, 4px 5px;
+  }
+
+  /* Item cards */
+  .group {
+    margin-top: 12px;
+  }
+  .group-title {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 18px;
+    color: var(--dim);
+    padding-bottom: 4px;
+    box-shadow: inset 0 -2px 0 var(--lo);
+  }
+  .cards {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .card {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr);
+    column-gap: 8px;
+    padding: 6px 0;
+    box-shadow: inset 0 -2px 0 var(--lo);
+  }
+  .card > * {
+    min-width: 0;
+  }
+  .mini {
+    position: relative;
+    grid-row: 1 / span 3;
+    --px: 2;
+    align-self: start;
+    height: 22px;
+  }
+  .mini.plate {
+    left: 3px;
+    right: auto;
+    top: 6px;
+    width: 14px;
+    height: 8px;
+  }
+  .card-name {
+    overflow-wrap: anywhere;
+  }
+  .card-state {
+    color: var(--dim);
+    overflow-wrap: anywhere;
+  }
+  .card-set .card-state,
+  .card-draft .card-state {
+    color: var(--gold);
+  }
+  .card-missing .card-state {
+    color: var(--red-text);
+  }
+  .card-rule {
+    font-size: 17px;
+    color: var(--dim);
+  }
+
+  /* Panels below */
+  .panel {
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+    background: var(--panel);
+    box-shadow:
+      inset 2px 2px 0 var(--hi),
+      inset -2px -2px 0 var(--lo);
+  }
+  .panel h2 {
+    font-size: 24px;
+  }
+  .panel > * {
+    min-width: 0;
+  }
+  pre {
+    margin: 0;
+    padding: 10px 12px;
+    font-family: var(--body);
+    font-size: 18px;
+    line-height: 1.3;
+    background: var(--slot);
+    color: var(--text);
+    overflow-x: auto;
+    max-width: 100%;
+    box-shadow:
+      inset 2px 2px 0 var(--lo),
+      inset -2px -2px 0 var(--hi);
+  }
+  pre.inspect {
+    background: var(--lo);
+    color: var(--dim);
+  }
+  code.inline {
+    color: var(--gold);
+  }
+  .codex summary {
+    cursor: pointer;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    list-style: none;
+  }
+  .codex summary::-webkit-details-marker {
+    display: none;
+  }
+  .codex summary::before {
+    content: '>';
+    color: var(--gold);
+    font-family: var(--micro);
+  }
+  .codex[open] summary::before {
+    content: 'v';
+  }
+  .codex-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 8px;
+  }
+  .codex-list li {
+    display: grid;
+    gap: 2px;
+    padding-bottom: 6px;
+    box-shadow: inset 0 -2px 0 var(--lo);
+  }
+  .codex-list code {
+    font-family: var(--body);
+    color: var(--dim);
+    overflow-wrap: anywhere;
+  }
+  .menu {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 4px;
+  }
+  .menu li {
+    padding: 8px 0 8px 22px;
+    position: relative;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0 8px;
+  }
+  .menu li::before {
+    content: '>';
+    position: absolute;
+    left: 0;
+    color: var(--gold);
+    font-family: var(--micro);
+  }
+
+  /* CTAs */
+  .cta {
+    display: grid;
+    gap: 10px;
+    padding: 6px 0;
+  }
+  .btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 52px;
+    padding: 0 16px;
+    font-family: var(--pixel);
+    font-weight: 700;
+    font-size: 22px;
+    letter-spacing: 0.04em;
+    text-decoration: none;
+    color: var(--text);
+    background: var(--slot);
+    box-shadow:
+      inset 2px 2px 0 var(--hi),
+      inset -2px -2px 0 var(--lo);
+  }
+  .btn:active {
+    box-shadow:
+      inset 2px 2px 0 var(--lo),
+      inset -2px -2px 0 var(--hi);
+  }
+  .btn-gold {
+    color: var(--lo);
+    background: var(--gold);
+    box-shadow:
+      inset 2px 2px 0 oklch(0.92 0.1 85),
+      inset -2px -2px 0 oklch(0.55 0.12 85);
+  }
+  .btn-gold:active {
+    box-shadow:
+      inset 2px 2px 0 oklch(0.55 0.12 85),
+      inset -2px -2px 0 oklch(0.92 0.1 85);
+  }
+  .doc-link {
+    justify-self: center;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+
+  .foot {
+    display: grid;
+    gap: 6px;
+    padding: 12px 0;
+    color: var(--dim);
+    box-shadow: inset 0 2px 0 var(--lo);
+  }
+  .foot .micro:first-child {
+    color: var(--gold);
+  }
+
+  /* Motion. jump-start steps: Chrome's currentTime for calc() delays lands a
+     float epsilon short of the end, and a jump-end step would then hold frame 0. */
+  @keyframes flick {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes drop {
+    0% {
+      transform: translateY(-14px);
+      opacity: 0;
+      animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+    70% {
+      transform: translateY(0) scaleY(1);
+      opacity: 1;
+      animation-timing-function: steps(1, start);
+    }
+    99% {
+      transform: scaleY(0.9);
+    }
+    100% {
+      transform: scaleY(1);
+    }
+  }
+  @keyframes blink {
+    0%,
+    100% {
+      outline-color: var(--red);
+    }
+    50% {
+      outline-color: transparent;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation: none !important;
+    }
+  }
+
+  /* Desktop */
+  @media (min-width: 64rem) {
+    main {
+      padding-left: 24px;
+      padding-right: 24px;
+    }
+    .bar {
+      padding: 12px 24px;
+    }
+    .party {
+      display: flex;
+    }
+    .bags {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .cta {
+      grid-template-columns: auto auto auto;
+      justify-content: start;
+      align-items: center;
+      gap: 14px;
+    }
+    .btn {
+      min-width: 220px;
+    }
+  }
+</style>

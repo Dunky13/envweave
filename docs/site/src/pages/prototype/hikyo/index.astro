@@ -1,0 +1,121 @@
+---
+import HikyoHead from '../../../components/prototype/HikyoHead.astro';
+import { prototypes } from '../../../lib/prototype/hikyo';
+import '@fontsource/instrument-sans/400.css';
+import '@fontsource/instrument-sans/700.css';
+import '@fontsource/ibm-plex-mono/400.css';
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <HikyoHead
+      title="Hikyo homepage prototypes"
+      description="Eleven homepage design prototypes for Hikyo."
+      themeColor="#1b2225"
+    />
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Prototype · not the live homepage</p>
+      <h1>Eleven homepages for Hikyo</h1>
+      <p class="lede">
+        Same product, same example matrix, same verified claims. Eleven different ways to say it. Each page has a
+        switcher in the bottom-right corner.
+      </p>
+      <ol>
+        {
+          prototypes.map((p) => (
+            <li>
+              <a href={`/prototype/hikyo/${p.n}/`}>
+                <span class="n">{String(p.n).padStart(2, '0')}</span>
+                <span class="name">{p.name}</span>
+                <span class="concept">{p.concept}</span>
+              </a>
+            </li>
+          ))
+        }
+      </ol>
+    </main>
+  </body>
+</html>
+
+<style>
+  :root {
+    color-scheme: dark;
+  }
+  body {
+    margin: 0;
+    min-height: 100dvh;
+    background: oklch(0.19 0.012 220);
+    color: oklch(0.93 0.008 200);
+    font-family: 'Instrument Sans', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main {
+    max-width: 44rem;
+    margin-inline: auto;
+    padding: clamp(3rem, 10vh, 7rem) clamp(1.25rem, 5vw, 2.5rem) 6rem;
+  }
+  .eyebrow {
+    margin: 0 0 1rem;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: oklch(0.71 0.012 215);
+  }
+  h1 {
+    margin: 0;
+    font-size: clamp(2rem, 6vw, 3.25rem);
+    line-height: 1.02;
+    letter-spacing: -0.03em;
+    font-weight: 700;
+  }
+  .lede {
+    max-width: 36rem;
+    margin: 1.25rem 0 3rem;
+    color: oklch(0.76 0.01 210);
+    line-height: 1.55;
+  }
+  ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-top: 1px solid oklch(0.3488 0.01488 220);
+  }
+  li a {
+    display: grid;
+    grid-template-columns: 3rem 1fr;
+    grid-template-areas: 'n name' 'n concept';
+    column-gap: 1rem;
+    padding: 1.25rem 0.25rem;
+    border-bottom: 1px solid oklch(0.3488 0.01488 220);
+    color: inherit;
+    text-decoration: none;
+    min-height: 2.75rem;
+  }
+  li a:hover .name {
+    color: oklch(0.82 0.09 195);
+  }
+  .n {
+    grid-area: n;
+    font-family: 'IBM Plex Mono', monospace;
+    color: oklch(0.71 0.012 215);
+    padding-top: 0.2rem;
+  }
+  .name {
+    grid-area: name;
+    font-size: 1.375rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .concept {
+    grid-area: concept;
+    color: oklch(0.76 0.01 210);
+  }
+  a:focus-visible {
+    outline: 2px solid oklch(0.82 0.09 195);
+    outline-offset: 3px;
+  }
+</style>

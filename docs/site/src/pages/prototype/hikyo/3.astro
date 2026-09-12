@@ -1,0 +1,1578 @@
+---
+// Prototype 3: Departure board. The environment matrix rendered as a
+// split-flap board. Dark, warm industrial. All facts come from
+// src/lib/prototype/hikyo.ts and the shipped docs; nothing is invented.
+import '@fontsource-variable/martian-mono/wdth.css';
+import '@fontsource-variable/hanken-grotesk/wght.css';
+import HikyoHead from '../../../components/prototype/HikyoHead.astro';
+import HikyoSwitcher from '../../../components/prototype/HikyoSwitcher.astro';
+import {
+  cellLabel,
+  cellText,
+  claims,
+  cli,
+  cliRead,
+  cliReferenceUrl,
+  coreConceptsUrl,
+  docsUrl,
+  environments,
+  keyCount,
+  masked,
+  matrix,
+  project,
+  repositoryUrl,
+  selfHostingUrl,
+  type CellState,
+  type KeyRow,
+} from '../../../lib/prototype/hikyo';
+
+// Flatten the board into rows with a running cell index for the flap stagger.
+// Group divider rows also get an index so they flip in sequence with the cells.
+interface BoardCell {
+  env: (typeof environments)[number];
+  cell: CellState;
+  i: number;
+}
+interface BoardKeyRow {
+  row: KeyRow;
+  i: number;
+  cells: BoardCell[];
+}
+interface BoardGroup {
+  name: string;
+  allOrNone: boolean;
+  i: number;
+  rows: BoardKeyRow[];
+}
+
+let counter = 0;
+const boardGroups: BoardGroup[] = matrix.map((group) => {
+  const i = counter++;
+  const rows: BoardKeyRow[] = group.keys.map((row) => {
+    const keyIndex = counter++;
+    const cells: BoardCell[] = environments.map((env) => ({ env, cell: row.cells[env], i: counter++ }));
+    return { row, i: keyIndex, cells };
+  });
+  return { name: group.name, allOrNone: group.allOrNone === true, i, rows };
+});
+
+const boardTitle = `${project.organisation} / ${project.name} · ${project.revision} · ${keyCount} keys · ${environments.length} environments`;
+
+const webhook = matrix.flatMap((g) => g.keys).find((k) => k.name === 'STRIPE_WEBHOOK_SECRET');
+if (!webhook) throw new Error('prototype data: STRIPE_WEBHOOK_SECRET missing from matrix');
+
+const ceremony = [
+  { n: '01', name: 'Request', body: 'Ordinary reads return presence and metadata. Reveal is a separate, explicit action on one key in one environment.' },
+  { n: '02', name: 'Reauthenticate', body: 'Reveal and copy require reauthentication. Protected environments always take a fresh ceremony; a passkey satisfies it.' },
+  { n: '03', name: 'Reveal', body: 'Display-once values go to a new mode-0600 file, an interactive terminal, or an explicit dangerous print. Never into shell history by default.' },
+  { n: '04', name: 'Remask and record', body: 'The value remasks automatically after a short window. The reveal writes its own audit event: actor, object, outcome, decision context. Never the secret.' },
+];
+
+const specs = [
+  { term: 'Runtime', detail: claims.runtime },
+  { term: 'Storage', detail: 'SQLite or PostgreSQL. Your database.' },
+  { term: 'Encryption', detail: 'Envelope encryption with operator-held root key material, read from a mode-0600 file.' },
+  { term: 'Identity', detail: claims.identity.join(', ') },
+  { term: 'Delivery', detail: claims.delivery.join(', ') },
+  { term: 'Imports', detail: claims.imports.join(', ') },
+  { term: 'Lifecycle', detail: claims.lifecycle.join(', ') },
+  { term: 'Licence', detail: `${claims.license}. ${claims.noEnterpriseTier}` },
+];
+
+const surfaces = [
+  { name: 'Web UI', body: 'Embedded in the binary. The matrix, drafts, reveal ceremonies, and settings in one place, on a phone or a desk.' },
+  { name: 'CLI', body: 'Values travel as files: --value-file in, --output-file out. Declare, set, diff, and run workloads with hikyo run.' },
+  { name: 'HTTP API', body: 'The same authorization chokepoint as every other caller. Unauthorized resources look identical to resources that do not exist.' },
+];
+
+function cellClass(cell: CellState): string {
+  return `cell cell-${cell.kind}`;
+}
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <HikyoHead
+      title="Hikyo · No hidden departures"
+      description={claims.positioning}
+      themeColor="#221f1b"
+    />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+      <symbol id="lock-glyph" viewBox="0 0 12 12"><rect x="2" y="5.5" width="8" height="6" rx="1" fill="currentColor" /><path d="M4 5.5V4a2 2 0 0 1 4 0v1.5" fill="none" stroke="currentColor" stroke-width="1.4" /></symbol>
+    </svg>
+
+    <header class="top">
+      <a class="brand" href="/" aria-label="Hikyo home">
+        <img src="/favicon.svg" alt="" width="22" height="22" />
+        <span>hikyo</span>
+      </a>
+      <nav class="top-nav" aria-label="Primary">
+        <a href={docsUrl}>Docs</a>
+        <a href={repositoryUrl} rel="noopener">GitHub</a>
+      </nav>
+      <p class="marker">Prototype 3 · Departure board</p>
+    </header>
+
+    <main id="main">
+      <!-- The board -->
+      <section class="board-wrap" aria-labelledby="board-title">
+        <div class="board-head">
+          <p id="board-title" class="board-title">{boardTitle}</p>
+          <p class="board-meta">
+            <span>protected: {project.protectedEnvironments.join(', ')}</span>
+            <span>example data</span>
+          </p>
+        </div>
+
+        <div class="board-scroll" tabindex="0" role="region" aria-label="Environment matrix, scrolls horizontally on narrow screens">
+          <table class="board">
+            <caption class="sr-only">
+              Example configuration matrix for {project.name}: {keyCount} keys across {environments.length} environments. Secret values are masked.
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col" class="col-key">Key</th>
+                {environments.map((env) => <th scope="col" class="col-env">{env}</th>)}
+              </tr>
+            </thead>
+            {
+              boardGroups.map((g) => (
+                <tbody>
+                  <tr class="group-row">
+                    <th scope="rowgroup" colspan={environments.length + 1}>
+                      <span class="flap flap-group" style={`--i:${g.i}`}>
+                        <span class="group-name">{g.name}</span>
+                        <span class="group-count">{g.rows.length} {g.rows.length === 1 ? 'key' : 'keys'}</span>
+                        {g.allOrNone && <span class="group-rule">all or none</span>}
+                      </span>
+                    </th>
+                  </tr>
+                  {g.rows.map((r) => (
+                    <tr>
+                      <th scope="row" class="col-key">
+                        <span class="flap flap-key" style={`--i:${r.i}`}>
+                          {r.row.classification === 'secret' && (
+                            <svg class="lock" aria-hidden="true" width="12" height="12"><use href="#lock-glyph" /></svg>
+                          )}
+                          <span class="key-name">{r.row.name}</span>
+                          <span class="sr-only">, {r.row.classification}</span>
+                        </span>
+                      </th>
+                      {r.cells.map((c) => (
+                        <td>
+                          <span class={`flap ${cellClass(c.cell)}`} style={`--i:${c.i}`}>
+                            {c.cell.kind === 'secret' && <svg class="lock" aria-hidden="true" width="12" height="12"><use href="#lock-glyph" /></svg>}
+                            <span aria-hidden="true">{cellText(c.cell)}</span>
+                            <span class="sr-only">{cellLabel(c.cell)}</span>
+                          </span>
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              ))
+            }
+          </table>
+        </div>
+
+        <ul class="legend" aria-label="Value state legend">
+          <li><span class="cell cell-set">value</span> set here</li>
+          <li><span class="cell cell-secret"><svg class="lock" aria-hidden="true" width="12" height="12"><use href="#lock-glyph" /></svg>{masked}</span> secret, masked</li>
+          <li><span class="cell cell-absent">· absent</span> explicit absence</li>
+          <li><span class="cell cell-missing">! required · absent</span> violation</li>
+          <li><span class="cell cell-forbidden">· absent (forbidden)</span> correct absence</li>
+          <li><span class="cell cell-draft">Δ value</span> draft, unpublished</li>
+        </ul>
+      </section>
+
+      <!-- Hero strip -->
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="grid">
+          <div class="hero-copy">
+            <p class="eyebrow">{claims.tagline}</p>
+            <h1 id="hero-title">No hidden departures.</h1>
+          </div>
+          <div class="hero-side">
+            <p class="lede">
+              {claims.positioning} Each cell on the board is a recorded fact: set, absent, or a violation. Nothing on it is
+              inherited, defaulted, or guessed. Each environment speaks only for itself.
+            </p>
+            <div class="actions">
+              <a class="btn btn-primary" href={repositoryUrl} rel="noopener">View on GitHub</a>
+              <a class="btn btn-secondary" href={docsUrl}>Read the docs</a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- What the board never shows -->
+      <section class="section section-absent" aria-labelledby="absent-title">
+        <div class="grid">
+          <div class="span-5">
+            <p class="kicker">01 · Explicit state</p>
+            <h2 id="absent-title">What the board never shows.</h2>
+          </div>
+          <div class="span-6 offset-1 prose">
+            <p>
+              A departure board has no "probably". Neither does this one. An empty cell is never a fallback to another
+              environment, a default, or an unknown. It is recorded as <span class="cell cell-absent">· absent</span>, on
+              purpose, by someone.
+            </p>
+            <blockquote>
+              <p>An environment is one complete value state for a project. It is not a layer. No environment inherits from another.</p>
+              <footer><a href="/docs/hierarchy/">Hierarchy, from the docs</a></footer>
+            </blockquote>
+            <p>
+              Cloning an environment copies its current values once. Later changes remain independent. Reordering changes
+              display order, not precedence, because there is no precedence.
+            </p>
+          </div>
+        </div>
+
+        <dl class="notices grid">
+          <div class="notice span-4">
+            <dt>Empty never means inherited</dt>
+            <dd>{claims.pillars[0].body}</dd>
+          </div>
+          <div class="notice span-4">
+            <dt>Unknown is a word</dt>
+            <dd>A read that failed or has not happened renders the word "unknown", never a dash. A column you may not read renders "· unreadable".</dd>
+          </div>
+          <div class="notice span-4">
+            <dt>Absence can be a rule</dt>
+            <dd>
+              <span class="mono">PAYMENTS_MOCK_PROVIDER</span> is forbidden in production. The board shows
+              <span class="cell cell-forbidden">· absent (forbidden)</span>: correct, and enforced at write time.
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      <!-- Declared before set -->
+      <section class="section section-declare" aria-labelledby="declare-title">
+        <div class="grid">
+          <div class="span-5">
+            <p class="kicker">02 · Declarations</p>
+            <h2 id="declare-title">Declared before set.</h2>
+            <div class="prose">
+              <p>{claims.pillars[1].body}</p>
+              <p>
+                On the board, <span class="mono">{webhook.name}</span> is <span class="cell cell-missing">! required · absent</span>
+                in production. That row stays lit until someone sets a value that matches its rule. Required values cannot be
+                cleared where their presence rule applies, so the violation cannot be hidden by clearing it.
+              </p>
+            </div>
+          </div>
+
+          <div class="span-6 offset-1">
+            <article class="notice-card" aria-labelledby="notice-key">
+              <header class="notice-head">
+                <span class="notice-tag">Notice</span>
+                <span id="notice-key" class="notice-key"><svg class="lock" aria-hidden="true" width="12" height="12"><use href="#lock-glyph" /></svg>{webhook.name}</span>
+              </header>
+              <dl class="notice-body">
+                <div><dt>Classification</dt><dd>{webhook.classification}</dd></div>
+                <div><dt>Presence</dt><dd>{webhook.presence}</dd></div>
+                <div class="wide"><dt>Rule</dt><dd><code>{webhook.rule}</code></dd></div>
+                <div class="wide">
+                  <dt>Declare</dt>
+                  <dd><pre><code>{cli.declare}</code></pre></dd>
+                </div>
+              </dl>
+              <footer class="notice-foot">
+                <p class="refusal">
+                  <span class="refusal-code">exit 4 · Refused</span>
+                  Required values cannot be cleared where their presence rule applies.
+                </p>
+              </footer>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- Reveal is a ceremony -->
+      <section class="section section-reveal" aria-labelledby="reveal-title">
+        <div class="grid">
+          <div class="span-5">
+            <p class="kicker">03 · Disclosure</p>
+            <h2 id="reveal-title">Reveal is a ceremony.</h2>
+          </div>
+          <p class="span-6 offset-1 lede-small">{claims.pillars[2].body}</p>
+        </div>
+
+        <ol class="procedure" aria-label="Reveal procedure">
+          {
+            ceremony.map((step) => (
+              <li class="stop">
+                <span class="stop-n">{step.n}</span>
+                <span class="stop-name">{step.name}</span>
+                <span class="stop-body">{step.body}</span>
+              </li>
+            ))
+          }
+        </ol>
+
+        <div class="grid">
+          <details class="reveal span-7">
+            <summary>
+              <span class="summary-glyph" aria-hidden="true">▸</span>
+              <span>Reveal STRIPE_SECRET_KEY · production</span>
+            </summary>
+            <div class="reveal-body">
+              <ol class="reveal-steps">
+                <li>
+                  <span class="reveal-state">requested</span>
+                  <code>{cliRead.reveal}</code>
+                </li>
+                <li>
+                  <span class="reveal-state">reauthentication</span>
+                  production is protected: window is always 0, a passkey proof is required for this reveal.
+                </li>
+                <li>
+                  <span class="reveal-state">destination</span>
+                  new file <code>{cliRead.outputFile}</code>, mode 0600. Not the terminal, not the clipboard, not shell history.
+                </li>
+                <li>
+                  <span class="reveal-state">audit event</span>
+                  actor, object, outcome, decision context. Never secret material.
+                </li>
+                <li>
+                  <span class="reveal-state">remasked</span>
+                  <span class="cell cell-secret"><svg class="lock" aria-hidden="true" width="12" height="12"><use href="#lock-glyph" /></svg>{masked}</span>
+                </li>
+              </ol>
+              <p class="reveal-note">Revealed content is never shown in this prototype.</p>
+            </div>
+          </details>
+          <div class="span-4 offset-1 prose small">
+            <p>Ordinary reads stay masked. Without <span class="mono">--reveal</span> the CLI prints presence and metadata only:</p>
+            <pre><code>{cliRead.getMasked}</code></pre>
+            <p>Replacing a secret never reveals the old one. Editing without reveal is a first-class path.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Runs where you do -->
+      <section class="section section-host" aria-labelledby="host-title">
+        <div class="grid">
+          <div class="span-5">
+            <p class="kicker">04 · Self-hosting</p>
+            <h2 id="host-title">Runs where you do.</h2>
+            <div class="prose">
+              <p>{claims.pillars[4].body}</p>
+              <p>{claims.noEnterpriseTier}</p>
+            </div>
+            <pre class="server"><code>{cli.server}</code></pre>
+            <p class="small-note">Local development: <code>{cli.dev}</code></p>
+          </div>
+
+          <dl class="specs span-6 offset-1">
+            {
+              specs.map((s) => (
+                <div class="spec">
+                  <dt>{s.term}</dt>
+                  <dd>{s.detail}</dd>
+                </div>
+              ))
+            }
+          </dl>
+        </div>
+      </section>
+
+      <!-- Three surfaces -->
+      <section class="section section-surfaces" aria-labelledby="surfaces-title">
+        <div class="grid">
+          <div class="span-5">
+            <p class="kicker">05 · Surfaces</p>
+            <h2 id="surfaces-title">Three surfaces, one decision.</h2>
+          </div>
+          <p class="span-6 offset-1 lede-small">{claims.pillars[3].body}</p>
+        </div>
+        <ul class="surfaces">
+          {
+            surfaces.map((s, index) => (
+              <li class="surface">
+                <span class="surface-n">{String(index + 1).padStart(2, '0')}</span>
+                <span class="surface-name">{s.name}</span>
+                <span class="surface-body">{s.body}</span>
+              </li>
+            ))
+          }
+        </ul>
+        <div class="grid extras">
+          <p class="span-6"><span class="extras-term">Scanning</span> {claims.scanning}</p>
+          <p class="span-6"><span class="extras-term">Audit</span> {claims.audit}</p>
+        </div>
+      </section>
+
+      <!-- Closing -->
+      <section class="closing" aria-labelledby="closing-title">
+        <div class="closing-board">
+          <p class="board-title">now boarding · {project.organisation} / {project.name}</p>
+        </div>
+        <div class="grid">
+          <div class="span-7">
+            <h2 id="closing-title">Put your matrix on the board.</h2>
+            <p class="lede">
+              One binary, your database, your root key. Read the concepts first, then run it on a box you already own.
+            </p>
+          </div>
+          <div class="span-4 offset-1 closing-actions">
+            <a class="btn btn-primary" href={repositoryUrl} rel="noopener">View on GitHub</a>
+            <a class="btn btn-secondary" href={selfHostingUrl}>Self-hosting guide</a>
+            <a class="text-link" href={coreConceptsUrl}>Core concepts</a>
+            <a class="text-link" href={cliReferenceUrl}>CLI reference</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <p>
+        <span>hikyo</span>
+        <span>{claims.license}</span>
+        <span>0.x, pre-1.0</span>
+        <span>{claims.maturity}</span>
+        <span>Prototype 3 · Departure board</span>
+      </p>
+      <p class="foot-links">
+        <a href={docsUrl}>Docs</a>
+        <a href={repositoryUrl} rel="noopener">GitHub</a>
+        <a href="/prototype/hikyo/">All prototypes</a>
+      </p>
+    </footer>
+
+    <HikyoSwitcher current={3} />
+  </body>
+</html>
+
+<style>
+  /* ---------- tokens ---------- */
+  :root {
+    color-scheme: dark;
+    --bg: oklch(0.2 0.01 60);
+    --bg-raise: oklch(0.25 0.012 60);
+    --bg-sunk: oklch(0.17 0.01 60);
+    --line: oklch(0.42 0.012 60);
+    --line-soft: oklch(0.32 0.012 60);
+    --lit: oklch(0.9 0.04 85);
+    --tx: oklch(0.92 0.012 80);
+    --tx-dim: oklch(0.78 0.014 75);
+    --tx-faint: oklch(0.75 0.014 70);
+    --accent: oklch(0.82 0.09 195);
+    --on-accent: oklch(0.2 0.02 220);
+    --warn: oklch(0.75 0.14 45);
+    --draft: oklch(0.78 0.06 250);
+    --mono: 'Martian Mono Variable', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+    --sans: 'Hanken Grotesk Variable', system-ui, sans-serif;
+    --ease: cubic-bezier(0.25, 1, 0.5, 1);
+    --r-container: 6px;
+    --r-control: 4px;
+    --r-badge: 3px;
+    --pad-x: clamp(1rem, 4vw, 3rem);
+  }
+
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    background: var(--bg);
+  }
+
+  body {
+    margin: 0;
+    min-height: 100dvh;
+    background: var(--bg);
+    color: var(--tx);
+    font-family: var(--sans);
+    font-size: 1rem;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1,
+  h2,
+  h3 {
+    margin: 0;
+    font-weight: 650;
+    letter-spacing: -0.025em;
+    line-height: 1.05;
+    text-wrap: balance;
+  }
+
+  p {
+    margin: 0;
+  }
+
+  a {
+    color: var(--accent);
+    text-underline-offset: 0.18em;
+  }
+
+  a:focus-visible,
+  summary:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+
+  code,
+  pre {
+    font-family: var(--mono);
+    font-variation-settings: 'wdth' 88;
+    font-variant-ligatures: none;
+    font-variant-numeric: tabular-nums;
+  }
+
+  pre {
+    margin: 0;
+    padding: 0.875rem 1rem;
+    overflow-x: auto;
+    font-size: 0.8125rem;
+    line-height: 1.55;
+    background: var(--bg-sunk);
+    border: 1px solid var(--line-soft);
+    border-radius: var(--r-container);
+    color: var(--lit);
+  }
+
+  .mono {
+    font-family: var(--mono);
+    font-variation-settings: 'wdth' 88;
+    font-size: 0.9em;
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .skip {
+    position: absolute;
+    inset-inline-start: 0.75rem;
+    inset-block-start: -3rem;
+    padding: 0.75rem 1rem;
+    background: var(--accent);
+    color: var(--on-accent);
+    border-radius: var(--r-control);
+    font-weight: 600;
+    z-index: 20;
+  }
+  .skip:focus-visible {
+    inset-block-start: 0.75rem;
+  }
+
+  /* ---------- grid ---------- */
+  .grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    column-gap: 1.5rem;
+    row-gap: 2rem;
+  }
+  .grid > * {
+    min-width: 0;
+  }
+
+  @media (min-width: 48rem) {
+    .grid {
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      row-gap: 3rem;
+    }
+    .span-4 { grid-column: span 4; }
+    .span-5 { grid-column: span 5; }
+    .span-6 { grid-column: span 6; }
+    .span-7 { grid-column: span 7; }
+    .offset-1 { grid-column-start: 7; }
+    .span-4.offset-1 { grid-column: 9 / span 4; }
+    .span-6.offset-1 { grid-column: 7 / span 6; }
+  }
+
+  /* ---------- header ---------- */
+  .top {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.5rem var(--pad-x);
+    min-height: 3.5rem;
+    border-bottom: 1px solid var(--line-soft);
+    font-family: var(--mono);
+    font-variation-settings: 'wdth' 85;
+    font-size: 0.8125rem;
+  }
+
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+    color: var(--lit);
+    text-decoration: none;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .brand img {
+    display: block;
+    width: 22px;
+    height: 22px;
+  }
+
+  .top-nav {
+    display: flex;
+    gap: 0.25rem;
+    margin-inline-start: auto;
+  }
+  .top-nav a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    padding: 0 0.75rem;
+    color: var(--tx);
+    text-decoration: none;
+    border-radius: var(--r-control);
+    transition: background 150ms var(--ease);
+  }
+  .top-nav a:hover {
+    background: var(--bg-raise);
+    color: var(--accent);
+  }
+
+  .marker {
+    display: none;
+    color: var(--tx-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.6875rem;
+  }
+  @media (min-width: 48rem) {
+    .marker {
+      display: block;
+      order: 1;
+      padding-inline-start: 1rem;
+      border-inline-start: 1px solid var(--line-soft);
+    }
+  }
+
+  /* ---------- board ---------- */
+  .board-wrap {
+    background: var(--bg-sunk);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .board-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem 2rem;
+    padding: 1.25rem var(--pad-x) 0.875rem;
+    font-family: var(--mono);
+    font-variation-settings: 'wdth' 80;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .board-title {
+    margin: 0;
+    font-family: var(--mono);
+    font-variation-settings: 'wdth' 80;
+    font-weight: 600;
+    font-size: clamp(0.8125rem, 0.6rem + 0.9vw, 1.0625rem);
+    letter-spacing: 0.1em;
+    line-height: 1.3;
+    color: var(--lit);
+  }
+
+  .board-meta {
+    display: flex;
+    gap: 1.5rem;
+    font-size: 0.6875rem;
+    color: var(--tx-faint);
+  }
+
+  .board-scroll {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    padding: 0 var(--pad-x) 1rem;
+    scrollbar-color: var(--line) transparent;
+  }
+
+  .board {
+    border-collapse: separate;
+    border-spacing: 0 4px;
+    width: 100%;
+    min-width: 44rem;
+    font-family: var(--mono);
+    font-variation-settings: 'wdth' 85;
+    font-size: 0.8125rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .board th,
+  .board td {
+    padding: 0;
+    text-align: left;
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+
+  .board thead th {
+    padding: 0.5rem 0.75rem 0.625rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 0.6875rem;
+    color: var(--tx-faint);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .col-key {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: var(--bg-sunk);
+    min-width: 15rem;
+    width: 26%;
+  }
+  .board thead .col-key {
+    z-index: 3;
+  }
+  .board tbody .col-key {
+    padding-inline-end: 0.5rem;
+    border-right: 1px solid var(--line-soft);
+  }
+
+  .col-env {
+    width: 24.66%;
+  }
+
+  .board td {
+    padding-inline: 0.25rem;
+  }
+
+  .group-row th {
+    padding-block: 0.875rem 0.25rem;
+    background: var(--bg-sunk);
+  }
+
+  /* One flap cell: rounded 3px rectangle, hairline seam through the middle. */
+  .flap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-height: 2.25rem;
+    padding: 0 0.625rem;
+    width: 100%;
+    background: var(--bg-raise);
+    border: 1px solid var(--line-soft);
+    border-radius: var(--r-badge);
+    color: var(--lit);
+    transform-origin: 50% 50%;
+    animation: flip 220ms var(--ease) both;
+    animation-delay: calc(var(--i, 0) * 18ms);
+  }
+  .flap::after {
+    content: '';
+    position: absolute;
+    inset-inline: 0;
+    top: 50%;
+    height: 1px;
+    background: var(--bg-sunk);
+    pointer-events: none;
+  }
+  .flap > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  @keyframes flip {
+    from {
+      opacity: 0;
+      transform: perspective(600px) rotateX(-90deg);
+    }
+    to {
+      opacity: 1;
+      transform: perspective(600px) rotateX(0deg);
+    }
+  }
+
+  .flap-key {
+    font-weight: 600;
+    color: var(--lit);
+  }
+  .key-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .flap-group {
+    position: sticky;
+    left: 0;
+    min-height: 2rem;
+    width: auto;
+    gap: 0.875rem;
+    padding-inline: 0.625rem 0.875rem;
+    background: transparent;
+    border-color: transparent;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 0.6875rem;
+    color: var(--tx-faint);
+  }
+  .flap-group::after {
+    display: none;
+  }
+  .group-name {
+    color: var(--tx);
+    font-weight: 600;
+  }
+  .group-rule {
+    padding: 0.125rem 0.375rem;
+    border: 1px solid var(--line);
+    border-radius: var(--r-badge);
+    color: var(--lit);
+    letter-spacing: 0.1em;
+  }
+
+  .lock {
+    flex: none;
+    width: 12px;
+    height: 12px;
+    color: var(--tx-dim);
+  }
+
+  /* State vocabulary. Every state carries a glyph or word; colour is secondary. */
+  .cell-set,
+  .cell-secret {
+    color: var(--lit);
+  }
+  .cell-secret {
+    letter-spacing: 0.05em;
+  }
+  .cell-absent,
+  .cell-forbidden {
+    color: var(--tx-faint);
+    font-variation-settings: 'wdth' 82;
+  }
+  .cell-missing {
+    color: var(--warn);
+    border-color: color-mix(in oklch, var(--warn) 45%, var(--line-soft));
+    font-weight: 600;
+  }
+  .cell-draft {
+    color: var(--draft);
+    border-color: color-mix(in oklch, var(--draft) 35%, var(--line-soft));
+  }
+
+  /* Inline state chips used in prose and the legend reuse the cell classes. */
+  .legend .cell,
+  .prose .cell,
+  .notices .cell,
+  .reveal-steps .cell {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.05rem 0.4rem;
+    border: 1px solid var(--line-soft);
+    border-radius: var(--r-badge);
+    background: var(--bg-raise);
+    font-family: var(--mono);
+    font-variation-settings: 'wdth' 85;
+    font-size: 0.8125rem;
+    white-space: nowrap;
+    vertical-align: 0.05em;
+  }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.5rem;
+    margin: 0;
+    padding: 0.875rem var(--pad-x) 1.25rem;
+    list-style: none;
+    border-top: 1px solid var(--line-soft);
+    font-size: 0.8125rem;
+    color: var(--tx-dim);
+  }
+  .legend li {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  /* ---------- hero strip ---------- */
+  .hero {
+    padding: clamp(2.5rem, 7vw, 5.5rem) var(--pad-x) clamp(2.5rem, 7vw, 5rem);
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .hero .grid {
+    align-items: end;
+  }
+  @media (min-width: 48rem) {
+    .hero-copy {
+      grid-column: 1 / span 7;
+    }
+    .hero-side {
+      grid-column: 8 / span 5;
+    }
+  }
+
+  .eyebrow,
+  .kicker {
+    margin-bottom: 1rem;
+    font-family: var(--mono);
+    font-variation-settings: 'wdth' 82;
+    font-size: 0.75rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--tx-faint);
+  }
+
+  h1 {
+    font-size: clamp(2.375rem, 1.4rem + 5.2vw, 5.25rem);
+    font-weight: 700;
+    letter-spacing: -0.035em;
+    line-height: 0.98;
+    max-width: 12ch;
+  }
+
+  .lede {
+    font-size: 1.125rem;
+    line-height: 1.55;
+    color: var(--tx-dim);
+    max-width: 44ch;
+  }
+  .lede-small {
+    align-self: end;
+    font-size: 1.0625rem;
+    line-height: 1.55;
+    color: var(--tx-dim);
+    max-width: 52ch;
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.75rem;
+    padding: 0 1.125rem;
+    border-radius: var(--r-control);
+    border: 1px solid transparent;
+    font-weight: 600;
+    font-size: 0.9375rem;
+    text-decoration: none;
+    transition: background 150ms var(--ease), border-color 150ms var(--ease), color 150ms var(--ease);
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+  .btn-primary:hover {
+    background: oklch(0.86 0.09 195);
+  }
+  .btn-secondary {
+    border-color: var(--line);
+    color: var(--tx);
+  }
+  .btn-secondary:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .text-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    padding-inline: 0.25rem;
+    font-weight: 500;
+  }
+
+  /* ---------- sections ---------- */
+  .section {
+    padding-inline: var(--pad-x);
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .section h2 {
+    font-size: clamp(1.75rem, 1.1rem + 2.6vw, 3rem);
+    max-width: 16ch;
+  }
+
+  .section-absent {
+    padding-block: clamp(3.5rem, 8vw, 6.5rem) clamp(3rem, 7vw, 5.5rem);
+  }
+  .section-declare {
+    padding-block: clamp(3.5rem, 8vw, 6.5rem);
+    background: var(--bg-raise);
+  }
+  .section-reveal {
+    padding-block: clamp(3.5rem, 8vw, 6.5rem) clamp(3rem, 7vw, 5rem);
+  }
+  .section-host {
+    padding-block: clamp(3.5rem, 8vw, 6.5rem);
+    background: var(--bg-raise);
+  }
+  .section-surfaces {
+    padding-block: clamp(3rem, 7vw, 5rem) clamp(3.5rem, 8vw, 6rem);
+  }
+
+  .prose {
+    color: var(--tx-dim);
+    max-width: 58ch;
+  }
+  .prose p + p {
+    margin-top: 1rem;
+  }
+  .prose.small {
+    font-size: 0.9375rem;
+  }
+  .prose pre {
+    margin-block: 1rem;
+  }
+  .prose blockquote {
+    margin: 1.75rem 0;
+    padding: 1rem 1.25rem;
+    border: 1px solid var(--line);
+    background: var(--bg-raise);
+    border-radius: var(--r-container);
+    color: var(--tx);
+    font-size: 1.125rem;
+    line-height: 1.45;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+  .prose blockquote footer a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+  }
+  .prose blockquote footer {
+    margin-top: 0.25rem;
+    font-family: var(--mono);
+    font-variation-settings: 'wdth' 85;
+    font-size: 0.75rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-weight: 400;
+  }
+
+  /* Board notices: three ruled columns, no card chrome. */
+  .notices {
+    margin: clamp(2.5rem, 6vw, 4.5rem) 0 0;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--line);
+    row-gap: 1.75rem;
+  }
+  .notice {
+    padding-inline-end: 1rem;
+  }
+  .notice dt {
+    margin-bottom: 0.5rem;
+    font-family: var(--mono);
+    font-variation-settings: 'wdth' 82;
+    font-size: 0.75rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--lit);
+  }
+  .notice dd {
+    margin: 0;
+    color: var(--tx-dim);
+    font-size: 0.9375rem;
+    line-height: 1.55;
+  }
+  @media (min-width: 48rem) {
+    .notice + .notice {
+      border-inline-start: 1px solid var(--line-soft);
+      padding-inline-start: 1.25rem;
+    }
+  }
+
+  /* ---------- declaration notice card ---------- */
+  .notice-card {
+    border: 1px solid var(--line);
+    border-radius: var(--r-container);
+    background: var(--bg-sunk);
+    overflow: hidden;
+  }
+  .notice-head {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--line-soft);
+    font-family: var(--mono);
+    font-variation-settings: 'wdth' 85;
+    font-size: 0.8125rem;
+  }
+  .notice-tag {
+    padding: 0.1rem 0.4rem;
+    border: 1px solid var(--warn);
+    border-radius: var(--r-badge);
+    color: var(--warn);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: 0.6875rem;
+    font-weight: 600;
+  }
+  .notice-key {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--lit);
+    font-weight: 600;
+  }
+  .notice-body {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0;
+    margin: 0;
+  }
+  @media (min-width: 30rem) {
+    .notice-body {
+      grid-template-columns: 1fr 1fr;
+    }
+    .notice-body .wide {
+      grid-column: 1 / -1;
+    }
+  }
+  .notice-body > div {
+    padding: 0.875rem 1rem;
+    border-bottom: 1px solid var(--line-soft);
+    min-width: 0;
+  }
+  .notice-body dt {
+    font-family: var(--mono);
+    font-variation-settings: 'wdth' 82;
+    font-size: 0.6875rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--tx-faint);
+    margin-bottom: 0.25rem;
+  }
+  .notice-body dd {
+    margin: 0;
+    color: var(--tx);
+    font-size: 0.9375rem;
+  }
+  .notice-body dd > code {
+    display: block;
+    overflow-x: auto;
+    font-size: 0.8125rem;
+    color: var(--lit);
+    padding-block: 0.125rem;
+  }
+  .notice-body pre {
+    border: 0;
+    border-radius: 0;
+    padding: 0.5rem 0 0;
+    background: transparent;
+  }
+  .notice-foot {
+    padding: 0.875rem 1rem 1rem;
+  }
+  .refusal {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.5rem 0.875rem;
+    color: var(--tx);
+    font-size: 0.9375rem;
+    line-height: 1.5;
+  }
+  .refusal-code {
+    font-family: var(--mono);
+    font-variation-settings: 'wdth' 85;
+    font-size: 0.75rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--warn);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  /* ---------- reveal procedure ---------- */
+  .procedure {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 4px;
+    margin: clamp(2.5rem, 6vw, 4rem) 0;
+    padding: 0;
+    list-style: none;
+  }
+  @media (min-width: 48rem) {
+    .procedure {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+  .stop {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    grid-template-areas: 'n name' 'n body';
+    column-gap: 0.875rem;
+    row-gap: 0.375rem;
+    padding: 1rem 1.125rem 1.125rem;
+    background: var(--bg-raise);
+    border: 1px solid var(--line-soft);
+    border-radius: var(--r-badge);
+    position: relative;
+  }
+  .stop::after {
+    content: '';
+    position: absolute;
+    inset-inline: 0;
+    top: 2.1rem;
+    height: 1px;
+    background: var(--bg);
+  }
+  .stop > * {
+    position: relative;
+    z-index: 1;
+  }
+  .stop-n {
+    grid-area: n;
+    font-family: var(--mono);
+    font-variation-settings: 'wdth' 80;
+    font-size: 1.5rem;
+    font-weight: 300;
+    line-height: 1;
+    color: var(--tx-faint);
+    padding-top: 0.1rem;
+  }
+  .stop-name {
+    grid-area: name;
+    font-family: var(--mono);
+    font-variation-settings: 'wdth' 85;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--lit);
+    line-height: 1.6;
+  }
+  .stop-body {
+    grid-area: body;
+    color: var(--tx-dim);
+    font-size: 0.9375rem;
+    line-height: 1.5;
+  }
+
+  .reveal {
+    border: 1px solid var(--line);
+    border-radius: var(--r-container);
+    background: var(--bg-sunk);
+    align-self: start;
+  }
+  .reveal summary {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 3rem;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    list-style: none;
+    font-family: var(--mono);
+    font-variation-settings: 'wdth' 85;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--accent);
+    border-radius: var(--r-control);
+    user-select: none;
+  }
+  .reveal summary::-webkit-details-marker {
+    display: none;
+  }
+  .reveal summary:hover {
+    background: var(--bg-raise);
+  }
+  .reveal summary:focus-visible {
+    outline-offset: -3px;
+  }
+  .summary-glyph {
+    display: inline-block;
+    color: var(--tx-faint);
+    transition: transform 150ms var(--ease);
+  }
+  .reveal[open] .summary-glyph {
+    transform: rotate(90deg);
+  }
+  .reveal-body {
+    padding: 0.25rem 1rem 1rem;
+    border-top: 1px solid var(--line-soft);
+  }
+  .reveal-steps {
+    margin: 0.75rem 0 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 0.625rem;
+    font-size: 0.9375rem;
+    color: var(--tx-dim);
+  }
+  .reveal-steps li {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.25rem 1rem;
+    padding-bottom: 0.625rem;
+    border-bottom: 1px solid var(--line-soft);
+    min-width: 0;
+  }
+  @media (min-width: 30rem) {
+    .reveal-steps li {
+      grid-template-columns: 9.5rem 1fr;
+    }
+  }
+  .reveal-steps code {
+    display: block;
+    overflow-x: auto;
+    white-space: pre;
+    font-size: 0.8125rem;
+    color: var(--lit);
+  }
+  .reveal-state {
+    font-family: var(--mono);
+    font-variation-settings: 'wdth' 82;
+    font-size: 0.6875rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--tx-faint);
+    line-height: 1.8;
+  }
+  .reveal-note {
+    margin-top: 0.875rem;
+    font-size: 0.875rem;
+    color: var(--tx-faint);
+  }
+
+  /* ---------- self-hosting ---------- */
+  .server {
+    margin-top: 1.75rem;
+  }
+  .small-note {
+    margin-top: 0.75rem;
+    font-size: 0.875rem;
+    color: var(--tx-faint);
+  }
+  .small-note code {
+    color: var(--tx-dim);
+    font-size: 0.8125rem;
+  }
+
+  .specs {
+    margin: 0;
+    border-top: 1px solid var(--line);
+  }
+  .spec {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.125rem 1.5rem;
+    padding: 0.875rem 0;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  @media (min-width: 30rem) {
+    .spec {
+      grid-template-columns: 7.5rem 1fr;
+    }
+  }
+  .spec dt {
+    font-family: var(--mono);
+    font-variation-settings: 'wdth' 82;
+    font-size: 0.75rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--lit);
+    padding-top: 0.2rem;
+  }
+  .spec dd {
+    margin: 0;
+    color: var(--tx-dim);
+    font-size: 0.9375rem;
+    line-height: 1.5;
+  }
+
+  /* ---------- surfaces ---------- */
+  .surfaces {
+    display: grid;
+    grid-template-columns: 1fr;
+    margin: clamp(2rem, 5vw, 3.5rem) 0 0;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--line);
+  }
+  @media (min-width: 48rem) {
+    .surfaces {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      border-top: 0;
+    }
+  }
+  .surface {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    grid-template-areas: 'n name' 'n body';
+    column-gap: 1rem;
+    row-gap: 0.5rem;
+    padding: 1.25rem 0;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  @media (min-width: 48rem) {
+    .surface {
+      grid-template-columns: 1fr;
+      grid-template-areas: 'n' 'name' 'body';
+      padding: 1.5rem 1.5rem 1.75rem 0;
+      border-bottom: 0;
+      border-top: 1px solid var(--line);
+    }
+    .surface + .surface {
+      padding-inline-start: 1.5rem;
+      border-inline-start: 1px solid var(--line-soft);
+    }
+  }
+  .surface-n {
+    grid-area: n;
+    font-family: var(--mono);
+    font-variation-settings: 'wdth' 80;
+    font-size: 0.75rem;
+    letter-spacing: 0.1em;
+    color: var(--tx-faint);
+    padding-top: 0.35rem;
+  }
+  .surface-name {
+    grid-area: name;
+    font-size: 1.375rem;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+  }
+  .surface-body {
+    grid-area: body;
+    color: var(--tx-dim);
+    font-size: 0.9375rem;
+    line-height: 1.55;
+  }
+
+  .extras {
+    margin-top: clamp(1.5rem, 4vw, 2.5rem);
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--line-soft);
+    row-gap: 1rem;
+  }
+  .extras p {
+    color: var(--tx-dim);
+    font-size: 0.9375rem;
+    line-height: 1.55;
+    max-width: 52ch;
+  }
+  .extras-term {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-family: var(--mono);
+    font-variation-settings: 'wdth' 82;
+    font-size: 0.6875rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--lit);
+  }
+
+  /* ---------- closing ---------- */
+  .closing {
+    background: var(--bg-sunk);
+    border-bottom: 1px solid var(--line);
+  }
+  .closing-board {
+    padding: 1rem var(--pad-x);
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .closing-board .board-title {
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    color: var(--tx-faint);
+  }
+  .closing .grid {
+    padding: clamp(3rem, 8vw, 6rem) var(--pad-x) clamp(3rem, 8vw, 6rem);
+    align-items: end;
+  }
+  .closing h2 {
+    font-size: clamp(2rem, 1.2rem + 3.6vw, 4rem);
+    max-width: 14ch;
+  }
+  .closing .lede {
+    margin-top: 1.25rem;
+  }
+  .closing-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+  .closing-actions .btn {
+    width: 100%;
+    max-width: 18rem;
+  }
+  .closing-actions .btn + .text-link {
+    margin-top: 0.5rem;
+  }
+
+  /* ---------- footer ---------- */
+  .foot {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.75rem 2rem;
+    padding: 1.5rem var(--pad-x) 5.5rem;
+    font-family: var(--mono);
+    font-variation-settings: 'wdth' 85;
+    font-size: 0.75rem;
+    color: var(--tx-faint);
+  }
+  .foot p {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 0;
+  }
+  .foot p > span + span::before,
+  .foot-links a + a::before {
+    content: '·';
+    padding-inline: 0.625rem;
+    color: var(--line);
+  }
+  .foot-links a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    color: var(--tx-dim);
+  }
+  .foot-links a:hover {
+    color: var(--accent);
+  }
+
+  /* ---------- motion ---------- */
+  @media (prefers-reduced-motion: reduce) {
+    .flap {
+      animation: none;
+    }
+    .btn,
+    .top-nav a,
+    .summary-glyph {
+      transition: none;
+    }
+  }
+</style>

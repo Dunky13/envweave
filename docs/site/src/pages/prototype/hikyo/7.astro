@@ -1,0 +1,1050 @@
+---
+// Prototype 7: Transit map. Each key group is a coloured line, the three
+// environments are stations every line passes through. Flat print, light.
+// All facts come from src/lib/prototype/hikyo.ts; nothing is invented.
+import '@fontsource-variable/overpass/wght.css';
+import '@fontsource-variable/overpass-mono/wght.css';
+import HikyoHead from '../../../components/prototype/HikyoHead.astro';
+import HikyoSwitcher from '../../../components/prototype/HikyoSwitcher.astro';
+import {
+  cellLabel,
+  cellText,
+  claims,
+  cli,
+  cliRead,
+  cliReferenceUrl,
+  coreConceptsUrl,
+  docsUrl,
+  environments,
+  gettingStartedUrl,
+  keyCount,
+  masked,
+  matrix,
+  project,
+  repositoryUrl,
+  selfHostingUrl,
+  type CellState,
+  type Environment,
+} from '../../../lib/prototype/hikyo';
+
+// One line colour per key group. Class names below map to CSS custom properties.
+const lineGroups = ['database', 'payments', 'observability', 'smtp'];
+for (const group of matrix) {
+  if (!lineGroups.includes(group.name)) throw new Error(`prototype 7: no line colour for group ${group.name}`);
+}
+
+// Geometry is built once in an abstract (along, across) space: "along" runs
+// station to station, "across" runs key to key. The mobile map maps along->y,
+// the desktop map maps along->x.
+type Orientation = 'v' | 'h';
+interface Pt {
+  x: number;
+  y: number;
+}
+interface Layout {
+  w: number;
+  h: number;
+  acrossStart: number;
+  pitch: number;
+  groupGap: number;
+  labelAlong: number;
+  lineStart: number;
+  stations: number[];
+}
+const layouts: Record<Orientation, Layout> = {
+  v: { w: 343, h: 470, acrossStart: 23, pitch: 30, groupGap: 12, labelAlong: 150, lineStart: 158, stations: [214, 330, 446] },
+  h: { w: 840, h: 452, acrossStart: 78, pitch: 34, groupGap: 14, labelAlong: 178, lineStart: 186, stations: [300, 540, 780] },
+};
+if (layouts.v.stations.length !== environments.length || layouts.h.stations.length !== environments.length) {
+  throw new Error('prototype 7: station count must match environments');
+}
+
+type MarkerKind = CellState['kind'] | 'terminus';
+interface Seg {
+  a: Pt;
+  b: Pt;
+  dashed: boolean;
+  group: string;
+  i: number;
+}
+interface Marker {
+  p: Pt;
+  kind: MarkerKind;
+  group: string;
+  i: number;
+  rotate: number;
+}
+interface KeyLabel {
+  p: Pt;
+  name: string;
+}
+interface Plate {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  text: Pt;
+  line: { a: Pt; b: Pt };
+  name: Environment;
+  i: number;
+}
+interface MapGeometry {
+  cls: string;
+  w: number;
+  h: number;
+  segs: Seg[];
+  markers: Marker[];
+  labels: KeyLabel[];
+  plates: Plate[];
+}
+
+// Stagger unit is 60ms: segment g*2+s*5, marker one segment (300ms) later.
+const SEG_STEP = 5;
+const GROUP_STEP = 2;
+
+function buildMap(o: Orientation): MapGeometry {
+  const L = layouts[o];
+  const pt = (along: number, across: number): Pt => (o === 'v' ? { x: across, y: along } : { x: along, y: across });
+  const segs: Seg[] = [];
+  const markers: Marker[] = [];
+  const labels: KeyLabel[] = [];
+  let n = 0;
+  matrix.forEach((group, g) => {
+    for (const key of group.keys) {
+      const across = L.acrossStart + n * L.pitch + g * L.groupGap;
+      n += 1;
+      labels.push({ p: pt(L.labelAlong, across), name: key.name });
+      let from = L.lineStart;
+      for (let s = 0; s < environments.length; s += 1) {
+        const env = environments[s];
+        const station = L.stations[s];
+        if (env === undefined || station === undefined) continue;
+        const cell = key.cells[env];
+        const i = g * GROUP_STEP + s * SEG_STEP;
+        if (cell.kind === 'forbidden') {
+          // The line stops before the station: a terminus bar, no marker.
+          const end = station - 22;
+          segs.push({ a: pt(from, across), b: pt(end, across), dashed: false, group: group.name, i });
+          markers.push({ p: pt(end, across), kind: 'terminus', group: group.name, i: i + SEG_STEP, rotate: o === 'h' ? 90 : 0 });
+          break;
+        }
+        segs.push({ a: pt(from, across), b: pt(station, across), dashed: cell.kind === 'missing', group: group.name, i });
+        markers.push({ p: pt(station, across), kind: cell.kind, group: group.name, i: i + SEG_STEP, rotate: 0 });
+        from = station;
+      }
+    }
+  });
+  const plates: Plate[] = environments.map((name, s) => {
+    const station = L.stations[s];
+    if (station === undefined) throw new Error('prototype 7: station index out of range');
+    const w = 118;
+    const h = 24;
+    if (o === 'v') {
+      return { x: 0, y: station - 48, w, h, text: { x: 10, y: station - 36 }, line: { a: { x: 0, y: station }, b: { x: L.w, y: station } }, name, i: s * SEG_STEP };
+    }
+    return {
+      x: station - w / 2,
+      y: 8,
+      w,
+      h,
+      text: { x: station - w / 2 + 10, y: 20 },
+      line: { a: { x: station, y: 40 }, b: { x: station, y: L.h - 8 } },
+      name,
+      i: s * SEG_STEP,
+    };
+  });
+  return { cls: `map-${o}`, w: L.w, h: L.h, segs, markers, labels, plates };
+}
+
+const maps: MapGeometry[] = [buildMap('v'), buildMap('h')];
+const lastMarkerIndex = Math.max(...maps.flatMap((m) => m.markers.map((k) => k.i)));
+// 60ms unit * index + 220ms pop must stay under 1.6s.
+if (lastMarkerIndex * 60 + 220 > 1600) throw new Error('prototype 7: animation exceeds 1.6s');
+
+const legendMarkers: { kind: MarkerKind; text: string; meaning: string }[] = [
+  { kind: 'set', text: 'value', meaning: 'set here, shown in plain text' },
+  { kind: 'secret', text: masked, meaning: 'secret set, always masked' },
+  { kind: 'absent', text: '· absent', meaning: 'explicit absence, recorded on purpose' },
+  { kind: 'missing', text: '! required · absent', meaning: 'violation: required here, nobody set it. Dashed approach.' },
+  { kind: 'terminus', text: '· absent (forbidden)', meaning: 'the line ends before this station; a value here is refused' },
+  { kind: 'draft', text: 'Δ value', meaning: 'staged in a draft, not yet published' },
+];
+
+const entrances = [
+  { name: 'Web UI', body: 'Embedded in the binary. The matrix, drafts, reveal ceremonies and settings, on a phone or a desk.' },
+  { name: 'CLI', body: 'Values travel as files: --value-file in, --output-file out. Declare, set, diff, and hikyo run.' },
+  { name: 'HTTP API', body: 'Same authorization chokepoint as every other caller. Unauthorized resources look identical to resources that do not exist.' },
+];
+
+const mapTitle = `${project.organisation} / ${project.name} · ${project.revision} · ${keyCount} lines · ${environments.length} stations`;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <HikyoHead title="Hikyo · Three stations, no hidden transfers" description={claims.positioning} themeColor="#fbfaf7" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <svg width="0" height="0" class="sprite" aria-hidden="true" focusable="false">
+      <symbol id="mk-set" viewBox="-12 -12 24 24">
+        <circle r="9" class="paper" />
+        <circle r="6.5" fill="currentColor" />
+      </symbol>
+      <symbol id="mk-secret" viewBox="-12 -12 24 24">
+        <circle r="9" class="paper" />
+        <circle r="6.5" fill="currentColor" />
+        <rect x="-3" y="-0.8" width="6" height="4.6" rx="0.8" class="paper" />
+        <path d="M-1.9 -0.8 V-2.4 a1.9 1.9 0 0 1 3.8 0 V-0.8" class="paper-stroke" />
+      </symbol>
+      <symbol id="mk-absent" viewBox="-12 -12 24 24">
+        <circle r="8" class="paper" stroke="currentColor" stroke-width="2.2" />
+      </symbol>
+      <symbol id="mk-missing" viewBox="-12 -12 24 24">
+        <circle r="8" class="paper violation-stroke" stroke-width="2.2" />
+        <text class="glyph violation-text" y="0.6">!</text>
+      </symbol>
+      <symbol id="mk-terminus" viewBox="-12 -12 24 24">
+        <rect x="-8" y="-2.2" width="16" height="4.4" fill="currentColor" />
+      </symbol>
+      <symbol id="mk-draft" viewBox="-12 -12 24 24">
+        <circle r="8" class="paper" stroke="currentColor" stroke-width="2.2" stroke-dasharray="2.6 2.2" />
+        <text class="glyph ink-text" y="0.6">Δ</text>
+      </symbol>
+    </svg>
+
+    <header class="top">
+      <a class="brand" href="/" aria-label="Hikyo home"><img src="/favicon.svg" alt="" width="22" height="22" /><span>hikyo</span></a>
+      <nav class="top-nav" aria-label="Primary">
+        <a href={docsUrl}>Docs</a>
+        <a href={repositoryUrl} rel="noopener">Source</a>
+      </nav>
+      <p class="marker">Prototype 7 · Transit map</p>
+    </header>
+
+    <main id="main">
+      <section class="hero" aria-labelledby="hero-title">
+        <p class="eyebrow">{claims.tagline}</p>
+        <h1 id="hero-title">Three stations. No hidden transfers.</h1>
+        <p class="lede">
+          {claims.positioning} Every line on this map is a key. Every stop is a value someone set, or an absence someone
+          recorded. Nothing rides from development to production on its own.
+        </p>
+
+        <figure class="map-fig">
+          <figcaption class="map-title">{mapTitle} · protected: {project.protectedEnvironments.join(', ')} · example data</figcaption>
+          {
+            maps.map((m) => (
+              <svg class={`map ${m.cls}`} viewBox={`0 0 ${m.w} ${m.h}`} aria-hidden="true" focusable="false">
+                {m.labels.map((l) => (
+                  <text class="klabel" transform={m.cls === 'map-v' ? `translate(${l.p.x} ${l.p.y}) rotate(-90)` : `translate(${l.p.x} ${l.p.y})`}>
+                    {l.name}
+                  </text>
+                ))}
+                {m.plates.map((p) => (
+                  <line class="hair" x1={p.line.a.x} y1={p.line.a.y} x2={p.line.b.x} y2={p.line.b.y} />
+                ))}
+                {m.segs.map((s) =>
+                  s.dashed ? (
+                    <path class={`seg seg-dashed line-${s.group}`} d={`M${s.a.x} ${s.a.y} L${s.b.x} ${s.b.y}`} style={`--i:${s.i}`} />
+                  ) : (
+                    <path class={`seg line-${s.group}`} pathLength="1" d={`M${s.a.x} ${s.a.y} L${s.b.x} ${s.b.y}`} style={`--i:${s.i}`} />
+                  ),
+                )}
+                {m.plates.map((p) => (
+                  <g class="plate" style={`--i:${p.i}`}>
+                    <rect x={p.x} y={p.y} width={p.w} height={p.h} class="plate-box" />
+                    <text x={p.text.x} y={p.text.y} class="plate-text">
+                      {p.name}
+                    </text>
+                  </g>
+                ))}
+                {m.markers.map((k) => (
+                  <g transform={`translate(${k.p.x} ${k.p.y})${k.rotate ? ` rotate(${k.rotate})` : ''}`} class={`line-${k.group}`}>
+                    <g class="mk" style={`--i:${k.i}`}>
+                      <use href={`#mk-${k.kind}`} x="-12" y="-12" width="24" height="24" />
+                    </g>
+                  </g>
+                ))}
+              </svg>
+            ))
+          }
+        </figure>
+
+        <div class="stations" aria-labelledby="stations-title">
+          <h2 id="stations-title" class="sr-only">Stations, every line at every stop</h2>
+          {
+            environments.map((env) => (
+              <section class="station">
+                <h3 class="station-name">{env}</h3>
+                <dl>
+                  {matrix.map((group) =>
+                    group.keys.map((key) => (
+                      <div class={`stop line-${group.name}`}>
+                        <dt>{key.name}</dt>
+                        <dd class={`state state-${key.cells[env].kind}`}>
+                          <span aria-hidden="true">{cellText(key.cells[env])}</span>
+                          <span class="sr-only">{cellLabel(key.cells[env])}</span>
+                        </dd>
+                      </div>
+                    )),
+                  )}
+                </dl>
+              </section>
+            ))
+          }
+        </div>
+
+        <div class="legend" aria-labelledby="legend-title">
+          <h2 id="legend-title" class="legend-title">Legend</h2>
+          <div class="legend-cols">
+            <section>
+              <h3>Stops</h3>
+              <ul class="marks">
+                {
+                  legendMarkers.map((lm) => (
+                    <li>
+                      <svg class="lm line-database" viewBox="-12 -12 24 24" width="24" height="24" aria-hidden="true" focusable="false">
+                        <use href={`#mk-${lm.kind}`} x="-12" y="-12" width="24" height="24" />
+                      </svg>
+                      <span class="mono">{lm.text}</span>
+                      <span class="meaning">{lm.meaning}</span>
+                    </li>
+                  ))
+                }
+              </ul>
+            </section>
+            <section>
+              <h3>Lines</h3>
+              <ul class="lines">
+                {
+                  matrix.map((group) => (
+                    <li class={`line-${group.name}`}>
+                      <p class="line-name">
+                        <span class="swatch" aria-hidden="true" />
+                        {group.name}
+                        {group.allOrNone && <span class="line-rule">all-or-none group</span>}
+                      </p>
+                      <ul class="line-keys">
+                        {group.keys.map((key) => (
+                          <li>
+                            <span class="mono key">{key.name}</span>
+                            <span class="presence">{`${key.classification} · ${key.presence}`}</span>
+                            <code class="rule">{key.rule}</code>
+                          </li>
+                        ))}
+                      </ul>
+                    </li>
+                  ))
+                }
+              </ul>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <section class="stop-section line-database" aria-labelledby="declare-title">
+        <h2 id="declare-title" class="stop-h">Declare before you set</h2>
+        <div class="stop-body">
+          <p>
+            A line is drawn before anything runs on it. Declare the key, its classification, and its rule; only then can a value
+            be set. Invalid writes are refused before state changes, and a required value cannot be cleared where its rule
+            applies.
+          </p>
+          <pre class="cli" tabindex="0"><code>{cli.declare}</code></pre>
+          <p class="aside">
+            <a href={coreConceptsUrl}>Core concepts</a> · <a href={cliReferenceUrl}>CLI reference</a>
+          </p>
+        </div>
+      </section>
+
+      <section class="stop-section line-payments" aria-labelledby="reveal-title">
+        <h2 id="reveal-title" class="stop-h">Reveal is a stop, not a shortcut</h2>
+        <div class="stop-body">
+          <p>
+            An ordinary read stops at the platform: presence and metadata, value masked. Reveal is its own stop on the line.
+            It requires reauthentication, writes to a file rather than your terminal, remasks automatically, and records its
+            own audit event. Replacing a secret never reveals the old one.
+          </p>
+          <pre class="cli" tabindex="0"><code>{cliRead.get}</code></pre>
+          <pre class="cli cli-out" tabindex="0"><code>{cliRead.getMasked}</code></pre>
+          <pre class="cli" tabindex="0"><code>{cliRead.reveal}</code></pre>
+          <p class="aside">{claims.audit}</p>
+        </div>
+      </section>
+
+      <section class="stop-section line-observability" aria-labelledby="entrances-title">
+        <h2 id="entrances-title" class="stop-h">Three entrances</h2>
+        <div class="stop-body">
+          <dl class="entrances">
+            {
+              entrances.map((e) => (
+                <div>
+                  <dt>{e.name}</dt>
+                  <dd>{e.body}</dd>
+                </div>
+              ))
+            }
+            <div>
+              <dt>Self-hosted</dt>
+              <dd>
+                {claims.runtime} Your database, your root key. Runs via {claims.delivery.join(', ')}. Sign in with{' '}
+                {claims.identity.join(', ')}. <a href={selfHostingUrl}>Self-hosting guide</a>
+              </dd>
+            </div>
+          </dl>
+        </div>
+      </section>
+
+      <section class="stop-section line-smtp" aria-labelledby="status-title">
+        <h2 id="status-title" class="stop-h">Line status</h2>
+        <div class="stop-body">
+          <dl class="status">
+            <div><dt>Service</dt><dd>{claims.maturity}</dd></div>
+            <div><dt>Licence</dt><dd>{claims.license}</dd></div>
+            <div><dt>Tier</dt><dd>{claims.noEnterpriseTier}</dd></div>
+          </dl>
+        </div>
+      </section>
+
+      <section class="exits" aria-label="Exits">
+        <a class="exit line-database" href={gettingStartedUrl}>Get started <span aria-hidden="true">→</span></a>
+        <a class="exit line-payments" href={repositoryUrl} rel="noopener">Source <span aria-hidden="true">→</span></a>
+        <a class="exit-link" href={docsUrl}>Read the docs</a>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <p>Hikyo · {claims.license} · example data, no customers implied.</p>
+    </footer>
+
+    <HikyoSwitcher current={7} />
+  </body>
+</html>
+
+<style>
+  :global(html) {
+    --paper: oklch(0.985 0.005 90);
+    --ink: oklch(0.2 0.012 90);
+    --ink-soft: oklch(0.38 0.012 90);
+    --hair: oklch(0.72 0.01 90);
+    --violation: oklch(0.5 0.2 25);
+    --l-database: oklch(0.5 0.16 260);
+    --l-payments: oklch(0.58 0.19 30);
+    --l-observability: oklch(0.6 0.15 150);
+    --l-smtp: oklch(0.72 0.17 65);
+    --sans: 'Overpass Variable', 'Highway Gothic', system-ui, sans-serif;
+    --mono: 'Overpass Mono Variable', ui-monospace, monospace;
+    --ease-out: cubic-bezier(0.25, 1, 0.5, 1);
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 17px;
+    line-height: 1.45;
+    -webkit-text-size-adjust: 100%;
+  }
+  :global(body) {
+    margin: 0;
+    padding: 0 1rem 10rem;
+    overflow-x: clip;
+  }
+  :global(*),
+  :global(*::before),
+  :global(*::after) {
+    box-sizing: border-box;
+  }
+  .line-database {
+    --line: var(--l-database);
+  }
+  .line-payments {
+    --line: var(--l-payments);
+  }
+  .line-observability {
+    --line: var(--l-observability);
+  }
+  .line-smtp {
+    --line: var(--l-smtp);
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .skip {
+    position: absolute;
+    left: -100vw;
+    top: 0.5rem;
+    background: var(--ink);
+    color: var(--paper);
+    padding: 0.5rem 0.75rem;
+    z-index: 2000;
+  }
+  .skip:focus {
+    left: 0.5rem;
+  }
+  .sprite {
+    position: absolute;
+  }
+  .paper {
+    fill: var(--paper);
+  }
+  .paper-stroke {
+    fill: none;
+    stroke: var(--paper);
+    stroke-width: 1.4;
+  }
+  .violation-stroke {
+    stroke: var(--violation);
+  }
+  .glyph {
+    font-family: var(--sans);
+    font-weight: 800;
+    font-size: 11px;
+    text-anchor: middle;
+    dominant-baseline: middle;
+  }
+  .violation-text {
+    fill: var(--violation);
+  }
+  .ink-text {
+    fill: var(--ink);
+  }
+  .mono {
+    font-family: var(--mono);
+  }
+
+  a {
+    color: inherit;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 3px;
+  }
+  a:focus-visible,
+  .cli:focus-visible {
+    outline: 3px solid var(--ink);
+    outline-offset: 2px;
+  }
+
+  /* Top bar */
+  .top {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 0;
+    border-bottom: 3px solid var(--ink);
+  }
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-weight: 800;
+    text-decoration: none;
+    letter-spacing: -0.01em;
+    min-height: 44px;
+  }
+  .top-nav {
+    display: flex;
+    gap: 0.25rem;
+    margin-left: auto;
+  }
+  .top-nav a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 0 0.6rem;
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .marker {
+    display: none;
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--ink-soft);
+  }
+
+  /* Hero */
+  .hero {
+    padding-top: 1.5rem;
+  }
+  .eyebrow {
+    margin: 0 0 0.5rem;
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    color: var(--ink-soft);
+  }
+  h1 {
+    margin: 0;
+    font-size: clamp(2.1rem, 9vw, 4rem);
+    line-height: 0.98;
+    font-weight: 800;
+    letter-spacing: -0.035em;
+    max-width: 14ch;
+  }
+  .lede {
+    margin: 1rem 0 1.5rem;
+    font-size: 1.05rem;
+    max-width: 46ch;
+    color: var(--ink);
+  }
+
+  /* Map */
+  .map-fig {
+    margin: 0;
+    min-width: 0;
+    border-top: 3px solid var(--ink);
+    padding-top: 0.5rem;
+  }
+  .map-title {
+    margin: 0 0 0.25rem;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--ink-soft);
+    overflow-wrap: anywhere;
+  }
+  .map {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    font-family: var(--mono);
+  }
+  .map-h {
+    display: none;
+  }
+  .klabel {
+    font-size: 10.5px;
+    font-weight: 600;
+    fill: var(--ink);
+    dominant-baseline: central;
+    text-anchor: start;
+  }
+  .map-h .klabel {
+    font-size: 12px;
+    text-anchor: end;
+  }
+  .hair {
+    stroke: var(--ink);
+    stroke-width: 1;
+    stroke-dasharray: 2 3;
+    opacity: 0.55;
+  }
+  .seg {
+    fill: none;
+    stroke: var(--line);
+    stroke-width: 6;
+    stroke-linecap: butt;
+    animation: draw 300ms var(--ease-out) both;
+    animation-delay: calc(var(--i) * 60ms);
+  }
+  .seg-dashed {
+    stroke-dasharray: 7 5;
+    animation-name: appear;
+  }
+  .plate {
+    animation: slide 260ms var(--ease-out) both;
+    animation-delay: calc(var(--i) * 60ms);
+  }
+  .plate-box {
+    fill: var(--paper);
+    stroke: var(--ink);
+    stroke-width: 2;
+  }
+  .plate-text {
+    font-family: var(--sans);
+    font-weight: 800;
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    fill: var(--ink);
+    dominant-baseline: central;
+  }
+  .mk {
+    color: var(--line);
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: pop 220ms var(--ease-out) both;
+    animation-delay: calc(var(--i) * 60ms);
+  }
+  @keyframes draw {
+    from {
+      stroke-dasharray: 1;
+      stroke-dashoffset: 1;
+    }
+    to {
+      stroke-dasharray: 1;
+      stroke-dashoffset: 0;
+    }
+  }
+  @keyframes appear {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes pop {
+    from {
+      opacity: 0;
+      transform: scale(0.6);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+  @keyframes slide {
+    from {
+      opacity: 0;
+      transform: translateX(-16px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  /* Station lists */
+  .stations {
+    display: grid;
+    gap: 1.25rem;
+    margin-top: 1.5rem;
+    min-width: 0;
+  }
+  .station {
+    min-width: 0;
+  }
+  .station-name {
+    display: inline-block;
+    margin: 0 0 0.5rem;
+    padding: 0.3rem 0.6rem 0.2rem;
+    border: 2px solid var(--ink);
+    font-size: 0.8125rem;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    background: var(--paper);
+  }
+  .station dl {
+    margin: 0;
+    border-top: 1px solid var(--hair);
+  }
+  .stop {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.25rem 0.75rem;
+    align-items: baseline;
+    padding: 0.4rem 0 0.4rem 0.75rem;
+    border-bottom: 1px solid var(--hair);
+    border-left: 6px solid var(--line);
+    min-width: 0;
+  }
+  .stop dt {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .stop dd {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    text-align: right;
+    white-space: nowrap;
+  }
+  .state-absent,
+  .state-forbidden {
+    color: var(--ink-soft);
+  }
+  .state-missing {
+    color: var(--violation);
+    font-weight: 700;
+  }
+  .state-draft {
+    font-weight: 700;
+  }
+
+  /* Legend */
+  .legend {
+    margin-top: 2rem;
+    border: 2px solid var(--ink);
+    padding: 0.75rem 1rem 1rem;
+    min-width: 0;
+  }
+  .legend-title,
+  .legend h3 {
+    margin: 0 0 0.5rem;
+    font-size: 0.8125rem;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .legend h3 {
+    margin-top: 1rem;
+    color: var(--ink-soft);
+  }
+  .legend-cols {
+    display: grid;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+  .legend section {
+    min-width: 0;
+  }
+  .legend ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .marks li {
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr);
+    gap: 0.5rem;
+    align-items: center;
+    padding: 0.3rem 0;
+    font-size: 0.875rem;
+    min-width: 0;
+  }
+  .lm {
+    display: block;
+    color: var(--line);
+    font-family: var(--mono);
+  }
+  .marks .mono {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .meaning {
+    grid-column: 2;
+    color: var(--ink-soft);
+    font-size: 0.8125rem;
+  }
+  .lines > li {
+    padding: 0.5rem 0;
+    border-top: 1px solid var(--hair);
+    min-width: 0;
+  }
+  .line-name {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0 0 0.35rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.8125rem;
+  }
+  .swatch {
+    display: inline-block;
+    width: 28px;
+    height: 6px;
+    background: var(--line);
+  }
+  .line-rule {
+    margin-left: auto;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--ink-soft);
+  }
+  .line-keys li {
+    display: grid;
+    gap: 0.1rem;
+    padding: 0.3rem 0 0.3rem 0.75rem;
+    border-left: 3px solid var(--line);
+    margin-bottom: 0.3rem;
+    min-width: 0;
+  }
+  .line-keys .key {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+  .presence {
+    font-size: 0.8125rem;
+    color: var(--ink-soft);
+  }
+  .rule {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--ink-soft);
+    overflow-wrap: anywhere;
+  }
+
+  /* Sections as stops */
+  .stop-section {
+    margin-top: 3rem;
+    min-width: 0;
+  }
+  .stop-h {
+    position: relative;
+    display: inline-block;
+    margin: 0 0 1rem;
+    padding: 0.35rem 0.7rem 0.25rem;
+    border: 2px solid var(--ink);
+    background: var(--paper);
+    font-size: 0.9375rem;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    line-height: 1.2;
+  }
+  .stop-h::before {
+    content: '';
+    position: absolute;
+    left: -1rem;
+    top: 50%;
+    width: 1rem;
+    height: 6px;
+    transform: translateY(-50%);
+    background: var(--line);
+  }
+  .stop-body {
+    min-width: 0;
+  }
+  .stop-body p {
+    margin: 0 0 1rem;
+    max-width: 58ch;
+  }
+  .aside {
+    font-size: 0.875rem;
+    color: var(--ink-soft);
+  }
+  .cli {
+    margin: 0 0 0.75rem;
+    padding: 0.75rem 0.9rem;
+    border: 2px solid var(--ink);
+    border-left-width: 6px;
+    border-left-color: var(--line, var(--ink));
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    overflow-x: auto;
+    min-width: 0;
+    max-width: 100%;
+    background: var(--paper);
+  }
+  .cli-out {
+    border-style: dashed;
+    color: var(--ink-soft);
+  }
+  .entrances,
+  .status {
+    margin: 0;
+    display: grid;
+    gap: 0.75rem;
+  }
+  .entrances > div,
+  .status > div {
+    border-top: 1px solid var(--hair);
+    padding-top: 0.5rem;
+    min-width: 0;
+  }
+  .entrances dt,
+  .status dt {
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.8125rem;
+  }
+  .entrances dd,
+  .status dd {
+    margin: 0.2rem 0 0;
+    max-width: 58ch;
+  }
+
+  /* Exits */
+  .exits {
+    margin-top: 3rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    border-top: 3px solid var(--ink);
+    padding-top: 1.25rem;
+  }
+  .exit {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 44px;
+    padding: 0 1.1rem;
+    background: var(--line);
+    color: #fff;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    text-decoration: none;
+    font-size: 1.1875rem;
+  }
+  .exit-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    font-weight: 600;
+  }
+  .foot {
+    margin-top: 3rem;
+    font-size: 0.8125rem;
+    color: var(--ink-soft);
+  }
+
+  /* Desktop: the map turns horizontal, lists sit beneath in three columns. */
+  @media (min-width: 60rem) {
+    :global(body) {
+      padding: 0 2rem 8rem;
+      max-width: 76rem;
+      margin: 0 auto;
+    }
+    .marker {
+      display: block;
+    }
+    .hero {
+      padding-top: 2.5rem;
+    }
+    h1 {
+      max-width: 18ch;
+    }
+    .map-v {
+      display: none;
+    }
+    .map-h {
+      display: block;
+    }
+    .stations {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 2rem;
+    }
+    .legend-cols {
+      grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+      gap: 2rem;
+    }
+    .stop-section {
+      display: grid;
+      grid-template-columns: 16rem minmax(0, 1fr);
+      gap: 2rem;
+      align-items: start;
+    }
+    .stop-h {
+      margin-left: 1rem;
+    }
+    .entrances {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1.5rem;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .seg,
+    .seg-dashed,
+    .plate,
+    .mk {
+      animation: none;
+    }
+  }
+</style>

@@ -1,0 +1,885 @@
+---
+// Prototype 8: Passport. Each environment is a passport page; each key is a
+// line on that page; each state is a rubber stamp pressed onto the line.
+// Nothing is on a page unless it was stamped there. All facts come from
+// src/lib/prototype/hikyo.ts; nothing is invented.
+import '@fontsource/bebas-neue/400.css';
+import '@fontsource/special-elite/400.css';
+import '@fontsource-variable/fraunces/opsz.css';
+import HikyoHead from '../../../components/prototype/HikyoHead.astro';
+import HikyoSwitcher from '../../../components/prototype/HikyoSwitcher.astro';
+import {
+  cellLabel,
+  claims,
+  cli,
+  cliRead,
+  cliReferenceUrl,
+  coreConceptsUrl,
+  docsUrl,
+  environments,
+  gettingStartedUrl,
+  keyCount,
+  masked,
+  matrix,
+  project,
+  repositoryUrl,
+  selfHostingUrl,
+  type CellState,
+  type Classification,
+  type Environment,
+} from '../../../lib/prototype/hikyo';
+
+// Production carries the violations, so it is the hero page and stamps first.
+const pageOrder: Environment[] = ['production', 'development', 'staging'];
+
+interface StampedKey {
+  name: string;
+  classification: Classification;
+  presence: string;
+  cell: CellState;
+  i: number;
+  rot: number;
+}
+interface PageGroup {
+  name: string;
+  allOrNone: boolean;
+  keys: StampedKey[];
+}
+interface Page {
+  env: Environment;
+  number: number;
+  isProtected: boolean;
+  violations: number;
+  groups: PageGroup[];
+}
+
+function stampWord(cell: CellState): string {
+  switch (cell.kind) {
+    case 'set':
+      return 'Set';
+    case 'secret':
+      return 'Secret';
+    case 'absent':
+      return 'Absent';
+    case 'missing':
+      return '! Required · absent';
+    case 'forbidden':
+      return 'Absent · forbidden';
+    case 'draft':
+      return 'Δ Draft';
+  }
+}
+
+function stampValue(cell: CellState): string | undefined {
+  switch (cell.kind) {
+    case 'set':
+    case 'draft':
+      return cell.value;
+    case 'secret':
+      return masked;
+    default:
+      return undefined;
+  }
+}
+
+// Deterministic tilt per stamp, -6 to +6 degrees, so the page is stable across renders.
+function tilt(i: number): number {
+  return ((i * 7919 + 5) % 13) - 6;
+}
+
+let counter = 0;
+const pages: Page[] = pageOrder.map((env) => {
+  const groups: PageGroup[] = matrix.map((g) => ({
+    name: g.name,
+    allOrNone: g.allOrNone === true,
+    keys: g.keys.map((k) => {
+      const i = counter++;
+      return { name: k.name, classification: k.classification, presence: k.presence, cell: k.cells[env], i, rot: tilt(i) };
+    }),
+  }));
+  const violations = groups.reduce((n, g) => n + g.keys.filter((k) => k.cell.kind === 'missing').length, 0);
+  return {
+    env,
+    number: environments.indexOf(env) + 1,
+    isProtected: project.protectedEnvironments.includes(env),
+    violations,
+    groups,
+  };
+});
+const visaIndex = counter;
+
+const declarePillar = claims.pillars[1];
+const disclosurePillar = claims.pillars[2];
+const selfHostPillar = claims.pillars[4];
+if (!declarePillar || !disclosurePillar || !selfHostPillar) throw new Error('prototype data: expected five pillars');
+
+const entries = [
+  { term: 'Surfaces', detail: claims.surfaces.join(', ') },
+  { term: 'Delivery', detail: claims.delivery.join(', ') },
+  { term: 'Runtime', detail: claims.runtime },
+  { term: 'Identity', detail: claims.identity.join(', ') },
+];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <HikyoHead title="Hikyo · Stamped in, or not there" description={claims.positioning} themeColor="#f2ecdc" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <svg class="defs" aria-hidden="true" focusable="false">
+      <filter id="ink" x="-10%" y="-10%" width="120%" height="120%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="7" result="grain" />
+        <feDisplacementMap in="SourceGraphic" in2="grain" scale="2.4" xChannelSelector="R" yChannelSelector="G" />
+      </filter>
+    </svg>
+
+    <header class="top">
+      <a class="brand" href="/" aria-label="Hikyo home">
+        <img src="/favicon.svg" alt="" width="22" height="22" />
+        <span>hikyo</span>
+      </a>
+      <nav class="top-nav" aria-label="Primary">
+        <a href={docsUrl}>Docs</a>
+        <a href={repositoryUrl} rel="noopener">GitHub</a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero" aria-labelledby="hero-title">
+        <p class="eyebrow">{claims.tagline}</p>
+        <h1 id="hero-title">Stamped in, or not there.</h1>
+        <p class="lede">{claims.positioning}</p>
+        <p class="body">
+          Each environment is its own page. Every key gets its own stamp on every page: set, secret, absent, or
+          forbidden. No page copies from the page before it, and a required line without a value is stamped as a
+          violation, never filled in by assumption.
+        </p>
+      </section>
+
+      <section class="passport" aria-label={`Environment passport for ${project.organisation}/${project.name}`}>
+        {
+          pages.map((p, pi) => (
+            <Fragment>
+              {pi > 0 && <div class={`turn turn-${pi}`} aria-hidden="true" />}
+              <article class={`page page-${p.env}`} aria-labelledby={`page-${p.env}`}>
+                <header class="page-head">
+                  <h2 id={`page-${p.env}`} class="page-title">
+                    {p.env}
+                  </h2>
+                  <p class="page-meta">
+                    <span>
+                      page {p.number} of {environments.length}
+                    </span>
+                    <span>
+                      {project.organisation} / {project.name} · {project.revision}
+                    </span>
+                    {p.isProtected && <span>protected environment</span>}
+                    {p.violations > 0 && (
+                      <span class="page-violations">
+                        {p.violations} {p.violations === 1 ? 'violation' : 'violations'}
+                      </span>
+                    )}
+                  </p>
+                </header>
+
+                {p.groups.map((g) => (
+                  <section class="block" aria-label={`${g.name} keys, ${p.env}`}>
+                    <ul class="rows">
+                      {g.keys.map((k) => {
+                        const value = stampValue(k.cell);
+                        return (
+                          <li class="row">
+                            <div class="key">
+                              <span class="key-name">
+                                {k.name.split('_').map((part, idx, parts) =>
+                                  idx < parts.length - 1 ? (
+                                    <Fragment>
+                                      {part}_<wbr />
+                                    </Fragment>
+                                  ) : (
+                                    part
+                                  ),
+                                )}
+                              </span>
+                              <span class="key-rule">
+                                {k.classification} · {k.presence}
+                              </span>
+                            </div>
+                            <div class="mark">
+                              {value !== undefined && (
+                                <span class="value" aria-hidden="true">
+                                  {value}
+                                </span>
+                              )}
+                              <span class={`stamp stamp-${k.cell.kind}`} style={`--i:${k.i};--rot:${k.rot}deg`}>
+                                <span aria-hidden="true">{stampWord(k.cell)}</span>
+                                <span class="sr-only">{cellLabel(k.cell)}</span>
+                              </span>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    <p class="note">
+                      {g.name}: {g.allOrNone ? 'all or none' : `${g.keys.length} keys, each stamped on its own`}
+                    </p>
+                  </section>
+                ))}
+              </article>
+            </Fragment>
+          ))
+        }
+      </section>
+
+      <p class="passport-foot">
+        {keyCount} keys · {environments.length} pages · {keyCount * environments.length} stamps · example data, secrets always masked
+      </p>
+
+      <section class="sheet" aria-labelledby="declare-title">
+        <p class="eyebrow">Conditions of issue</p>
+        <h2 id="declare-title">Declare before you set.</h2>
+        <p class="body">{declarePillar.body}</p>
+        <pre class="type" tabindex="0"><code>{cli.declare}</code></pre>
+        <p class="note">A stamp is only pressed where a declaration already exists for the key.</p>
+      </section>
+
+      <section class="sheet visa" aria-labelledby="reveal-title">
+        <p class="eyebrow">Visa</p>
+        <h2 id="reveal-title">Reveal is a visa.</h2>
+        <p class="body">{disclosurePillar.body}</p>
+        <div class="visa-block">
+          <pre class="type" tabindex="0"><code>$ {cliRead.get}
+{cliRead.getMasked}</code></pre>
+          <pre class="type" tabindex="0"><code>$ {cliRead.reveal}</code></pre>
+          <span class="stamp stamp-visa" style={`--i:${visaIndex};--rot:-6deg`} aria-hidden="true">
+            Revealed · audited
+          </span>
+        </div>
+        <p class="note">
+          The value lands in {cliRead.outputFile}, not in the terminal. The reveal writes its own audit event: actor,
+          object, outcome. Never the secret.
+        </p>
+      </section>
+
+      <section class="sheet" aria-labelledby="entry-title">
+        <p class="eyebrow">Points of entry</p>
+        <h2 id="entry-title">Your binary. Your database. Your root key.</h2>
+        <p class="body">{selfHostPillar.body}</p>
+        <dl class="entries">
+          {
+            entries.map((e) => (
+              <div class="entry">
+                <dt>{e.term}</dt>
+                <dd>{e.detail}</dd>
+              </div>
+            ))
+          }
+        </dl>
+      </section>
+
+      <section class="sheet" aria-labelledby="validity-title">
+        <p class="eyebrow">Validity</p>
+        <h2 id="validity-title">Issued as is.</h2>
+        <dl class="entries">
+          <div class="entry">
+            <dt>Status</dt>
+            <dd>{claims.maturity}</dd>
+          </div>
+          <div class="entry">
+            <dt>Licence</dt>
+            <dd>{claims.license}. {claims.noEnterpriseTier}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="sheet cta" aria-labelledby="cta-title">
+        <p class="eyebrow">Endorsements</p>
+        <h2 id="cta-title">Press your own.</h2>
+        <div class="cta-row">
+          <a class="stamp stamp-link" href={gettingStartedUrl} style="--rot:-3deg">Get started</a>
+          <a class="stamp stamp-link stamp-link-alt" href={repositoryUrl} rel="noopener" style="--rot:2deg">Source</a>
+        </div>
+        <p class="note">
+          <a href={docsUrl}>Read the docs</a>
+        </p>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <p class="foot-marker">Prototype 8 · Passport · example data</p>
+      <p class="foot-links">
+        <a href={coreConceptsUrl}>Core concepts</a>
+        <a href={cliReferenceUrl}>CLI reference</a>
+        <a href={selfHostingUrl}>Self-hosting</a>
+        <a href={repositoryUrl} rel="noopener">GitHub</a>
+        <a href="/prototype/hikyo/">All prototypes</a>
+      </p>
+    </footer>
+
+    <HikyoSwitcher current={8} />
+  </body>
+</html>
+
+<style>
+  /* ---------- tokens ---------- */
+  :root {
+    --paper: oklch(0.95 0.02 85);
+    --page: oklch(0.965 0.018 85);
+    --ink: oklch(0.3 0.05 260);
+    --ink-soft: oklch(0.42 0.04 260);
+    --ink-faint: oklch(0.3 0.05 260 / 0.28);
+    --rule: oklch(0.3 0.05 260 / 0.35);
+    --stamp-blue: oklch(0.3 0.07 265);
+    --stamp-grey: oklch(0.42 0.012 260);
+    --stamp-red: oklch(0.47 0.19 25);
+    --serif: 'Fraunces Variable', Georgia, 'Times New Roman', serif;
+    --type: 'Special Elite', 'Courier New', Courier, monospace;
+    --stamp-face: 'Bebas Neue', 'Arial Narrow', 'Helvetica Neue', Arial, sans-serif;
+  }
+
+  html {
+    background: var(--paper);
+    color: var(--ink);
+    overflow-x: clip;
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    margin: 0;
+    font-family: var(--serif);
+    font-variation-settings: 'opsz' 14;
+    font-size: 1rem;
+    line-height: 1.5;
+    padding-bottom: 11rem;
+    /* Security print: faint concentric rings, tiled. Under 6% contrast. */
+    background-image: repeating-radial-gradient(
+      circle at 50% 50%,
+      transparent 0 5px,
+      oklch(0.3 0.05 260 / 0.045) 5px 6px
+    );
+    background-size: 56px 56px;
+  }
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+  .defs {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .skip {
+    position: absolute;
+    left: 0.5rem;
+    top: -4rem;
+    padding: 0.75rem 1rem;
+    background: var(--ink);
+    color: var(--paper);
+    font-family: var(--type);
+    z-index: 10;
+  }
+  .skip:focus {
+    top: 0.5rem;
+  }
+  a {
+    color: var(--ink);
+  }
+  a:focus-visible {
+    outline: 3px solid var(--stamp-red);
+    outline-offset: 3px;
+  }
+
+  /* ---------- header ---------- */
+  .top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 1rem;
+    border-bottom: 1px dotted var(--rule);
+  }
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+    font-family: var(--stamp-face);
+    font-size: 1.5rem;
+    letter-spacing: 0.08em;
+    text-decoration: none;
+  }
+  .top-nav {
+    display: flex;
+    gap: 0.25rem;
+  }
+  .top-nav a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    padding: 0 0.75rem;
+    font-family: var(--type);
+    font-size: 0.875rem;
+    text-decoration: none;
+    text-underline-offset: 0.2em;
+  }
+  .top-nav a:hover,
+  .top-nav a:active {
+    text-decoration: underline;
+  }
+
+  /* ---------- type ---------- */
+  .eyebrow {
+    margin: 0 0 0.5rem;
+    font-family: var(--type);
+    font-size: 0.8125rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+  h1 {
+    margin: 0 0 1rem;
+    font-family: var(--serif);
+    font-variation-settings: 'opsz' 144;
+    font-weight: 500;
+    font-size: clamp(2.5rem, 11vw, 5rem);
+    line-height: 1;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+  }
+  h2 {
+    margin: 0 0 0.75rem;
+    font-family: var(--serif);
+    font-variation-settings: 'opsz' 72;
+    font-weight: 500;
+    font-size: clamp(1.75rem, 6vw, 2.5rem);
+    line-height: 1.05;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+  .lede {
+    margin: 0 0 0.75rem;
+    font-size: 1.125rem;
+    font-variation-settings: 'opsz' 20;
+    line-height: 1.4;
+  }
+  .body {
+    margin: 0 0 1rem;
+    max-width: 38rem;
+  }
+  .note {
+    margin: 0.75rem 0 0;
+    font-family: var(--type);
+    font-size: 0.8125rem;
+    line-height: 1.45;
+    color: var(--ink-soft);
+  }
+
+  .hero {
+    padding: 2rem 1rem 1.5rem;
+    max-width: 44rem;
+  }
+
+  /* ---------- passport pages ---------- */
+  .passport {
+    padding: 0.5rem 0.75rem 0;
+  }
+  .page {
+    position: relative;
+    min-width: 0;
+    overflow-x: clip;
+    padding: 1rem 0.875rem 1.25rem;
+    background: var(--page);
+    border: 1px solid var(--ink-faint);
+    box-shadow:
+      inset 0 0 0 4px var(--page),
+      inset 0 0 0 5px var(--ink-faint);
+  }
+  .page-head {
+    padding: 0.25rem 0 0.75rem;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 0.25rem;
+  }
+  .page-title {
+    margin: 0;
+    font-family: var(--stamp-face);
+    font-weight: 400;
+    font-size: 3rem;
+    line-height: 0.95;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .page-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1rem;
+    margin: 0.5rem 0 0;
+    font-family: var(--type);
+    font-size: 0.8125rem;
+    color: var(--ink-soft);
+  }
+  .page-violations {
+    color: var(--stamp-red);
+  }
+
+  .block {
+    padding-top: 0.5rem;
+  }
+  .rows {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) fit-content(60%);
+    gap: 0.5rem;
+    align-items: center;
+    min-height: 3.5rem;
+    padding: 0.5rem 0;
+    border-bottom: 1px dotted var(--rule);
+  }
+  .key {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-width: 0;
+    font-family: var(--type);
+  }
+  .key-name {
+    font-size: 0.875rem;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+  .key-rule {
+    font-size: 0.75rem;
+    line-height: 1.3;
+    color: var(--ink-soft);
+  }
+  .mark {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+  .value {
+    font-family: var(--type);
+    font-size: 0.8125rem;
+    line-height: 1.3;
+    text-align: right;
+    overflow-wrap: anywhere;
+    min-width: 0;
+  }
+  .block .note {
+    margin: 0.5rem 0 0.25rem;
+  }
+
+  /* ---------- stamps ---------- */
+  .stamp {
+    --stamp-ink: var(--stamp-blue);
+    --op: 0.92;
+    /* Declared here, not on :root, so var(--i) resolves per stamp. */
+    --slam-delay: min(calc(var(--i, 0) * 70ms), 1400ms);
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.75rem;
+    padding: 0.25rem 0.625rem;
+    max-inline-size: 8.75rem;
+    font-family: var(--stamp-face);
+    font-weight: 400;
+    font-size: 1.25rem;
+    line-height: 0.95;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    text-align: center;
+    color: var(--stamp-ink);
+    border: 3px double currentColor;
+    border-radius: 0.375rem;
+    opacity: var(--op);
+    mix-blend-mode: multiply;
+    filter: url(#ink);
+    transform: rotate(var(--rot, 0deg));
+    animation: slam 180ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+    animation-delay: var(--slam-delay);
+    flex-shrink: 0;
+  }
+  /* Ink bleed: a blurred second impression behind the stamp, fading in on landing. */
+  .stamp::before {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    border: 2px solid currentColor;
+    border-radius: inherit;
+    filter: blur(2px);
+    opacity: 0;
+    z-index: -1;
+    animation: bleed 300ms ease-out both;
+    animation-delay: calc(var(--slam-delay) + 180ms);
+  }
+  .stamp-absent,
+  .stamp-forbidden {
+    --stamp-ink: var(--stamp-grey);
+    --op: 0.95;
+  }
+  .stamp-missing {
+    --stamp-ink: var(--stamp-red);
+    --op: 0.95;
+  }
+  .stamp-draft {
+    --stamp-ink: var(--stamp-grey);
+    --op: 1;
+    border: 1px dashed currentColor;
+    filter: none;
+    mix-blend-mode: normal;
+  }
+  .stamp-draft::before {
+    display: none;
+  }
+
+  @keyframes slam {
+    from {
+      transform: scale(1.6) rotate(var(--rot, 0deg));
+      opacity: 0;
+    }
+    to {
+      transform: scale(1) rotate(var(--rot, 0deg));
+      opacity: var(--op);
+    }
+  }
+  @keyframes bleed {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 0.4;
+    }
+  }
+
+  /* Page turn: a gutter with the fold shadow. */
+  .turn {
+    height: 1.75rem;
+    background: linear-gradient(
+      to bottom,
+      oklch(0.3 0.05 260 / 0.16),
+      transparent 40%,
+      transparent 60%,
+      oklch(0.3 0.05 260 / 0.16)
+    );
+  }
+  .passport-foot {
+    margin: 0.75rem 0 0;
+    padding: 0 1rem;
+    font-family: var(--type);
+    font-size: 0.8125rem;
+    color: var(--ink-soft);
+    text-align: center;
+  }
+
+  /* ---------- back matter ---------- */
+  .sheet {
+    max-width: 44rem;
+    padding: 2.25rem 1rem 0;
+    min-width: 0;
+  }
+  .type {
+    margin: 0;
+    padding: 0.875rem 1rem;
+    max-width: 100%;
+    overflow-x: auto;
+    font-family: var(--type);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: var(--ink);
+    background: var(--page);
+    border: 1px dotted var(--rule);
+    tab-size: 2;
+  }
+  .type code {
+    font-family: inherit;
+  }
+  .type:focus-visible {
+    outline: 3px solid var(--stamp-red);
+    outline-offset: 2px;
+  }
+  .visa-block {
+    position: relative;
+    display: grid;
+    gap: 0.75rem;
+    min-width: 0;
+    padding-bottom: 3.25rem;
+    /* The visa stamp slams in at 1.6x; keep that from widening the page. */
+    overflow-x: clip;
+  }
+  /* Pressed over the bottom edge of the reveal block, clear of the command text. */
+  .stamp-visa {
+    position: absolute;
+    right: 0.75rem;
+    bottom: 0.25rem;
+    font-size: 1.625rem;
+    max-inline-size: none;
+    padding: 0.5rem 1rem;
+    pointer-events: none;
+  }
+  .entries {
+    margin: 0;
+    padding: 0;
+    font-family: var(--type);
+    font-size: 0.875rem;
+    line-height: 1.45;
+  }
+  .entry {
+    display: grid;
+    grid-template-columns: 6rem minmax(0, 1fr);
+    gap: 0.5rem;
+    padding: 0.5rem 0;
+    border-bottom: 1px dotted var(--rule);
+  }
+  .entry dt {
+    color: var(--ink-soft);
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+    padding-top: 0.15rem;
+  }
+  .entry dd {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  /* CTAs are stamps that are real links. */
+  .cta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.25rem 1.5rem;
+    padding: 0.5rem 0.25rem 0.75rem;
+  }
+  .stamp-link {
+    --op: 1;
+    min-height: 3.25rem;
+    padding: 0.5rem 1.25rem;
+    max-inline-size: none;
+    font-size: 1.625rem;
+    text-decoration: none;
+    animation: none;
+  }
+  .stamp-link::before {
+    animation: none;
+    opacity: 0.4;
+  }
+  .stamp-link-alt {
+    --stamp-ink: var(--ink);
+  }
+  .stamp-link:hover,
+  .stamp-link:active {
+    --op: 1;
+    text-decoration: underline;
+    text-underline-offset: 0.15em;
+  }
+  .cta .note a {
+    font-size: 0.9375rem;
+    display: inline-block;
+    min-height: 2.75rem;
+    line-height: 2.75rem;
+  }
+
+  /* ---------- footer ---------- */
+  .foot {
+    margin-top: 3rem;
+    padding: 1rem;
+    border-top: 1px dotted var(--rule);
+    font-family: var(--type);
+    font-size: 0.8125rem;
+    color: var(--ink-soft);
+  }
+  .foot p {
+    margin: 0;
+  }
+  .foot-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 1rem;
+  }
+  .foot-links a {
+    display: inline-block;
+    min-height: 2.75rem;
+    line-height: 2.75rem;
+  }
+
+  /* ---------- desktop: the passport opened flat ---------- */
+  @media (min-width: 64rem) {
+    .hero,
+    .sheet,
+    .passport-foot {
+      margin-inline: auto;
+      max-width: 72rem;
+      padding-inline: 2rem;
+    }
+    .hero .lede,
+    .hero .body {
+      max-width: 44rem;
+    }
+    .passport {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 1.5rem minmax(0, 1fr) 1.5rem minmax(0, 1fr);
+      max-width: 76rem;
+      margin-inline: auto;
+      padding: 0.5rem 2rem 0;
+    }
+    /* Read left to right as page 1, 2, 3; DOM order stays production-first for mobile. */
+    .page-development {
+      order: 1;
+    }
+    .turn-1 {
+      order: 2;
+    }
+    .page-staging {
+      order: 3;
+    }
+    .turn-2 {
+      order: 4;
+    }
+    .page-production {
+      order: 5;
+    }
+    .turn {
+      height: auto;
+      background: linear-gradient(
+        to right,
+        oklch(0.3 0.05 260 / 0.16),
+        transparent 40%,
+        transparent 60%,
+        oklch(0.3 0.05 260 / 0.16)
+      );
+    }
+    .row {
+      grid-template-columns: minmax(0, 1fr) fit-content(55%);
+    }
+  }
+
+  /* ---------- reduced motion ---------- */
+  @media (prefers-reduced-motion: reduce) {
+    .stamp,
+    .stamp::before {
+      animation: none;
+    }
+    .stamp::before {
+      opacity: 0.4;
+    }
+  }
+</style>
