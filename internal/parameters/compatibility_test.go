@@ -2,22 +2,34 @@ package parameters
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 )
 
 func TestEscapedReferencesRemainLiteral(t *testing.T) {
-	for _, tc := range []struct{ value, want string }{
-		{"$${UNKNOWN}", "${UNKNOWN}"},
-		{"$${", "${"},
-		{"$${not a name}", "${not a name}"},
-		{"$${NAME}/${NAME}", "${NAME}/123"},
-		{"$$${NAME}", "$${NAME}"},
+	for _, tc := range []struct {
+		value, want string
+		refs        []string
+	}{
+		{"$${UNKNOWN}", "${UNKNOWN}", nil},
+		{"$${", "${", nil},
+		{"$${not a name}", "${not a name}", nil},
+		{"$${NAME}/${NAME}", "${NAME}/123", []string{"NAME"}},
+		{"${NAME}", "123", []string{"NAME"}},
+		{"$$${NAME}", "$${NAME}", nil},
+		{"$$$${NAME}", "$$${NAME}", nil},
+		{"$$", "$$", nil},
+		{"$$plain$$", "$$plain$$", nil},
+		{"$$/${NAME}/$$", "$$/123/$$", []string{"NAME"}},
 	} {
 		t.Run(tc.value, func(t *testing.T) {
-			declarations := map[string]string{"NAME": "[0-9]+"}
-			if err := CheckReferences(tc.value, declarations); err != nil {
+			if err := CheckReferences(tc.value, map[string]string{"NAME": "[0-9]+"}); err != nil {
 				t.Fatal(err)
+			}
+			refs, err := References(tc.value)
+			if err != nil || !slices.Equal(refs, tc.refs) {
+				t.Fatalf("references = %v, %v; want %v", refs, err, tc.refs)
 			}
 			got, err := Resolve(tc.value, map[string]string{"NAME": "123"}, 256)
 			if err != nil || got != tc.want {

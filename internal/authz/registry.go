@@ -2254,7 +2254,7 @@ var operationTable = map[Operation]opSpec{
 		level:   domain.LevelEnv,
 		formula: Formula{{Cap: domain.CapRead, At: domain.LevelEnv}},
 		storeOps: map[StoreOp]bool{
-			StoreSnapshotsLatest: true, StoreSnapshotsParameterContract: true,
+			StoreEnvironmentParametersGet: true,
 			// Values().Get joins List because the `config` half of a copy and
 			// of a clone reads its material under THIS operation: `config`
 			// values are `read`-class material, so duplicating them needs no

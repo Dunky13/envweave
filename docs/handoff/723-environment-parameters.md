@@ -44,8 +44,8 @@ self-configuration keeps its bound snapshot check when reading that metadata.
 Parent owns combined verification, generated compatibility metadata, PostgreSQL
 suite, final review and delivery lifecycle.
 
-Clone-at-creation of config templates is refused atomically because the new
-destination has no parameter declarations. Use a concrete clone source, or
+Clone-at-creation of an environment with live parameter declarations is refused
+atomically because the new destination has no declarations. Use a concrete clone source, or
 create the destination, declare parameters and copy explicitly.
 
 ## PR #731 review corrections
@@ -54,16 +54,24 @@ create the destination, declare parameters and copy explicitly.
   values retain `${` literally across upgrade and subsequent publication.
 - `$${` escapes a literal opening when templating is active. First opt-in requires
   escaping legacy literal openings; refused publications preserve old delivery.
+  Any dollar immediately before `${` escapes it; `$$${NAME}` delivers literal
+  `$${NAME}`, and `$$` elsewhere stays unchanged. Adjacent literal-dollar plus
+  resolved-reference syntax is unsupported.
 - Caller-owned draft advisories expose `validation_deferred`; escaped-only values
   receive normal resolved schema validation before publication.
 - Stored contracts have semantic version 1, accept additive same-version metadata,
-  and reject unsupported versions. Unversioned snapshots retain the legacy
-  parser, including `$${NAME}` producing a dollar followed by the input.
+  and reject unsupported versions. Nonempty declarations or schemas require
+  version 1; pre-feature empty `{}` snapshots remain literal. The never-shipped
+  version-zero template parser and synthetic historical fixtures were removed.
 - Compiled whole-value RE2 patterns use a synchronized 128-entry FIFO cache.
 - Parameter deletion validates names directly and rejects `--pattern`, including
   an explicitly empty flag; service deletion also refuses a nonempty pattern.
-- Copy preflight and clone explicitly refuse losing a published source contract
-  in a zero-declaration destination, including escaped-only config syntax.
+- Copy reads committed live cells and current environment declarations. When
+  declarations exist, config `${` syntax, including escaped openings, requires
+  destination declarations before any secret is opened. Clone refuses any live
+  source declarations atomically. A previous snapshot cannot override these
+  checks; private pending drafts are not copy sources. Removing live declarations
+  restores literal copy semantics even while an older snapshot remains templated.
 
 Operator version compatibility: nonempty parameter inputs require a positive
 selected snapshot revision in every successful server response, including

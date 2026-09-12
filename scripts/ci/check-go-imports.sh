@@ -4,6 +4,8 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 files=()
 while IFS= read -r -d '' path; do
+	# An unstaged deletion remains in the index, but has no imports to check.
+	[[ -f "$path" ]] || continue
 	# Generated imports belong to their pinned generator. For example,
 	# controller-gen intentionally omits the metav1 alias goimports adds.
 	if ! grep -q '^// Code generated .*DO NOT EDIT' "$path"; then

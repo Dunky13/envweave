@@ -49,7 +49,11 @@ hikyo values publish --env "$preview_env" --versions <version-id-from-set>
 The key must already exist and be classified as `config`. Publication refuses
 undeclared or malformed references when the environment has at least one parameter
 declaration. Use `$${` to deliver a literal `${` in that environment, for example
-`$${PORT}` delivers `${PORT}`. Escapes and references are processed once. Only
+`$${PORT}` delivers `${PORT}`. Any dollar immediately before a `${` opening
+escapes that opening: `$$${NAME}` delivers literal `$${NAME}`, and `$$$${NAME}`
+delivers literal `$$${NAME}`. Repeated dollars elsewhere remain unchanged (`$$`
+delivers `$$`). There is no template spelling for a literal dollar immediately
+followed by a resolved reference. Escapes and references are processed once. Only
 literal text, escaped openings and `${NAME}` references are supported: no defaults, conditions, functions, cross-key lookup or recursive
 evaluation. A `secret` value containing `${NAME}` remains literal bytes.
 

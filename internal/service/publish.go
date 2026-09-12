@@ -1163,7 +1163,7 @@ func materialize(ctx context.Context, r store.Repos, p authz.Proof, sealer *cryp
 	if len(contractJSON) > parameters.MaxContractBytes {
 		return PublishedEnvironment{}, invalidDetail("environment parameter contract exceeds %d bytes", parameters.MaxContractBytes)
 	}
-	if err := groups.validateResolvedPublish(cells, string(scope.Env), contract); err != nil {
+	if err := groups.validateResolvedPublish(cells, string(scope.Env), contract.Declarations); err != nil {
 		return PublishedEnvironment{}, err
 	}
 	if err := validateSelfConfigCells(p, cells); err != nil {

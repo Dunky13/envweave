@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -118,24 +117,13 @@ func snapshotParameters(ctx context.Context, r store.SnapshotReader, p authz.Pro
 }
 
 // Same-version additive metadata is tolerated; unknown semantic versions fail
-// closed. Version zero preserves contracts already published by this release.
+// closed. Pre-feature empty contracts preserve literal snapshot values.
 func readSnapshotParameterContract(ctx context.Context, r store.SnapshotReader, p authz.Proof, snapshot store.Snapshot) (parameters.Contract, error) {
 	raw, err := r.ParameterContract(ctx, p, snapshot)
 	if err != nil {
 		return parameters.Contract{}, err
 	}
 	return decodeParameterContract(raw)
-}
-
-func copySourceParameterContract(ctx context.Context, r store.SnapshotReader, p authz.Proof) (parameters.Contract, error) {
-	snapshot, err := r.Latest(ctx, p)
-	if errors.Is(err, store.ErrNotFound) {
-		return parameters.Contract{}, nil
-	}
-	if err != nil {
-		return parameters.Contract{}, err
-	}
-	return readSnapshotParameterContract(ctx, r, p, snapshot)
 }
 
 func decodeParameterContract(raw string) (parameters.Contract, error) {
@@ -149,6 +137,9 @@ func decodeParameterContract(raw string) (parameters.Contract, error) {
 	if contract.Version != 0 && contract.Version != 1 {
 		return parameters.Contract{}, fmt.Errorf("service: unsupported parameter contract version %d", contract.Version)
 	}
+	if contract.Version != 1 && (len(contract.Declarations) != 0 || len(contract.Schemas) != 0) {
+		return parameters.Contract{}, fmt.Errorf("service: nonempty parameter contract requires version 1")
+	}
 	return *contract, nil
 }
 
@@ -160,11 +151,7 @@ func resolveConfig(contract parameters.Contract, supplied map[string]string, nam
 	if !templated {
 		return value, nil
 	}
-	resolve := parameters.Resolve
-	if contract.Version == 0 {
-		resolve = parameters.ResolveLegacy
-	}
-	resolved, err := resolve(value, supplied, schema.MaxValueBytes)
+	resolved, err := parameters.Resolve(value, supplied, schema.MaxValueBytes)
 	if err != nil {
 		return "", invalidDetail("key %q: %s", name, err)
 	}

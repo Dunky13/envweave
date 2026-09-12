@@ -112,8 +112,9 @@ hold. The implementation above was pushed as `ce795929`. Its native Kubernetes
 acceptance job passed in CI, superseding the workstation-only limitation above.
 
 Review fixes preserve literal `${...}` config in environments without declared
-parameters, add `$${` escaping to version-1 template contracts, and preserve
-version-0 snapshot rendering and pin validation. Clone/copy paths explicitly
+parameters and add `$${` escaping to version-1 template contracts. Pre-feature
+empty contracts remain literal; no never-shipped template grammar is retained.
+Clone/copy paths explicitly
 refuse template sources without destination declarations. Owner draft advisories
 and the publish sheet identify schema validation deferred until fetch.
 
@@ -148,7 +149,7 @@ evidence is recorded with the PR follow-up; no merge is authorized.
 
 Remediation validation passed: affected Go packages (including full service,
 server, store and operator suites), `go vet ./...`, focused race regressions,
-SQLite/PostgreSQL parameter/export/grant/legacy-pin integrations, static audit
+SQLite/PostgreSQL parameter/export/grant integrations, static audit
 and authorization invariants, generated Go/SQL/CRD drift, chart/admission checks,
 TypeScript generation/typecheck/20 tests, web typecheck/960 tests, and docs checks.
 The real history browser flow passed 14 desktop cases (one mobile-only case
@@ -156,6 +157,39 @@ skipped) and all 15 mobile cases. Compose delivered 21 values byte-exactly and
 passed its refusal/doctor/sync cases. Gofmt and the new 1,292-file handwritten
 import check passed. Ordinary Standards and Spec reviews found no unresolved
 findings after compatibility corrections.
+
+### Second review round
+
+Copy and clone now inspect live source declarations and live config, matching
+the data they actually copy instead of consulting the last published contract.
+Pending user drafts remain outside the copy source. Template preflight opens no
+secret material and refuses an undeclared destination atomically.
+
+The version-0 template parser and its synthetic fixtures were removed: that
+format existed only on this unmerged branch and never shipped. Nonempty
+parameter contracts require version 1; old `{}` snapshots keep literal behavior.
+The guide and grammar tests state exactly how repeated dollar signs escape.
+
+Human export consent now reads immutable revision key metadata, without rendering
+config or emitting an export event. The actual export alone validates parameters
+and records the export event. The unused production `Export` convenience wrapper
+was removed and its test callers use `ExportWithParameters` directly.
+
+The regex cache is registered with its bounded key and authorization model. The
+closed audit-emission lifecycle now invokes a real parameterized export, fixing
+the two CI failures without exempting either invariant.
+
+Second-round validation passed: full SQLite isolation suite (1,653 tests and
+subtests; PostgreSQL and optional external fixtures skipped), service,
+conformance, API, server and CLI suites, parameter/authz unit tests, focused
+parameter and consent race checks, `go vet ./...`, docs verification, gofmt and
+1,293-file import formatting. The live copy/clone regressions and repaired cache
+and audit closure invariants passed separately on both SQLite and PostgreSQL.
+The broader PostgreSQL run was interrupted when the local Docker runtime stopped
+responding during a restore test; no assertion had failed. The owned disposable
+database was removed. Full PostgreSQL coverage remains assigned to PR CI.
+Ordinary Standards and Spec reviews found no remaining findings. Cross-provider
+review remains explicitly skipped, and merge remains on hold.
 
 Migrations 51 and 52 apply to SQLite and PostgreSQL. The generated development
 compatibility manifest includes both. Generated Go, TypeScript and CRD artifacts

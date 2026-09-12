@@ -108,15 +108,18 @@ Upgrade compatibility: template interpretation is opt-in per environment, enable
 only when its next publication captures at least one parameter declaration.
 Zero-declaration environments retain literal `${` and `$${` bytes, including on
 future publications after upgrade. With templating enabled, `$${` escapes a
-literal `${`; adding the first declaration requires escaping existing literal
+literal `${`. Any dollar immediately before `${` escapes that opening, so
+`$$${NAME}` delivers literal `$${NAME}`; dollars elsewhere are unchanged. The
+grammar cannot prefix a resolved reference with an adjacent literal dollar.
+Adding the first declaration requires escaping existing literal
 openings before publication. Frozen old snapshots retain their old behavior.
 Owner draft advisories expose `validation_deferred` for caller-dependent config
 schema checks. Structural validity is not a guarantee for all parameter inputs;
 escaped-only literals receive complete validation before publication.
 Stored contracts use semantic version 1, tolerate additive metadata at that
-version, and fail closed on unknown versions. Existing unversioned contracts
-retain their original parser: `$${NAME}` delivers a dollar followed by the
-parameter value. Version 1 introduces escapes without changing old snapshots. New semantic requirements must advance the version.
+version, and fail closed on unknown versions. Contracts with nonempty declarations
+or schemas require version 1. Pre-feature empty `{}` contracts keep all values
+literal. New semantic requirements must advance the version.
 
 Parameter declaration edits require project definitions-edit, serialize under
 the project lock, and advance definitions revision. They are database-managed

@@ -133,14 +133,7 @@ func References(value string) ([]string, error) {
 	_, err := transform(value, func(name string) (string, error) {
 		refs = append(refs, name)
 		return "", nil
-	}, -1, true)
-	return refs, err
-}
-
-// ReferencesLegacy parses the syntax frozen in unversioned contracts.
-func ReferencesLegacy(value string) ([]string, error) {
-	var refs []string
-	_, err := transform(value, func(name string) (string, error) { refs = append(refs, name); return "", nil }, -1, false)
+	}, -1)
 	return refs, err
 }
 
@@ -168,22 +161,10 @@ func Resolve(value string, supplied map[string]string, maxBytes int) (string, er
 			return "", fmt.Errorf("required parameter %s is missing", name)
 		}
 		return replacement, nil
-	}, maxBytes, true)
+	}, maxBytes)
 }
 
-// ResolveLegacy preserves immutable version-zero contracts, where a dollar
-// preceding ${NAME} was literal text rather than an escape.
-func ResolveLegacy(value string, supplied map[string]string, maxBytes int) (string, error) {
-	return transform(value, func(name string) (string, error) {
-		replacement, ok := supplied[name]
-		if !ok {
-			return "", fmt.Errorf("required parameter %s is missing", name)
-		}
-		return replacement, nil
-	}, maxBytes, false)
-}
-
-func transform(value string, replacement func(string) (string, error), maxBytes int, escapes bool) (string, error) {
+func transform(value string, replacement func(string) (string, error), maxBytes int) (string, error) {
 	var out strings.Builder
 	for len(value) > 0 {
 		index := strings.Index(value, "${")
@@ -191,7 +172,7 @@ func transform(value string, replacement func(string) (string, error), maxBytes 
 			out.WriteString(value)
 			break
 		}
-		if escapes && index > 0 && value[index-1] == '$' {
+		if index > 0 && value[index-1] == '$' {
 			out.WriteString(value[:index-1])
 			out.WriteString("${")
 			value = value[index+2:]

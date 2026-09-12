@@ -435,8 +435,8 @@ func runValues(ctx context.Context, ios IO, args []string) (returnErr error) {
 		// of the current list: a key added, deleted or reclassified since then
 		// would otherwise make the consent set differ from the exported set
 		// (api-cli-surface ADR line 144, "the full key set the export covers").
-		exportUnit := func(ctx context.Context, env string) ([]string, error) {
-			return exportSecretKeyIDs(ctx, client, project, base, env, revision, parameters)
+		exportUnit := func(ctx context.Context, _ string) ([]string, error) {
+			return exportSecretKeyIDs(ctx, client, base, revision)
 		}
 		if artifact.Kind() == AuthKindMachineCredential {
 			out, err = machineExport(ctx, client, base, reveal, revision, parameters)
@@ -776,45 +776,24 @@ func keyIDsOf(ctx context.Context, client *Client, projectBase, env string, clas
 }
 
 // exportSecretKeyIDs resolves an export's unit from the revision it covers:
-// the non-revealing export names the secret keys of that revision, and the
-// project catalogue maps names to ids. A key the catalogue no longer holds
-// cannot be bound and refuses by name rather than consenting to a narrower
-// set than the export would open.
-func exportSecretKeyIDs(ctx context.Context, client *Client, projectBase, envBase, env string, revision int64, parameters map[string]string) ([]string, error) {
-	body := apigen.ExportValuesRequest{}
-	if len(parameters) > 0 {
-		p := apigen.FetchParameters(parameters)
-		body.Parameters = &p
-	}
+// revision metadata carries the immutable snapshot key IDs and classifications.
+// Preparing consent must not render configs or count as an actual export;
+// required parameters are validated only by the export itself.
+func exportSecretKeyIDs(ctx context.Context, client *Client, envBase string, revision int64) ([]string, error) {
+	which := "latest"
 	if revision > 0 {
-		body.Revision = &revision
+		which = strconv.FormatInt(revision, 10)
 	}
-	var covered apigen.ExportedValues
-	if err := client.Do(ctx, http.MethodPost, envBase+"/values/export", body, &covered); err != nil {
+	var covered apigen.RevisionDetail
+	if err := client.Do(ctx, http.MethodGet, envBase+"/revisions/"+which, nil, &covered); err != nil {
 		return nil, err
 	}
-	var catalogue apigen.KeyList
-	if err := client.Do(ctx, http.MethodGet, projectBase+"/keys", nil, &catalogue); err != nil {
-		return nil, err
-	}
-	ids := map[string]string{}
-	for _, k := range catalogue.Items {
-		ids[string(k.Name)] = string(k.Id)
-	}
-	var out, missing []string
-	for _, item := range covered.Items {
+	var out []string
+	for _, item := range covered.Keys {
 		if item.Classification != apigen.KeyClassificationSecret {
 			continue
 		}
-		id, ok := ids[string(item.Name)]
-		if !ok {
-			missing = append(missing, string(item.Name))
-			continue
-		}
-		out = append(out, id)
-	}
-	if len(missing) > 0 {
-		return nil, failf(ExitRefused, "the export covers secret key(s) the catalogue no longer declares (%s); a ceremony cannot be bound to them - export the current revision, or reveal in the browser", strings.Join(missing, ", "))
+		out = append(out, string(item.KeyId))
 	}
 	return out, nil
 }

@@ -413,7 +413,7 @@ func validatePinnedSnapshot(ctx context.Context, r store.Repos, p authz.Proof, s
 	if err != nil {
 		return err
 	}
-	return index.validateResolvedPublish(cells, string(scope.Env), contract)
+	return index.validateResolvedPublish(cells, string(scope.Env), contract.Declarations)
 }
 
 func pinnedHistoricalSecrets(ctx context.Context, r store.Repos, p authz.Proof,

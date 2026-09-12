@@ -1010,6 +1010,13 @@ var caches = map[string]Cache{
 		KeyConstructor: "singleton: github.com/Hikyo-Org/hikyo releases",
 		ProofGatedAt:   "not proof-gated: public release metadata; endpoint authorization precedes access",
 	},
+	"parameters.patterns": {
+		// Compiled RE2 programs are pure functions of bounded public pattern
+		// text. Entries contain no values, tenant identifiers or authorization
+		// decisions; reuse cannot disclose another environment's contract.
+		KeyConstructor: "internal/parameters.compiledPattern: byte-exact pattern string",
+		ProofGatedAt:   "stored declarations require service authorization; caller-supplied syntax may compile before authorization; pure compiled programs contain no tenant results and are bounded to 128 entries",
+	},
 	"selfupdate.nightly-downloads": {
 		// On-disk directories under the operator CLI state directory, one per
 		// verified nightly, named by the signed release manifest digest

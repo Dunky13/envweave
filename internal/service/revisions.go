@@ -56,7 +56,7 @@ type RevisionDetail struct {
 }
 
 // SnapshotKey is one delivered key of one snapshot, without its value. The
-// value lives behind Export and its formula; a browse verb never emits one.
+// value lives behind ExportWithParameters and its formula; a browse verb never emits one.
 type SnapshotKey struct {
 	KeyID          string
 	Name           string
@@ -405,7 +405,7 @@ type revisionExportResult struct {
 	revision int64
 }
 
-// Export is the one bulk-disclosure verb: the resolved snapshot of one
+// ExportWithParameters is the bulk-disclosure verb: the resolved snapshot of one
 // environment, from committed state, never from live values.
 //
 // FORMULA, stated separately because the capabilities imply nothing about each
@@ -414,10 +414,6 @@ type revisionExportResult struct {
 // A human session additionally runs the ceremony, which enumerates exactly the
 // key set the export covers before any ciphertext is opened, and one audit
 // event is written per disclosed key. Never "exported N secrets" as one row.
-func (s *Revisions) Export(ctx context.Context, actor Actor, scope domain.Scope, revision int64, reveal bool) ([]ExportedValue, int64, error) {
-	return s.ExportWithParameters(ctx, actor, scope, revision, reveal, nil)
-}
-
 func (s *Revisions) ExportWithParameters(ctx context.Context, actor Actor, scope domain.Scope, revision int64, reveal bool, supplied map[string]string) ([]ExportedValue, int64, error) {
 	if s.Keyring == nil {
 		return nil, 0, errors.New("service: value export requires a keyring")

@@ -1107,11 +1107,22 @@ func runValueLifecycle(t *testing.T, db *store.DB, actor service.Actor, who doma
 	// need a real emitter behind them here — value.staged for the draft,
 	// revision.published for the materialization it commits.
 	revisions := &service.Revisions{DB: db, Keyring: kr}
+	if err := envs.SetParameter(ctx, actor, sourceScope, "AUDIT_INPUT", "^[0-9]+$", false); err != nil {
+		t.Fatal(err)
+	}
 	staged, err := values.Set(ctx, actor, sourceScope, key.Name, "audited-material", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := revisions.PublishPlanned(ctx, actor, sourceScope, service.PublishRequest{VersionIDs: []string{staged.VersionID}}); err != nil {
+		t.Fatal(err)
+	}
+	// Exercise the real public-input export emitter before the registry's
+	// closed-world assertion. Declaring an event alone must never satisfy it.
+	if _, _, err := revisions.ExportWithParameters(ctx, actor, sourceScope, 0, false, map[string]string{"AUDIT_INPUT": "123"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := envs.SetParameter(ctx, actor, sourceScope, "AUDIT_INPUT", "", true); err != nil {
 		t.Fatal(err)
 	}
 	// Rollback and pin lifecycle (#52): restore stages ordinary drafts; pin
