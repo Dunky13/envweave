@@ -1,6 +1,7 @@
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -143,6 +144,14 @@ type Target struct {
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
 	Name string `json:"name"`
 
+	// Type is the native Kubernetes Secret type. Changing it while the target
+	// exists is refused; the operator never recreates a Secret to change type.
+	//
+	// +optional
+	// +kubebuilder:default=Opaque
+	// +kubebuilder:validation:Enum=Opaque;kubernetes.io/dockerconfigjson;kubernetes.io/tls;kubernetes.io/basic-auth;kubernetes.io/ssh-auth
+	Type corev1.SecretType `json:"type,omitempty"`
+
 	// +optional
 	// +kubebuilder:default=Owner
 	CreationPolicy CreationPolicy `json:"creationPolicy,omitempty"`
@@ -153,6 +162,13 @@ type Target struct {
 // Secret target and policy, the projection and the loader-control
 // acknowledgement.
 type HikyoSecretSpec struct {
+	// Parameters supplies public config identifiers for the immutable fetched
+	// snapshot contract. Values are recorded in Hikyo audit events; never use secrets.
+	// +optional
+	// +kubebuilder:validation:MaxProperties=32
+	// +kubebuilder:validation:XValidation:rule="self.all(k, k.matches('^[A-Z][A-Z0-9_]{0,63}$') && size(self[k]) <= 256)",message="parameter names must be uppercase identifiers and values at most 256 characters"
+	Parameters map[string]string `json:"parameters,omitempty"`
+
 	InstanceRef InstanceRef `json:"instanceRef"`
 	Auth        AuthRef     `json:"auth"`
 	Scope       Scope       `json:"scope"`

@@ -611,16 +611,16 @@ func TestInvariant06aFormulaPinning(t *testing.T) {
 var selfConfigSharedDoors = map[authz.StoreOp]bool{
 	authz.StoreSelfConfigRollout: true, authz.StoreSelfConfigPutRollout: true, authz.StoreSelfConfigNextRolloutSequence: true,
 	authz.StoreSelfConfigBinding: true, authz.StoreSelfConfigJobs: true, authz.StoreSelfConfigJob: true, authz.StoreSelfConfigNodes: true, authz.StoreSelfConfigRetained: true, authz.StoreSelfConfigFinishJob: true,
-	authz.StoreSnapshotsAtRevision: true, authz.StoreSnapshotsEntries: true, authz.StoreCatalogueList: true, authz.StoreCatalogueRevisionGet: true, authz.StoreAuditTenantInsert: true,
+	authz.StoreSnapshotsAtRevision: true, authz.StoreSnapshotsEntries: true, authz.StoreSnapshotsParameterContract: true, authz.StoreCatalogueList: true, authz.StoreCatalogueRevisionGet: true, authz.StoreAuditTenantInsert: true,
 }
 var selfConfigRuntimeDoors = map[authz.StoreOp]bool{
 	authz.StoreSelfConfigPreviousRevision: true, authz.StoreSelfConfigRollout: true, authz.StoreSelfConfigPutRollout: true, authz.StoreSelfConfigNextRolloutSequence: true,
 	authz.StoreSelfConfigBinding: true, authz.StoreSelfConfigJobs: true, authz.StoreSelfConfigJob: true, authz.StoreSelfConfigNodes: true, authz.StoreSelfConfigRetained: true, authz.StoreSelfConfigPutNode: true, authz.StoreSelfConfigFinishJob: true, authz.StoreSelfConfigFenceRestored: true,
-	authz.StoreSnapshotsAtRevision: true, authz.StoreSnapshotsEntries: true, authz.StoreCatalogueList: true, authz.StoreCatalogueRevisionGet: true, authz.StoreAuditTenantInsert: true,
+	authz.StoreSnapshotsAtRevision: true, authz.StoreSnapshotsEntries: true, authz.StoreSnapshotsParameterContract: true, authz.StoreCatalogueList: true, authz.StoreCatalogueRevisionGet: true, authz.StoreAuditTenantInsert: true,
 }
 var selfConfigRecoveryDoors = map[authz.StoreOp]bool{
 	authz.StoreSelfConfigBinding: true, authz.StoreSelfConfigJobs: true, authz.StoreSelfConfigNodes: true, authz.StoreSelfConfigRetained: true, authz.StoreSelfConfigRecoverTarget: true,
-	authz.StoreSnapshotsAtRevision: true, authz.StoreSnapshotsEntries: true, authz.StoreCatalogueList: true, authz.StoreCatalogueRevisionGet: true, authz.StoreAuditTenantInsert: true,
+	authz.StoreSnapshotsAtRevision: true, authz.StoreSnapshotsEntries: true, authz.StoreSnapshotsParameterContract: true, authz.StoreCatalogueList: true, authz.StoreCatalogueRevisionGet: true, authz.StoreAuditTenantInsert: true,
 }
 
 var selfConfigSeedDoors = map[authz.StoreOp]bool{

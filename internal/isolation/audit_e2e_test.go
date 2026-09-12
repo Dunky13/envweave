@@ -437,6 +437,13 @@ func runAuditSuite(t *testing.T, db *store.DB) {
 		if _, err := envs.Create(tctx(t), service.LocalPrincipal(alice), domain.Scope{Org: orgA, Project: prjA1}, "audited-env", nil); err != nil {
 			t.Fatal(err)
 		}
+		parameterScope := domain.Scope{Org: orgA, Project: prjA1, Env: envA1}
+		if err := envs.SetParameter(tctx(t), service.LocalPrincipal(alice), parameterScope, "AUDIT_INPUT", "^[0-9]+$", false); err != nil {
+			t.Fatal(err)
+		}
+		if err := envs.SetParameter(tctx(t), service.LocalPrincipal(alice), parameterScope, "AUDIT_INPUT", "", true); err != nil {
+			t.Fatal(err)
+		}
 		retentionNow := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
 		retention := &service.Retention{DB: db, Now: func() time.Time { return retentionNow }}
 		if _, err := retention.SetOrg(tctx(t), service.LocalPrincipal(orgAdmin), orgA, service.RetentionPolicy{

@@ -156,13 +156,13 @@ HIKYOSECRETS = rule(["hikyo.dev"], ["hikyosecrets"], ["get", "list", "watch", "p
 STATUS = rule(["hikyo.dev"], ["hikyosecrets/status"], ["update", "patch"])
 FINALIZERS = rule(["hikyo.dev"], ["hikyosecrets/finalizers"], ["update"])
 EVENTS = rule([""], ["events"], ["create", "patch"])
-SECRETS = rule([""], ["secrets"], ["get", "create", "update", "patch"])
+SECRETS = rule([""], ["secrets"], ["get", "create", "update", "patch", "delete"])
 WORKLOAD = rule(["apps"], ["deployments", "statefulsets", "daemonsets"], ["get", "list", "watch", "patch"])
 SERVICEACCOUNTS = rule([""], ["serviceaccounts"], ["get"])
 
 # Cluster-scoped reads that always live on the ClusterRole.
 CLUSTER_READS = [INSTANCES, CRD]
-# Per-CR converge rules; secrets is get/create/update/patch ONLY (never list/watch).
+# Per-CR converge rules; secrets is get/create/update/patch/delete ONLY (never list/watch).
 CONVERGE = [HIKYOSECRETS, STATUS, FINALIZERS, EVENTS, SECRETS, SERVICEACCOUNTS]
 
 def assert_rbac_inventory(docs, expected, mode):

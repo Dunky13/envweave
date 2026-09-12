@@ -65,12 +65,14 @@ func runValues(ctx context.Context, ios IO, args []string) (returnErr error) {
 	var revision int64
 	var clear, reveal, stdin, dangerous, confirmProtected bool
 	var outputFile string
+	parameters := map[string]string{}
 	st, flags, err := parseCommon("values "+sub, ios, rest, func(fs *flag.FlagSet) {
 		// `export` is an export PATH, so its payload encoding is `--format`
 		// (api-cli-surface ADR: `--format` names the payload on export paths, `-o`
 		// names the envelope on browse paths). Every other verb here is a browse
 		// path and takes `-o`.
 		if sub == "export" {
+			fs.Func("param", "public fetch parameter NAME=value (repeatable; never supply secrets)", parameterFlag(parameters))
 			fs.StringVar(&exportFormat, "format", "table", "payload format: table, json, or dotenv")
 		} else {
 			fs.StringVar(&format, "o", "table", "output format: table or json")
@@ -417,6 +419,10 @@ func runValues(ctx context.Context, ios IO, args []string) (returnErr error) {
 			return err
 		}
 		body := apigen.ExportValuesRequest{}
+		if len(parameters) > 0 {
+			p := apigen.FetchParameters(parameters)
+			body.Parameters = &p
+		}
 		if reveal {
 			body.Reveal = &reveal
 		}
@@ -430,12 +436,19 @@ func runValues(ctx context.Context, ios IO, args []string) (returnErr error) {
 		// would otherwise make the consent set differ from the exported set
 		// (api-cli-surface ADR line 144, "the full key set the export covers").
 		exportUnit := func(ctx context.Context, env string) ([]string, error) {
-			return exportSecretKeyIDs(ctx, client, project, base, env, revision)
+			return exportSecretKeyIDs(ctx, client, project, base, env, revision, parameters)
 		}
-		if err := ceremony([]string{exportEnv}, disclosure{purpose: "reveal", keys: exportUnit}, func() error {
-			return client.Do(ctx, http.MethodPost, base+"/values/export", body, &out)
-		}); err != nil {
-			return err
+		if artifact.Kind() == AuthKindMachineCredential {
+			out, err = machineExport(ctx, client, base, reveal, revision, parameters)
+			if err != nil {
+				return err
+			}
+		} else {
+			if err := ceremony([]string{exportEnv}, disclosure{purpose: "reveal", keys: exportUnit}, func() error {
+				return client.Do(ctx, http.MethodPost, base+"/values/export", body, &out)
+			}); err != nil {
+				return err
+			}
 		}
 		if dotenvExport {
 			return exportDotenv(ios, out, reveal, sink)
@@ -767,8 +780,12 @@ func keyIDsOf(ctx context.Context, client *Client, projectBase, env string, clas
 // project catalogue maps names to ids. A key the catalogue no longer holds
 // cannot be bound and refuses by name rather than consenting to a narrower
 // set than the export would open.
-func exportSecretKeyIDs(ctx context.Context, client *Client, projectBase, envBase, env string, revision int64) ([]string, error) {
+func exportSecretKeyIDs(ctx context.Context, client *Client, projectBase, envBase, env string, revision int64, parameters map[string]string) ([]string, error) {
 	body := apigen.ExportValuesRequest{}
+	if len(parameters) > 0 {
+		p := apigen.FetchParameters(parameters)
+		body.Parameters = &p
+	}
 	if revision > 0 {
 		body.Revision = &revision
 	}

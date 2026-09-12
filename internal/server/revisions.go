@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"net/http"
@@ -386,8 +387,18 @@ func (a *API) ExportValues(ctx context.Context, req apigen.ExportValuesRequestOb
 		}
 		reveal = derefBool(req.Body.Reveal)
 	}
-	values, served, err := a.Revisions.Export(ctx, service.Bearer(bearer(ctx)),
-		envScope(req.Org, req.Project, req.Environment), revision, reveal)
+	var values []service.ExportedValue
+	var served int64
+	var err error
+	if req.Body != nil && req.Body.Parameters != nil && len(*req.Body.Parameters) > 0 {
+		exporter, ok := a.Revisions.(parameterizedExportService)
+		if !ok {
+			return nil, errors.New("server: parameterized export service is not wired")
+		}
+		values, served, err = exporter.ExportWithParameters(ctx, service.Bearer(bearer(ctx)), envScope(req.Org, req.Project, req.Environment), revision, reveal, *req.Body.Parameters)
+	} else {
+		values, served, err = a.Revisions.Export(ctx, service.Bearer(bearer(ctx)), envScope(req.Org, req.Project, req.Environment), revision, reveal)
+	}
 	if err != nil {
 		return nil, err
 	}

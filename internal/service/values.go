@@ -12,6 +12,7 @@ import (
 	"github.com/Hikyo-Org/hikyo/internal/authz"
 	"github.com/Hikyo-Org/hikyo/internal/crypto"
 	"github.com/Hikyo-Org/hikyo/internal/domain"
+	"github.com/Hikyo-Org/hikyo/internal/parameters"
 	"github.com/Hikyo-Org/hikyo/internal/scanning"
 	"github.com/Hikyo-Org/hikyo/internal/schema"
 	"github.com/Hikyo-Org/hikyo/internal/store"
@@ -338,6 +339,19 @@ func presenceOfKey(key store.CatalogueKey, rows []store.KeyPresence) schema.Pres
 // delivers — so an invalid value is refused HERE, not deferred to a publish
 // that does not exist yet.
 func validateValue(key store.CatalogueKey, value string) error {
+	if key.Classification == string(schema.Config) && strings.Contains(value, "${") {
+		if len(value) > schema.MaxValueBytes {
+			return invalidDetail("key %q exceeds the value byte limit", key.Name)
+		}
+		if _, err := parameters.References(value); err != nil {
+			return invalidDetail("key %q: %s", key.Name, err)
+		}
+		return nil // Complete validation runs after bounded substitution at fetch.
+	}
+	return validateLiteralValue(key, value)
+}
+
+func validateLiteralValue(key store.CatalogueKey, value string) error {
 	decl, err := schema.ParseDeclaration([]byte(key.Declaration))
 	if err != nil {
 		return fmt.Errorf("service: key %s: stored declaration unreadable: %w", key.ID, err)

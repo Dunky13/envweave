@@ -20,6 +20,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/Hikyo-Org/hikyo/internal/audit"
 )
 
 // pathPrefix mirrors api.PathPrefix ("/api/v1"). Duplicated as a const so the
@@ -77,6 +79,7 @@ type FetchRequest struct {
 	Cursor                    string
 	Projection                string
 	AcknowledgedKeys          []string
+	Parameters                map[string]string
 	// Bearer is presented as `Authorization: Bearer <token>`, only to the bound
 	// origin — the redirect guard keeps it off any other host.
 	Bearer string
@@ -260,6 +263,13 @@ func (c *Client) Fetch(ctx context.Context, r FetchRequest) (*DeliveryResponse, 
 	// validator — an omitted parameter is the wire encoding of "no acknowledged
 	// keys", which the server records as the empty list all the same (§ 0.6).
 	// form/explode:false → comma-joined when present.
+	if len(r.Parameters) > 0 {
+		raw, err := json.Marshal(r.Parameters)
+		if err != nil {
+			return nil, OutcomeFetchFailed, err
+		}
+		q.Set("parameters", string(raw))
+	}
 	if len(r.AcknowledgedKeys) > 0 {
 		q.Set("acknowledged_keys", strings.Join(r.AcknowledgedKeys, ","))
 	}
@@ -301,6 +311,22 @@ func (c *Client) Fetch(ctx context.Context, r FetchRequest) (*DeliveryResponse, 
 			return nil, OutcomeFetchFailed, fmt.Errorf("operator client: %w", err)
 		}
 		return out, OutcomeOK, nil
+	case resp.StatusCode == http.StatusBadRequest:
+		// Only the typed bad_request detail is caller-safe. Never relay bodies,
+		// unknown error shapes or non-validation responses into Kubernetes events.
+		payload, err := io.ReadAll(io.LimitReader(resp.Body, (16<<10)+1))
+		if err == nil && len(payload) <= 16<<10 {
+			var envelope struct {
+				Error struct {
+					Code   string  `json:"code"`
+					Detail *string `json:"detail"`
+				} `json:"error"`
+			}
+			if json.Unmarshal(payload, &envelope) == nil && envelope.Error.Code == "bad_request" && envelope.Error.Detail != nil && *envelope.Error.Detail != "" {
+				return nil, OutcomeFetchFailed, fmt.Errorf("operator client: invalid fetch parameters: %s", audit.SanitizeFreeText(*envelope.Error.Detail))
+			}
+		}
+		return nil, OutcomeFetchFailed, fmt.Errorf("operator client: fetch validation failed (400)")
 	case resp.StatusCode == http.StatusNotFound:
 		return nil, OutcomeScrub, fmt.Errorf("operator client: authoritative refusal (404): scope nonexistent or read withdrawn")
 	case resp.StatusCode == http.StatusConflict:

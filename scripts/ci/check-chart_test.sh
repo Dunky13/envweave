@@ -37,7 +37,7 @@ refute 'missing operator runAsNonRoot' \
 # verb check exists to catch).
 refute 'secrets list/watch' \
 	templates/_helpers.tpl \
-	's/\["get", "create", "update", "patch"\]/["get", "list", "watch", "create", "update", "patch"]/'
+	's/\["get", "create", "update", "patch", "delete"\]/["get", "list", "watch", "create", "update", "patch", "delete"]/'
 
 # Change the operator container args away from the pinned [operator] multicall.
 refute 'operator args tampered' \

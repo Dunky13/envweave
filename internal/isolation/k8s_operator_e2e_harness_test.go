@@ -479,6 +479,7 @@ type crSpec struct {
 	mapping        [][2]string // {sourceKey, secretKey}
 	projection     hikyov1.Projection
 	policy         hikyov1.CreationPolicy
+	secretType     corev1.SecretType
 }
 
 func (e *opEnv) createCR(s crSpec) *hikyov1.HikyoSecret {
@@ -487,7 +488,7 @@ func (e *opEnv) createCR(s crSpec) *hikyov1.HikyoSecret {
 		Spec: hikyov1.HikyoSecretSpec{
 			InstanceRef: hikyov1.InstanceRef{Name: instanceName},
 			Scope:       hikyov1.Scope{Org: e2eOrg, Project: e2ePrj, Environment: e2eEnv},
-			Target:      hikyov1.Target{Name: s.target},
+			Target:      hikyov1.Target{Name: s.target, Type: s.secretType},
 		},
 	}
 	if s.secretRef != "" {

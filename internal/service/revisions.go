@@ -409,6 +409,10 @@ type revisionExportResult struct {
 // key set the export covers before any ciphertext is opened, and one audit
 // event is written per disclosed key. Never "exported N secrets" as one row.
 func (s *Revisions) Export(ctx context.Context, actor Actor, scope domain.Scope, revision int64, reveal bool) ([]ExportedValue, int64, error) {
+	return s.ExportWithParameters(ctx, actor, scope, revision, reveal, nil)
+}
+
+func (s *Revisions) ExportWithParameters(ctx context.Context, actor Actor, scope domain.Scope, revision int64, reveal bool, supplied map[string]string) ([]ExportedValue, int64, error) {
 	if s.Keyring == nil {
 		return nil, 0, errors.New("service: value export requires a keyring")
 	}
@@ -483,6 +487,10 @@ func (s *Revisions) Export(ctx context.Context, actor Actor, scope domain.Scope,
 		if err != nil {
 			return revisionExportResult{}, err
 		}
+		contract, err := snapshotParameters(ctx, r.Snapshots(), p, snapshot, supplied)
+		if err != nil {
+			return revisionExportResult{}, err
+		}
 		if reveal {
 			unit := make([]string, 0, len(entries))
 			for _, entry := range entries {
@@ -495,6 +503,7 @@ func (s *Revisions) Export(ctx context.Context, actor Actor, scope domain.Scope,
 				return revisionExportResult{}, err
 			}
 		}
+		renderBytes := 0
 		for _, entry := range entries {
 			value := ExportedValue{Name: entry.KeyName, Classification: entry.Classification}
 			if entry.Classification == string(schema.Config) || reveal {
@@ -503,18 +512,27 @@ func (s *Revisions) Export(ctx context.Context, actor Actor, scope domain.Scope,
 				if err != nil {
 					return revisionExportResult{}, fmt.Errorf("service: snapshot entry %s: %w", entry.ID, err)
 				}
-				value.Value, value.Revealed = string(plain), true
+				resolved, err := resolveConfig(contract, supplied, entry.KeyName, entry.Classification, string(plain))
+				if err != nil {
+					return revisionExportResult{}, err
+				}
+				renderBytes += len(resolved)
+				if renderBytes > MaxRenderBytesPerTarget {
+					return revisionExportResult{}, invalidDetail("resolved environment exceeds the per-target render limit")
+				}
+				value.Value, value.Revealed = resolved, true
 			}
 			result.values = append(result.values, value)
-			if entry.Classification != string(schema.Secret) || !value.Revealed {
+			if !value.Revealed {
 				continue
 			}
 			ev, err := domainEvent(ctx, audit.EventValueRevealed, caller.Principal,
 				audit.Object{Type: "key", ID: entry.KeyID}, audit.Payload{
-					"key_id":   entry.KeyID,
-					"name":     audit.SanitizeFreeText(entry.KeyName),
-					"surface":  "export",
-					"revision": snapshot.Revision,
+					"key_id":     entry.KeyID,
+					"name":       audit.SanitizeFreeText(entry.KeyName),
+					"surface":    "export",
+					"parameters": auditedParameters(supplied),
+					"revision":   snapshot.Revision,
 				})
 			if err != nil {
 				return revisionExportResult{}, err
@@ -704,21 +722,15 @@ func pendingDraftView(change store.PendingChange, key store.CatalogueKey, presen
 	// Only the owner-selected rows are evaluated. The validity bit is a
 	// predicate on secret material and must never reach another reader.
 	if change.Operation == store.PendingSet {
-		decl, err := schema.ParseDeclaration([]byte(key.Declaration))
-		if err != nil {
-			return PendingDraft{}, err
-		}
-		compiled, err := schema.CompileClassified(schema.Classification(key.Classification), decl)
-		if err != nil {
-			return PendingDraft{}, err
-		}
 		plain, err := sealer.OpenField(pendingAAD(change.OrgID, change.ProjectID, change.EnvironmentID, change.KeyID, change.ID), change.Ciphertext)
 		if err != nil {
 			return PendingDraft{}, fmt.Errorf("service: pending change %s: %w", change.ID, err)
 		}
 		value := string(plain)
 		crypto.Zero(plain)
-		draft.Valid = compiled.Validate(value).Valid && draft.Valid
+		// Template drafts report structural validity; final config schemas run
+		// after caller parameters are supplied, matching publication semantics.
+		draft.Valid = validateValue(key, value) == nil && draft.Valid
 		// Sticky historical secrecy also applies when a key is now config.
 		if key.Classification == string(schema.Config) && !change.MaterialSecret {
 			draft.Revealed = true

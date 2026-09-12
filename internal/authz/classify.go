@@ -412,9 +412,12 @@ var wireRegistry = mustNewWireRegistry(map[string]wireEntry{
 	"http:GET /api/v1/orgs/{org}/projects/{project}/retention": {Class: ClassTenant, Ops: []Operation{OpProjectRetentionRead}},
 	"http:PUT /api/v1/orgs/{org}/projects/{project}/retention": {Class: ClassTenant, Ops: []Operation{OpProjectRetentionUpdate}},
 
-	"http:GET /api/v1/orgs/{org}/projects/{project}/environments":                  {Class: ClassTenant, Ops: []Operation{OpEnvList}},
-	"http:POST /api/v1/orgs/{org}/projects/{project}/environments":                 {Class: ClassTenant, Ops: []Operation{OpEnvCreate}},
-	"http:PUT /api/v1/orgs/{org}/projects/{project}/environments/order":            {Class: ClassTenant, Ops: []Operation{OpEnvReorder}},
+	"http:GET /api/v1/orgs/{org}/projects/{project}/environments":                           {Class: ClassTenant, Ops: []Operation{OpEnvList}},
+	"http:POST /api/v1/orgs/{org}/projects/{project}/environments":                          {Class: ClassTenant, Ops: []Operation{OpEnvCreate}},
+	"http:PUT /api/v1/orgs/{org}/projects/{project}/environments/order":                     {Class: ClassTenant, Ops: []Operation{OpEnvReorder}},
+	"http:GET /api/v1/orgs/{org}/projects/{project}/environments/{environment}/parameters":  {Class: ClassTenant, Ops: []Operation{OpEnvRead}},
+	"http:POST /api/v1/orgs/{org}/projects/{project}/environments/{environment}/parameters": {Class: ClassTenant, Ops: []Operation{OpEnvParameterSet}},
+
 	"http:GET /api/v1/orgs/{org}/projects/{project}/environments/{environment}":    {Class: ClassTenant, Ops: []Operation{OpEnvRead}},
 	"http:PATCH /api/v1/orgs/{org}/projects/{project}/environments/{environment}":  {Class: ClassTenant, Ops: []Operation{OpEnvRename}},
 	"http:DELETE /api/v1/orgs/{org}/projects/{project}/environments/{environment}": {Class: ClassTenant, Ops: []Operation{OpEnvDelete}},
@@ -989,10 +992,9 @@ var caches = map[string]Cache{
 		ProofGatedAt: "service seam (#50); no tenant caller today",
 	},
 	"oidcfed.jwks": {
-		// Keyed by the BYTE-EXACT issuer string, and that string IS the whole
-		// key: an issuer is instance configuration under a unique index, so it
-		// is already an injective identifier with no chain to compose.
-		KeyConstructor: "internal/oidcfed.Issuer.Issuer (byte-exact issuer string)",
+		// The byte-exact issuer identifies the authority. The CA digest binds
+		// cached signing keys to the roots under which they were fetched.
+		KeyConstructor: "internal/oidcfed.Issuer.Issuer + SHA-256(CABundlePEM)",
 		// Not proof-gated, and here that is the right answer rather than a
 		// deferral. The contents are the PUBLIC signing keys an issuer publishes
 		// at a well-known URL — no tenant material, nothing a proof could

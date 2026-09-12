@@ -92,3 +92,37 @@ One entry per locked ADR whose text assumed inheritance. Each **amended** file g
 ## Cross-model review record
 
 Codex `gpt-5.6-sol`, high effort, three rounds per the standing rule. **R1: 1 critical + 12 high, verdict BLOCKED** — all 12 high accepted and fixed (trigger family with the strict "supplied" definition; unreachable `forbidden_in` trigger removed; clone preflight abort; schema fan-out un-narrowed to schema-model's exact locked unit; api-cli/tenant-isolation moved to amended; schema/source-of-truth/encryption register entries extended to their operative algorithms; C1 finalized beside C2; ops-spec tombstones and all ten banners applied). The critical (pin release/reassign as a re-delivery-gate bypass) was **rebutted, not fixed**. **R2: 12/13 verified; the critical held with a concrete attack.** The rebuttal was strengthened on the locked corpus: the gate targets cross-context supply, pin routing is intra-environment, the disclosure decision is [machine-identities.md](./machine-identities.md)'s reveal-gated credential grant, and requiring `reveal` on release would reverse two locked texts. **R3: RESOLVED/SOUND — final verdict CLEAN/SOUND**, confirming no principal's reach widens beyond the reveal-authorized delegation or the accepted workload-compromise boundary, and the full post-R1 text consistent with the locked corpus.
+
+## Declared amendment: bounded fetch-time config parameters (#723, 2026-09-12)
+
+The explicit request to implement #723 adopts its previously post-1.0 scope.
+Resolution remains environment-local: only an explicitly stored config value
+may contain `${NAME}` references to declared public environment parameters.
+No cross-key references, inheritance, defaults, conditions, functions or recursive
+evaluation are introduced. Secret values remain literal. The implementation
+bounds declarations to 32, names to 64 bytes, patterns to 512 bytes and supplied
+values to 256 UTF-8 bytes without control characters. RE2 patterns match whole
+inputs. Unknown, missing and invalid parameters refuse the entire delivery.
+
+Parameter declaration edits require project definitions-edit, serialize under
+the project lock, and advance definitions revision. They are database-managed
+metadata for the next publication only, not included in definitions bundles.
+Normal publication captures declarations and config validation schemas in an
+immutable snapshot contract under the existing publish, protection and approval
+rules. Publish validates reference syntax and membership; fetch validates the
+substituted complete config against the captured schema and render limits.
+Historical delivery uses its historical contract. No partial values leave on a
+failure. Copy/clone authority remains unchanged; copied templates require the
+destination's own declarations before publication.
+
+Snapshot browsing tokens identify stored templates. Parameterized delivery tokens
+bind canonical public input maps plus resolved manifests. Conditional cursors and
+operator keyed stamps move when inputs change, including unused inputs. Empty
+input maps preserve ordinary legacy tokens. Delivery access events record public
+inputs; per-value disclosures reference those events. Export disclosure events
+carry the same inputs, with ordinary credential-pattern audit redaction.
+
+Supported parameter consumers are CLI values export and the Kubernetes operator.
+Consumers without parameter inputs fail closed rather than publishing literal
+unresolved templates. Different parameter sets share this environment's secrets,
+grants and publication history; independent secrets require separate environments.
