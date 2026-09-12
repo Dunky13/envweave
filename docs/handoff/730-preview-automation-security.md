@@ -191,6 +191,19 @@ database was removed. Full PostgreSQL coverage remains assigned to PR CI.
 Ordinary Standards and Spec reviews found no remaining findings. Cross-provider
 review remains explicitly skipped, and merge remains on hold.
 
+CI run 34715502278 subsequently passed core tests and all three SQLite/PostgreSQL
+isolation shards, closing the local runtime coverage gap. Native Kubernetes
+acceptance passed too. Desktop browser group 1 failed before tests during fixture
+startup; other groups started the same binary successfully. The original cause
+cannot be determined because setup cleanup discarded output from a child that
+remained alive but never served healthz.
+
+Startup health failures now include child exit/signal state and the last 64 KiB
+of captured stdout/stderr before cleanup. Signal exits fail immediately. A
+controlled failure of the real global setup confirmed both output streams appear
+at the unchanged 30-second deadline. Web typecheck and all 960 tests passed.
+Timeouts and retry behavior are unchanged; the next CI run must verify startup.
+
 Migrations 51 and 52 apply to SQLite and PostgreSQL. The generated development
 compatibility manifest includes both. Generated Go, TypeScript and CRD artifacts
 belong to this change; regenerate them from their source definitions.
