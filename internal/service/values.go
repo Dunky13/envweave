@@ -334,21 +334,42 @@ func presenceOfKey(key store.CatalogueKey, rows []store.KeyPresence) schema.Pres
 	return presenceOf(key.ID, key.RequiredMode, key.ForbiddenMode, rows)
 }
 
-// validateValue runs the declaration against the value. The write path is a
-// delivering path in this slice — what commits is what an environment
-// delivers — so an invalid value is refused HERE, not deferred to a publish
-// that does not exist yet.
-func validateValue(key store.CatalogueKey, value string) error {
-	if key.Classification == string(schema.Config) && strings.Contains(value, "${") {
-		if len(value) > schema.MaxValueBytes {
-			return invalidDetail("key %q exceeds the value byte limit", key.Name)
-		}
-		if _, err := parameters.References(value); err != nil {
-			return invalidDetail("key %q: %s", key.Name, err)
-		}
-		return nil // Complete validation runs after bounded substitution at fetch.
+func validateValueWithParameters(key store.CatalogueKey, value string, declarations map[string]string) error {
+	return validateValueWithContract(key, value, parameters.Contract{Version: 1, Declarations: declarations})
+}
+
+func validateValueWithContract(key store.CatalogueKey, value string, contract parameters.Contract) error {
+	declarations := contract.Declarations
+
+	if key.Classification != string(schema.Config) || len(declarations) == 0 || !strings.Contains(value, "${") {
+		return validateLiteralValue(key, value)
 	}
-	return validateLiteralValue(key, value)
+	if len(value) > schema.MaxValueBytes {
+		return invalidDetail("key %q exceeds the value byte limit", key.Name)
+	}
+	references := parameters.References
+	if contract.Version == 0 {
+		references = parameters.ReferencesLegacy
+	}
+	refs, err := references(value)
+	if err != nil {
+		return invalidDetail("key %q: %s", key.Name, err)
+	}
+	for _, name := range refs {
+		if _, ok := declarations[name]; !ok {
+			return invalidDetail("key %q: undeclared parameter %s", key.Name, name)
+		}
+	}
+
+	if len(refs) > 0 {
+		return nil
+	} // Caller-dependent schema checks run at delivery.
+	// An escaped-only value is deterministic, so validate its delivered literal now.
+	resolved, err := parameters.Resolve(value, nil, schema.MaxValueBytes)
+	if err != nil {
+		return invalidDetail("key %q: %s", key.Name, err)
+	}
+	return validateLiteralValue(key, resolved)
 }
 
 func validateLiteralValue(key store.CatalogueKey, value string) error {
@@ -688,7 +709,11 @@ func (s *Values) declare(ctx context.Context, actor Actor, scope domain.Scope, e
 			if err := checkNotForbidden(key, presenceOfKey(key, rows), envID); err != nil {
 				return declareWriteResult{}, err
 			}
-			if err := validateValue(key, value); err != nil {
+			declarations, err := environmentParameters(ctx, r.Environments(), p)
+			if err != nil {
+				return declareWriteResult{}, err
+			}
+			if err := validateValueWithParameters(key, value, declarations); err != nil {
 				return declareWriteResult{}, err
 			}
 			updatedAt, err := writeCell(ctx, r, p, sealer, envScope, key, caller.Principal, value)
@@ -1146,6 +1171,31 @@ func (s *Values) Copy(ctx context.Context, actor Actor, scope domain.Scope, req 
 				return copyWriteResult{}, err
 			}
 		}
+		// Preserve source template semantics before opening any secret material.
+		sourceContract, err := copySourceParameterContract(ctx, r.Snapshots(), plan.readProof)
+		if err != nil {
+			return copyWriteResult{}, err
+		}
+		for _, cell := range plan.config {
+			if _, templated := sourceContract.Schemas[cell.key.Name]; !templated {
+				continue
+			}
+			for _, destID := range req.DestinationEnvironmentIDs {
+				destScope := domain.Scope{Org: scope.Org, Project: scope.Project, Env: domain.EnvID(destID)}
+				p, err := az.Authorize(ctx, caller, authz.OpValueCopyDestinationConfig, destScope)
+				if err != nil {
+					return copyWriteResult{}, err
+				}
+				declarations, err := environmentParameters(ctx, r.Environments(), p)
+				if err != nil {
+					return copyWriteResult{}, err
+				}
+				if len(declarations) == 0 {
+					return copyWriteResult{}, invalidDetail("key %q uses template syntax; declare destination environment parameters before copying", cell.key.Name)
+				}
+			}
+			break
+		}
 		// The SOURCE ceremony. A copy carries `reveal(source E)` in the locked
 		// formula, so it takes the same enumerated-key ceremony a cell reveal
 		// does — including copy-without-display, which discloses to a
@@ -1588,13 +1638,17 @@ func writeMaterial(ctx context.Context, r store.Repos, p authz.Proof, sealer *cr
 	if err != nil {
 		return nil, nil, err
 	}
+	declarations, err := environmentParameters(ctx, r.Environments(), p)
+	if err != nil {
+		return nil, nil, err
+	}
 	out := make([]CopiedValue, 0, len(material))
 	var findings []Finding
 	for _, m := range material {
 		if err := checkNotForbidden(m.key, presenceOfKey(m.key, presence), destID); err != nil {
 			return nil, nil, err
 		}
-		if err := validateValue(m.key, m.plaintext); err != nil {
+		if err := validateValueWithParameters(m.key, m.plaintext, declarations); err != nil {
 			return nil, nil, err
 		}
 		if _, err := writeCell(ctx, r, p, sealer, destScope, m.key, caller.Principal, m.plaintext); err != nil {
@@ -1665,6 +1719,16 @@ func cloneInto(ctx context.Context, r store.Repos, az *authz.TxAuthorizer, calle
 	readProof, err := az.Authorize(ctx, caller, authz.OpValueList, sourceScope)
 	if err != nil {
 		return out, err
+	}
+	// Clone cannot declare parameters on its new destination before its first
+	// publication. Refuse a published parameter contract explicitly; do not let
+	// a template silently become a literal in a zero-declaration destination.
+	contract, err := copySourceParameterContract(ctx, r.Snapshots(), readProof)
+	if err != nil {
+		return out, err
+	}
+	if len(contract.Declarations) > 0 {
+		return out, invalidDetail("cannot clone a parameterized environment; create the destination, declare its parameters and copy explicitly")
 	}
 	present, err := r.Values().List(ctx, readProof)
 	if err != nil {

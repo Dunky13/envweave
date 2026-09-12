@@ -120,6 +120,16 @@ func (r *HikyoSecretReconciler) reconcileActive(ctx context.Context, cr *hikyov1
 		return r.done(ctx, cr, ctrl.Result{}, fmt.Errorf("operator: invalid resyncInterval: %w", err))
 	}
 
+	// Refuse native targets before credentials or plaintext are requested.
+	// Disabling this capability retains existing targets for explicit migration.
+	if !r.Config.NativeSecretTypes && effectiveSecretType(cr.Spec.Target.Type) != corev1.SecretTypeOpaque {
+		msg := "native Secret types are disabled; enable operator.nativeSecretTypes (HIKYO_OPERATOR_NATIVE_SECRET_TYPES) with matching Secret delete RBAC"
+		r.event(cr, corev1.EventTypeWarning, hikyov1.ReasonBlocked, "%s", msg)
+		r.setCond(cr, hikyov1.ConditionDelivery, metav1.ConditionFalse, hikyov1.ReasonBlocked, msg)
+		cr.Status.Cursor, cr.Status.CursorBinding = "", ""
+		return r.done(ctx, cr, r.resyncResult(cr), nil)
+	}
+
 	// Resolve the cluster-scoped instance.
 	var inst hikyov1.HikyoInstance
 	if err := r.Get(ctx, types.NamespacedName{Name: cr.Spec.InstanceRef.Name}, &inst); err != nil {
@@ -256,7 +266,7 @@ func (r *HikyoSecretReconciler) reconcileActive(ctx context.Context, cr *hikyov1
 		Cursor:           fetchCursor,
 		Projection:       string(effectiveProjection(cr)),
 		AcknowledgedKeys: acknowledgedKeys(cr),
-		Parameters:       cr.Spec.Parameters,
+		Parameters:       parameterInputs(cr),
 		Bearer:           cred.token,
 	})
 
@@ -369,6 +379,9 @@ func (r *HikyoSecretReconciler) deliver(
 
 	// A type-mandated key removed from the authorized manifest cannot be
 	// dropped in-place. Withdraw the typed target instead of retaining it.
+	// Missing authorized data is withdrawal, even when the publisher removed it
+	// accidentally. Malformed present data below is a rejected replacement, not
+	// withdrawal; it retains the last accepted target.
 	required, err := requiredSecretKeys(cr.Spec.Target.Type)
 	if err != nil {
 		return ctrl.Result{}, err

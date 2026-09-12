@@ -1,6 +1,7 @@
 package isolation
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -31,6 +32,23 @@ func TestEnvironmentDeletionReleasesOnlyScopedGrants(t *testing.T) {
 					if err := (&service.Environments{DB: db, Keyring: probeKeyring(t, db)}).Delete(t.Context(), service.LocalPrincipal(alice), f.envScope()); err != nil {
 						t.Fatal(err)
 					}
+				}
+				if n := queryInt(t, db, "SELECT COUNT(*) FROM audit_tenant_events WHERE type='grant.revoked' AND object_id='"+grantID+"'"); n != 1 {
+					t.Fatalf("revoked grant audit count = %d, want 1", n)
+				}
+				var payload struct {
+					TargetPrincipal  string `json:"target_principal"`
+					Capability       string `json:"capability"`
+					Scope            string `json:"scope"`
+					OriginKind       string `json:"origin_kind"`
+					OriginsRemaining int    `json:"origins_remaining"`
+					SessionsRevoked  bool   `json:"sessions_revoked"`
+				}
+				if err := json.Unmarshal([]byte(queryStrings(t, db, "SELECT payload FROM audit_tenant_events WHERE type='grant.revoked' AND object_id='"+grantID+"'")), &payload); err != nil {
+					t.Fatal(err)
+				}
+				if payload.TargetPrincipal != string(bob) || payload.Capability != "read" || payload.OriginKind != "manual,scim" || payload.OriginsRemaining != 0 || !payload.SessionsRevoked {
+					t.Fatalf("incomplete revocation event: %+v", payload)
 				}
 				if n := queryInt(t, db, "SELECT COUNT(*) FROM environments WHERE id = '"+f.env+"'"); n != 0 {
 					t.Fatal("environment retained")

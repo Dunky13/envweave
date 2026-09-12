@@ -8,6 +8,7 @@ import (
 
 	"github.com/Hikyo-Org/hikyo/internal/authz"
 	"github.com/Hikyo-Org/hikyo/internal/domain"
+	"github.com/Hikyo-Org/hikyo/internal/parameters"
 	"github.com/Hikyo-Org/hikyo/internal/schema"
 	"github.com/Hikyo-Org/hikyo/internal/store"
 )
@@ -94,7 +95,7 @@ func TestGroupIndexResolvedEnvironmentPermutations(t *testing.T) {
 			for _, key := range keys {
 				cells = append(cells, resolvedCell{key: key, set: tc.set[key.ID], value: "value"})
 			}
-			err := index.validateResolvedPublish(cells, tc.envID)
+			err := index.validateResolvedPublish(cells, tc.envID, parameters.Contract{})
 			if got := err != nil; got != tc.wantError {
 				t.Fatalf("validateResolvedPublish() error = %v, wantError %t", err, tc.wantError)
 			}

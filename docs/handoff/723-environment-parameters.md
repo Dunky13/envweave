@@ -47,3 +47,26 @@ suite, final review and delivery lifecycle.
 Clone-at-creation of config templates is refused atomically because the new
 destination has no parameter declarations. Use a concrete clone source, or
 create the destination, declare parameters and copy explicitly.
+
+## PR #731 review corrections
+
+- Template syntax activates only with declarations. Existing zero-declaration
+  values retain `${` literally across upgrade and subsequent publication.
+- `$${` escapes a literal opening when templating is active. First opt-in requires
+  escaping legacy literal openings; refused publications preserve old delivery.
+- Caller-owned draft advisories expose `validation_deferred`; escaped-only values
+  receive normal resolved schema validation before publication.
+- Stored contracts have semantic version 1, accept additive same-version metadata,
+  and reject unsupported versions. Unversioned snapshots retain the legacy
+  parser, including `$${NAME}` producing a dollar followed by the input.
+- Compiled whole-value RE2 patterns use a synchronized 128-entry FIFO cache.
+- Parameter deletion validates names directly and rejects `--pattern`, including
+  an explicitly empty flag; service deletion also refuses a nonempty pattern.
+- Copy preflight and clone explicitly refuse losing a published source contract
+  in a zero-declaration destination, including escaped-only config syntax.
+
+Operator version compatibility: nonempty parameter inputs require a positive
+selected snapshot revision in every successful server response, including
+conditional current responses. Legacy API responses that ignore the parameter
+query are refused before managed data or cursor updates. Fetches without
+parameters retain compatibility with older response shapes.

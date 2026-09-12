@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 )
@@ -25,13 +26,21 @@ var namePattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,63}$`)
 // Contract is immutable snapshot metadata. Schemas records the declarations of
 // templated config keys, so historical delivery never consults the live schema.
 type Contract struct {
+	Version      int               `json:"version,omitempty"`
 	Declarations map[string]string `json:"declarations,omitempty"`
 	Schemas      map[string]string `json:"schemas,omitempty"`
 }
 
-func CheckDeclaration(name, pattern string) error {
+func CheckName(name string) error {
 	if !namePattern.MatchString(name) {
 		return fmt.Errorf("parameter name %q must match %s", name, namePattern.String())
+	}
+	return nil
+}
+
+func CheckDeclaration(name, pattern string) error {
+	if err := CheckName(name); err != nil {
+		return err
 	}
 	if len(pattern) == 0 || len(pattern) > MaxPatternBytes {
 		return fmt.Errorf("parameter %s pattern must contain 1 to %d bytes", name, MaxPatternBytes)
@@ -39,7 +48,7 @@ func CheckDeclaration(name, pattern string) error {
 	if strings.ContainsRune(pattern, 0) {
 		return fmt.Errorf("parameter %s pattern must not contain a NUL character", name)
 	}
-	if _, err := regexp.Compile("\\A(?:" + pattern + ")\\z"); err != nil {
+	if _, err := compiledPattern(pattern); err != nil {
 		return fmt.Errorf("parameter %s has an invalid pattern: %w", name, err)
 	}
 	return nil
@@ -78,7 +87,7 @@ func Validate(declarations, supplied map[string]string) error {
 		if !ok {
 			return fmt.Errorf("required parameter %s is missing", name)
 		}
-		re, err := regexp.Compile("\\A(?:" + pattern + ")\\z")
+		re, err := compiledPattern(pattern)
 		if err != nil {
 			return err
 		}
@@ -89,24 +98,56 @@ func Validate(declarations, supplied map[string]string) error {
 	return nil
 }
 
-// References accepts only ${NAME}; malformed expressions fail by key at callers.
+// A bounded FIFO retains compiled RE2 patterns across deliveries. Invalid
+// patterns are not cached, and the lock prevents concurrent duplicate compiles.
+const maxCachedPatterns = 128
+
+var patternCache = struct {
+	sync.Mutex
+	entries map[string]*regexp.Regexp
+	order   []string
+}{entries: make(map[string]*regexp.Regexp)}
+
+func compiledPattern(pattern string) (*regexp.Regexp, error) {
+	patternCache.Lock()
+	defer patternCache.Unlock()
+	if re := patternCache.entries[pattern]; re != nil {
+		return re, nil
+	}
+	re, err := regexp.Compile("\\A(?:" + pattern + ")\\z")
+	if err != nil {
+		return nil, err
+	}
+	if len(patternCache.order) == maxCachedPatterns {
+		delete(patternCache.entries, patternCache.order[0])
+		patternCache.order = patternCache.order[1:]
+	}
+	patternCache.entries[pattern] = re
+	patternCache.order = append(patternCache.order, pattern)
+	return re, nil
+}
+
+// References accepts ${NAME}; $${ escapes a literal ${ without a closing brace.
 func References(value string) ([]string, error) {
 	var refs []string
-	for {
-		_, rest, found := strings.Cut(value, "${")
-		if !found {
-			return refs, nil
-		}
-		name, remaining, closed := strings.Cut(rest, "}")
-		if !closed || !namePattern.MatchString(name) {
-			return nil, fmt.Errorf("invalid parameter reference; expected ${NAME}")
-		}
+	_, err := transform(value, func(name string) (string, error) {
 		refs = append(refs, name)
-		value = remaining
-	}
+		return "", nil
+	}, -1, true)
+	return refs, err
+}
+
+// ReferencesLegacy parses the syntax frozen in unversioned contracts.
+func ReferencesLegacy(value string) ([]string, error) {
+	var refs []string
+	_, err := transform(value, func(name string) (string, error) { refs = append(refs, name); return "", nil }, -1, false)
+	return refs, err
 }
 
 func CheckReferences(value string, declarations map[string]string) error {
+	if len(declarations) == 0 {
+		return nil
+	}
 	refs, err := References(value)
 	if err != nil {
 		return err
@@ -121,29 +162,57 @@ func CheckReferences(value string, declarations map[string]string) error {
 
 // Resolve substitutes once. Caller inputs are never scanned as new expressions.
 func Resolve(value string, supplied map[string]string, maxBytes int) (string, error) {
-	if _, err := References(value); err != nil {
-		return "", err
-	}
-	var out strings.Builder
-	for {
-		prefix, rest, found := strings.Cut(value, "${")
-		if !found {
-			out.WriteString(value)
-			break
-		}
-		out.WriteString(prefix)
-		name, remaining, _ := strings.Cut(rest, "}")
+	return transform(value, func(name string) (string, error) {
 		replacement, ok := supplied[name]
 		if !ok {
 			return "", fmt.Errorf("required parameter %s is missing", name)
 		}
-		if out.Len()+len(replacement) > maxBytes {
+		return replacement, nil
+	}, maxBytes, true)
+}
+
+// ResolveLegacy preserves immutable version-zero contracts, where a dollar
+// preceding ${NAME} was literal text rather than an escape.
+func ResolveLegacy(value string, supplied map[string]string, maxBytes int) (string, error) {
+	return transform(value, func(name string) (string, error) {
+		replacement, ok := supplied[name]
+		if !ok {
+			return "", fmt.Errorf("required parameter %s is missing", name)
+		}
+		return replacement, nil
+	}, maxBytes, false)
+}
+
+func transform(value string, replacement func(string) (string, error), maxBytes int, escapes bool) (string, error) {
+	var out strings.Builder
+	for len(value) > 0 {
+		index := strings.Index(value, "${")
+		if index < 0 {
+			out.WriteString(value)
+			break
+		}
+		if escapes && index > 0 && value[index-1] == '$' {
+			out.WriteString(value[:index-1])
+			out.WriteString("${")
+			value = value[index+2:]
+		} else {
+			out.WriteString(value[:index])
+			name, rest, closed := strings.Cut(value[index+2:], "}")
+			if !closed || !namePattern.MatchString(name) {
+				return "", fmt.Errorf("invalid parameter reference; expected ${NAME} or $${")
+			}
+			text, err := replacement(name)
+			if err != nil {
+				return "", err
+			}
+			out.WriteString(text)
+			value = rest
+		}
+		if maxBytes >= 0 && out.Len() > maxBytes {
 			return "", fmt.Errorf("resolved config exceeds %d bytes", maxBytes)
 		}
-		out.WriteString(replacement)
-		value = remaining
 	}
-	if out.Len() > maxBytes {
+	if maxBytes >= 0 && out.Len() > maxBytes {
 		return "", fmt.Errorf("resolved config exceeds %d bytes", maxBytes)
 	}
 	return out.String(), nil

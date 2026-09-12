@@ -394,6 +394,10 @@ const (
 	// investigator filtering "who read this key" must not have to know four
 	// spellings.
 	EventValueRevealed EventType = "disclosure.value_revealed"
+	// Public export inputs are recorded once per successful parameterized export.
+	// Ordinary config exports remain unaudited; per-key export disclosure records
+	// remain exclusive to secrets.
+	EventValuesExported EventType = "disclosure.values_exported"
 	// value.staged records an edit landing in the actor's own WORKING STATE
 	// (#51). It is deliberately its own type rather than a `value.set` with a
 	// flag: a draft delivers nothing, so an investigator asking "when did this
@@ -1526,6 +1530,10 @@ var registry = map[EventType]TypeSpec{
 		"served_credential_id": {Kind: KindString},
 		"generation":           {Kind: KindString},
 		"served_from":          {Kind: KindString},
+	}),
+	EventValuesExported: hierarchyEvent(Schema{
+		"parameters": {Kind: KindFreeTextMap, MaxLen: 32, MaxBytes: 256, Required: true},
+		"revision":   {Kind: KindInt, Required: true},
 	}),
 	// Drafts and publishing (#51).
 	EventValueStaged: hierarchyEvent(Schema{

@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"golang.org/x/crypto/bcrypt"
+	"github.com/Hikyo-Org/hikyo/internal/crypto"
 )
 
 func main() {
@@ -21,7 +21,7 @@ func main() {
 		panic(err)
 	}
 	encoded := []byte(hex.EncodeToString(password))
-	hash, err := bcrypt.GenerateFromPassword(encoded, bcrypt.DefaultCost)
+	hash, err := crypto.RegistryPasswordHash(encoded)
 	if err != nil {
 		panic(err)
 	}

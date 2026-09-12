@@ -20,7 +20,9 @@ func runEnvParam(ctx context.Context, ios IO, args []string) error {
 	var name, pattern, format string
 	st, flags, err := parseCommon("env param "+sub, ios, rest, func(fs *flag.FlagSet) {
 		fs.StringVar(&name, "name", "", "parameter name")
-		fs.StringVar(&pattern, "pattern", "", "whole-value RE2 validation pattern")
+		if sub != "delete" {
+			fs.StringVar(&pattern, "pattern", "", "whole-value RE2 validation pattern")
+		}
 		fs.StringVar(&format, "o", "table", "output format: table or json")
 	})
 	if err != nil {
@@ -34,6 +36,11 @@ func runEnvParam(ctx context.Context, ios IO, args []string) error {
 	}
 	if sub == "add" {
 		if err := parameters.CheckDeclaration(name, pattern); err != nil {
+			return failf(ExitUsage, "%s", err)
+		}
+	}
+	if sub == "delete" {
+		if err := parameters.CheckName(name); err != nil {
 			return failf(ExitUsage, "%s", err)
 		}
 	}

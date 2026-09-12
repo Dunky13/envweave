@@ -7,6 +7,7 @@ import (
 
 	"github.com/Hikyo-Org/hikyo/internal/authz"
 	"github.com/Hikyo-Org/hikyo/internal/domain"
+	"github.com/Hikyo-Org/hikyo/internal/parameters"
 	"github.com/Hikyo-Org/hikyo/internal/schema"
 	"github.com/Hikyo-Org/hikyo/internal/store"
 )
@@ -169,7 +170,7 @@ func (i *groupIndex) validateStaticMembership(groupID, selfID string, self schem
 // validateResolvedPublish is publish-time authority over resolved values. It
 // keeps per-key presence/value refusals in catalogue order, then evaluates each
 // (group, environment) bucket for all-or-none presence.
-func (i *groupIndex) validateResolvedPublish(cells []resolvedCell, envID string) error {
+func (i *groupIndex) validateResolvedPublish(cells []resolvedCell, envID string, contract parameters.Contract) error {
 	groups := make(map[groupEnvironment][]resolvedCell)
 	for _, cell := range cells {
 		rules, err := i.presenceFor(cell.key.ID)
@@ -186,7 +187,7 @@ func (i *groupIndex) validateResolvedPublish(cells []resolvedCell, envID string)
 				cell.key.Name, envID)
 		}
 		if cell.set {
-			if err := validateValue(cell.key, cell.value); err != nil {
+			if err := validateValueWithContract(cell.key, cell.value, contract); err != nil {
 				return err
 			}
 		}

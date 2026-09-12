@@ -11,11 +11,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/jackc/pgx/v5"
 	"net/url"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/Hikyo-Org/hikyo/internal/audit"
 	"github.com/Hikyo-Org/hikyo/internal/authz"

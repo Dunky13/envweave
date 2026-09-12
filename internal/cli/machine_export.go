@@ -16,6 +16,15 @@ func machineExport(ctx context.Context, client *Client, base string, reveal bool
 	if revision != 0 {
 		return out, failf(ExitRefused, "machine values export does not accept --revision; delivery selects the authorized current or pinned snapshot")
 	}
+	meta, err := client.Meta(ctx)
+	if err != nil {
+		return out, err
+	}
+	// Revision 3 introduced delivery's selected snapshot revision. An older
+	// response would otherwise silently become an export of revision zero.
+	if meta.ApiRevision < 3 {
+		return out, failf(ExitRefused, "this instance is running %s (API revision %d); machine values export needs revision 3. Upgrade the server.", meta.ServerVersion, meta.ApiRevision)
+	}
 	query := url.Values{}
 	if !reveal {
 		query.Set("projection", "config-only")
@@ -36,7 +45,7 @@ func machineExport(ctx context.Context, client *Client, base string, reveal bool
 		return out, err
 	}
 	if fetched.Current {
-		return out, failf(ExitRefused, "machine export received no snapshot; retry without a conditional cursor")
+		return out, failf(ExitInternal, "server returned a conditional response to an unconditional machine export")
 	}
 	for _, key := range fetched.Keys {
 		if reveal && key.Classification == apigen.KeyClassificationSecret && key.Presence == apigen.DeliveredKeyPresenceSet && key.Value == nil {

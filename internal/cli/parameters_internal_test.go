@@ -1,6 +1,24 @@
 package cli
 
-import "testing"
+import (
+	"context"
+	"strings"
+	"testing"
+)
+
+func TestParameterDeleteRejectsInvalidNameAndPattern(t *testing.T) {
+	for _, args := range [][]string{
+		{"delete", "--name", "NAME", "--pattern", ".*"},
+		{"delete", "--name", "NAME", "--pattern="},
+		{"delete", "--name", "bad"},
+	} {
+		ios, _ := tokenIO(map[string]string{"HIKYO_STATE_DIR": t.TempDir()})
+		err := runEnvParam(context.Background(), ios, args)
+		if err == nil || (!strings.Contains(err.Error(), "pattern") && !strings.Contains(err.Error(), "name")) {
+			t.Fatalf("%v: %v", args, err)
+		}
+	}
+}
 
 func TestParameterFlagRefusesDuplicateAndMalformedInputs(t *testing.T) {
 	values := map[string]string{}

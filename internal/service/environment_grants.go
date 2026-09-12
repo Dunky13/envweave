@@ -4,15 +4,17 @@ import (
 	"context"
 	"slices"
 
+	"github.com/Hikyo-Org/hikyo/internal/audit"
 	"github.com/Hikyo-Org/hikyo/internal/authz"
 	"github.com/Hikyo-Org/hikyo/internal/domain"
+	"github.com/Hikyo-Org/hikyo/internal/store"
 )
 
 // releaseEnvironmentGrants is part of authorized environment deletion, not an
 // independent grant-revocation surface. An environment's scoped authority ends
 // with the environment, including every origin that held that authority alive.
 // Project, organization and sibling-environment grants remain untouched.
-func releaseEnvironmentGrants(ctx context.Context, az *authz.TxAuthorizer, scope domain.Scope) error {
+func releaseEnvironmentGrants(ctx context.Context, r store.Repos, az *authz.TxAuthorizer, p authz.Proof, actor domain.PrincipalID, scope domain.Scope) error {
 	lines, err := az.GrantLinesInProject(ctx, string(scope.Org), string(scope.Project))
 	if err != nil {
 		return err
@@ -33,6 +35,7 @@ func releaseEnvironmentGrants(ctx context.Context, az *authz.TxAuthorizer, scope
 			return err
 		}
 	}
+	var changedPrincipals []domain.PrincipalID
 	for _, line := range scoped {
 		// Re-read origins after acquiring the principal lock: another grant
 		// writer may have attached an origin since the initial census.
@@ -40,16 +43,36 @@ func releaseEnvironmentGrants(ctx context.Context, az *authz.TxAuthorizer, scope
 		if err != nil {
 			return err
 		}
+		var releasedKinds []string
 		for _, origin := range origins {
-			if _, err := az.ReleaseGrantOrigin(ctx, line.ID, line.Principal, origin); err != nil {
+			released, err := az.ReleaseGrantOrigin(ctx, line.ID, line.Principal, origin)
+			if err != nil {
 				return err
 			}
+			if released {
+				releasedKinds = append(releasedKinds, string(origin.Kind))
+			}
 		}
-		if _, err := az.DeleteGrantRow(ctx, line.ID, line.Principal); err != nil {
+		deleted, err := az.DeleteGrantRow(ctx, line.ID, line.Principal)
+		if err != nil {
+			return err
+		}
+		if !deleted {
+			continue
+		}
+		changedPrincipals = append(changedPrincipals, line.Principal)
+		slices.Sort(releasedKinds)
+		releasedKinds = slices.Compact(releasedKinds)
+		if err := insertGrantEvent(ctx, r, p, actor, domain.LevelEnv, grantEventInput{
+			typ:     audit.EventGrantRevoked,
+			object:  audit.Object{Type: "grant", ID: line.ID},
+			payload: revokePayload(GrantSpec{Target: line.Principal, Capability: line.Grant.Capability, Scope: scope}, actor, releasedKinds, 0, audit.EventGrantRevoked),
+		}); err != nil {
 			return err
 		}
 	}
-	for _, principal := range principals {
+	slices.Sort(changedPrincipals)
+	for _, principal := range slices.Compact(changedPrincipals) {
 		if err := invalidateGrantChange(ctx, az, principal); err != nil {
 			return err
 		}

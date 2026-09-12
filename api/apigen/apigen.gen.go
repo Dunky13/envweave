@@ -5963,6 +5963,9 @@ type PendingDraft struct {
 		// OwnerId A prefixed UUIDv7, e.g. `org_0198…`.
 		OwnerId ID   `json:"owner_id"`
 		Valid   bool `json:"valid"`
+
+		// ValidationDeferred True when caller parameters are needed for final config schema validation at fetch. Valid then describes template structure and presence only.
+		ValidationDeferred *bool `json:"validation_deferred,omitempty"`
 	} `json:"advisory,omitempty"`
 
 	// Classification Classification IS the sensitivity boundary. A matrix row is uniformly

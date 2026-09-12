@@ -3,8 +3,8 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/Hikyo-Org/hikyo/internal/audit"
@@ -33,14 +33,17 @@ func (s *Environments) Parameters(ctx context.Context, actor Actor, scope domain
 // SetParameter changes declarations for the next publication only. Existing
 // delivery remains bound to the immutable contract captured by its snapshot.
 func (s *Environments) SetParameter(ctx context.Context, actor Actor, scope domain.Scope, name, pattern string, remove bool) error {
-	if err := parameters.CheckDeclaration(name, pattern); err != nil && !remove {
+	if err := parameters.CheckName(name); err != nil {
 		return invalidDetail("%s", err)
 	}
 	if remove {
-		if err := parameters.CheckDeclaration(name, ".*"); err != nil {
-			return invalidDetail("%s", err)
+		if pattern != "" {
+			return invalidDetail("pattern must be omitted when deleting a parameter")
 		}
+	} else if err := parameters.CheckDeclaration(name, pattern); err != nil {
+		return invalidDetail("%s", err)
 	}
+
 	var charged bool
 	return tx.Write(ctx, s.DB, func(ctx context.Context, r store.Repos, az *authz.TxAuthorizer) error {
 		caller, p, err := authorize(ctx, az, actor, authz.OpEnvParameterSet, scope, time.Now().UTC())
@@ -103,20 +106,50 @@ func environmentParameters(ctx context.Context, r store.EnvironmentReader, p aut
 }
 
 func snapshotParameters(ctx context.Context, r store.SnapshotReader, p authz.Proof, snapshot store.Snapshot, supplied map[string]string) (parameters.Contract, error) {
-	raw, err := r.ParameterContract(ctx, p, snapshot)
+	contract, err := readSnapshotParameterContract(ctx, r, p, snapshot)
 	if err != nil {
-		return parameters.Contract{}, err
+		return contract, err
 	}
-	var contract parameters.Contract
-	decoder := json.NewDecoder(strings.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&contract); err != nil {
-		return contract, fmt.Errorf("service: invalid stored parameter contract: %w", err)
-	}
+
 	if err := parameters.Validate(contract.Declarations, supplied); err != nil {
 		return contract, invalidDetail("%s", err)
 	}
 	return contract, nil
+}
+
+// Same-version additive metadata is tolerated; unknown semantic versions fail
+// closed. Version zero preserves contracts already published by this release.
+func readSnapshotParameterContract(ctx context.Context, r store.SnapshotReader, p authz.Proof, snapshot store.Snapshot) (parameters.Contract, error) {
+	raw, err := r.ParameterContract(ctx, p, snapshot)
+	if err != nil {
+		return parameters.Contract{}, err
+	}
+	return decodeParameterContract(raw)
+}
+
+func copySourceParameterContract(ctx context.Context, r store.SnapshotReader, p authz.Proof) (parameters.Contract, error) {
+	snapshot, err := r.Latest(ctx, p)
+	if errors.Is(err, store.ErrNotFound) {
+		return parameters.Contract{}, nil
+	}
+	if err != nil {
+		return parameters.Contract{}, err
+	}
+	return readSnapshotParameterContract(ctx, r, p, snapshot)
+}
+
+func decodeParameterContract(raw string) (parameters.Contract, error) {
+	var contract *parameters.Contract
+	if err := json.Unmarshal([]byte(raw), &contract); err != nil {
+		return parameters.Contract{}, fmt.Errorf("service: invalid stored parameter contract: %w", err)
+	}
+	if contract == nil {
+		return parameters.Contract{}, fmt.Errorf("service: stored parameter contract must be an object")
+	}
+	if contract.Version != 0 && contract.Version != 1 {
+		return parameters.Contract{}, fmt.Errorf("service: unsupported parameter contract version %d", contract.Version)
+	}
+	return *contract, nil
 }
 
 func resolveConfig(contract parameters.Contract, supplied map[string]string, name, classification, value string) (string, error) {
@@ -127,7 +160,11 @@ func resolveConfig(contract parameters.Contract, supplied map[string]string, nam
 	if !templated {
 		return value, nil
 	}
-	resolved, err := parameters.Resolve(value, supplied, schema.MaxValueBytes)
+	resolve := parameters.Resolve
+	if contract.Version == 0 {
+		resolve = parameters.ResolveLegacy
+	}
+	resolved, err := resolve(value, supplied, schema.MaxValueBytes)
 	if err != nil {
 		return "", invalidDetail("key %q: %s", name, err)
 	}

@@ -47,9 +47,18 @@ hikyo values publish --env "$preview_env" --versions <version-id-from-set>
 ```
 
 The key must already exist and be classified as `config`. Publication refuses
-undeclared or malformed references. Only literal text and `${NAME}` references
-are supported: no defaults, conditions, functions, cross-key lookup or recursive
+undeclared or malformed references when the environment has at least one parameter
+declaration. Use `$${` to deliver a literal `${` in that environment, for example
+`$${PORT}` delivers `${PORT}`. Escapes and references are processed once. Only
+literal text, escaped openings and `${NAME}` references are supported: no defaults, conditions, functions, cross-key lookup or recursive
 evaluation. A `secret` value containing `${NAME}` remains literal bytes.
+
+**Upgrade and first opt-in:** environments without declarations preserve every
+config value literally, including `${NAME}`, incomplete `${` and `$${`. Upgrading
+does not reinterpret existing values or block their next publication. Adding the
+first declaration enables templating at the next publication: escape existing
+literal `${` openings as `$${` before publishing. A refusal names the affected
+config key. Existing published snapshots keep their original interpretation.
 
 Publication keeps its ordinary `publish` authority, protected-environment
 confirmation and approval-policy checks. A declaration edit alone neither
@@ -70,7 +79,12 @@ After substitution, Hikyo validates the complete value against the config key's
 schema captured at publication. A schema failure or render-size overflow refuses
 the whole fetch/export, with no partial output. This means a published template
 can be structurally valid while a particular caller's input produces a value the
-schema refuses. Errors identify the parameter or config key.
+schema refuses. The owner draft advisory reports `validation_deferred: true` for
+these templates; `valid: true` then means the reference syntax, declared names
+and presence rules pass, not that every caller input satisfies the config schema.
+Escaped-only values are schema-validated before publication because their result
+is known. One synthetic input cannot prove validity for all allowed inputs.
+Errors identify the parameter or config key.
 
 Secret export still requires `--reveal`, the separate reveal capability and the
 normal disclosure output controls. Parameters grant no additional access.
@@ -85,7 +99,10 @@ spec:
     PR_NUMBER: "123"
 ```
 
-The operator sends these with every fetch. Changing a parameter invalidates its
+The operator sends these with every fetch. Parameterized delivery requires an
+API revision 3 server: a successful response without its selected snapshot
+revision is refused, including a conditional current response. Upgrade the
+server before configuring operator parameters. Changing a parameter invalidates its
 conditional cursor and changes the keyed delivery stamp, including when the
 changed parameter does not alter any mapped key. Invalid input delivers nothing;
 the operator reports the fetch failure and retains its previous successful
@@ -106,8 +123,9 @@ the resulting mapped data is equal. Ordinary snapshots retain their existing
 token behavior.
 
 Delivery access records carry the public parameter map. Per-value disclosure
-records link to that access record. Parameterized exports record the map with
-each disclosed value. Audit token redaction still applies if a credential is
+records link to that access record. Each successful parameterized export records
+the map and selected revision once in `disclosure.values_exported`, never exported
+values. Audit token redaction still applies if a credential is
 accidentally supplied as config.
 
 The supported consumers are `values export` and the Kubernetes operator. Compose,

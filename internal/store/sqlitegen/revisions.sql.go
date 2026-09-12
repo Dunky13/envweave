@@ -1441,6 +1441,8 @@ type SumSnapshotPayloadByProjectRow struct {
 // instance-scoped and content-pinned.
 // hikyo:instance-scoped
 // Project sizes only, never whole encrypted payloads in a sorter.
+// LIMIT -1 OFFSET 0 prevents flattening this projection into the GROUP BY:
+// the temporary sorter must retain integer sizes, not ciphertext/contract blobs.
 func (q *Queries) SumSnapshotPayloadByProject(ctx context.Context) ([]SumSnapshotPayloadByProjectRow, error) {
 	rows, err := q.db.QueryContext(ctx, sumSnapshotPayloadByProject)
 	if err != nil {

@@ -148,6 +148,10 @@ immediately; it is not a wait for revision garbage collection. Audit events
 remain under audit retention. The long-lived `preview` source is untouched.
 Grants scoped to the deleted environment and their origins are removed in the
 same transaction, with affected principals' authorization generations advanced.
+Each removed grant records `grant.revoked`, including its released origin kinds.
+Revocation also invalidates the affected principal's sessions, so humans holding
+a grant scoped to the deleted preview must sign in again. This applies to both
+direct deletion and definitions apply.
 Project, organization and sibling-environment grants remain intact.
 
 - A clone omits secrets the actor cannot reveal and lists their names. If an

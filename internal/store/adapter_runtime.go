@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/Hikyo-Org/hikyo/internal/parameters"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +16,7 @@ import (
 	"github.com/Hikyo-Org/hikyo/internal/adapter"
 	"github.com/Hikyo-Org/hikyo/internal/domain"
 	"github.com/Hikyo-Org/hikyo/internal/operation"
+	"github.com/Hikyo-Org/hikyo/internal/parameters"
 )
 
 // adapterPushOutcomePayload is the audit payload for adapter.push_outcome events.

@@ -78,3 +78,34 @@ func TestMachineExportUsesAuthorizedDelivery(t *testing.T) {
 		})
 	}
 }
+
+func TestMachineExportRefusesOldServerAndUnexpectedConditionalResponse(t *testing.T) {
+	for _, revision := range []int{2, api.Revision} {
+		t.Run(string(rune('0'+revision)), func(t *testing.T) {
+			requests := 0
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == api.PathPrefix+"/meta" {
+					_ = json.NewEncoder(w).Encode(apigen.Meta{ServerVersion: "fixture", ApiRevision: revision})
+					return
+				}
+				requests++
+				_ = json.NewEncoder(w).Encode(apigen.DeliveryResponse{Current: true})
+			}))
+			defer srv.Close()
+			client, err := NewClient(TrustEntry{Origin: srv.URL}, "machine-test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := machineExport(t.Context(), client, api.PathPrefix+"/orgs/org_test/projects/prj_test/environments/env_test", false, 0, nil)
+			if err == nil || len(out.Items) != 0 {
+				t.Fatalf("out=%v err=%v", out, err)
+			}
+			if revision < 3 && (requests != 0 || !strings.Contains(err.Error(), "needs revision 3")) {
+				t.Fatalf("requests=%d err=%v", requests, err)
+			}
+			if revision >= 3 && (requests != 1 || !strings.Contains(err.Error(), "unconditional machine export")) {
+				t.Fatalf("requests=%d err=%v", requests, err)
+			}
+		})
+	}
+}

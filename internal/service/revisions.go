@@ -12,6 +12,7 @@ import (
 	"github.com/Hikyo-Org/hikyo/internal/crypto"
 	"github.com/Hikyo-Org/hikyo/internal/delivery"
 	"github.com/Hikyo-Org/hikyo/internal/domain"
+	"github.com/Hikyo-Org/hikyo/internal/parameters"
 	"github.com/Hikyo-Org/hikyo/internal/schema"
 	"github.com/Hikyo-Org/hikyo/internal/store"
 	"github.com/Hikyo-Org/hikyo/internal/store/tx"
@@ -102,6 +103,7 @@ type EnvironmentSignals struct {
 type PendingDraft struct {
 	OwnerID            string
 	Valid              bool
+	ValidationDeferred bool `json:"validation_deferred"`
 	VersionID          string
 	KeyID              string
 	Name               string
@@ -357,6 +359,10 @@ func (s *Revisions) PendingDrafts(ctx context.Context, actor Actor, scope domain
 		if err != nil {
 			return err
 		}
+		declarations, err := environmentParameters(ctx, r.Environments(), p)
+		if err != nil {
+			return err
+		}
 		byID := make(map[string]store.CatalogueKey, len(keys))
 		for _, key := range keys {
 			byID[key.ID] = key
@@ -367,7 +373,7 @@ func (s *Revisions) PendingDrafts(ctx context.Context, actor Actor, scope domain
 			if !ok {
 				return fmt.Errorf("service: pending change %s references missing key %s", change.ID, change.KeyID)
 			}
-			draft, err := pendingDraftView(change, key, presence, sealer)
+			draft, err := pendingDraftView(change, key, presence, sealer, declarations)
 			if err != nil {
 				return err
 			}
@@ -523,16 +529,27 @@ func (s *Revisions) ExportWithParameters(ctx context.Context, actor Actor, scope
 				value.Value, value.Revealed = resolved, true
 			}
 			result.values = append(result.values, value)
-			if !value.Revealed {
+			if entry.Classification != string(schema.Secret) || !value.Revealed {
 				continue
 			}
 			ev, err := domainEvent(ctx, audit.EventValueRevealed, caller.Principal,
 				audit.Object{Type: "key", ID: entry.KeyID}, audit.Payload{
-					"key_id":     entry.KeyID,
-					"name":       audit.SanitizeFreeText(entry.KeyName),
-					"surface":    "export",
-					"parameters": auditedParameters(supplied),
-					"revision":   snapshot.Revision,
+					"key_id":   entry.KeyID,
+					"name":     audit.SanitizeFreeText(entry.KeyName),
+					"surface":  "export",
+					"revision": snapshot.Revision,
+				})
+			if err != nil {
+				return revisionExportResult{}, err
+			}
+			if err := r.Audit().InsertTenant(ctx, p, ev); err != nil {
+				return revisionExportResult{}, err
+			}
+		}
+		if len(supplied) > 0 {
+			ev, err := domainEvent(ctx, audit.EventValuesExported, caller.Principal,
+				audit.Object{Type: "environment", ID: string(scope.Env)}, audit.Payload{
+					"parameters": auditedParameters(supplied), "revision": snapshot.Revision,
 				})
 			if err != nil {
 				return revisionExportResult{}, err
@@ -710,7 +727,7 @@ func revisionPublisherName(ctx context.Context, az *authz.TxAuthorizer, principa
 // pendingDraftView is the owner-filtered projection shared by full and bounded
 // reads. Only config previews may leave this boundary with plaintext; secret
 // bytes are opened solely to evaluate their owner's current-schema advisory.
-func pendingDraftView(change store.PendingChange, key store.CatalogueKey, presence []store.KeyPresence, sealer *crypto.ProjectSealer) (PendingDraft, error) {
+func pendingDraftView(change store.PendingChange, key store.CatalogueKey, presence []store.KeyPresence, sealer *crypto.ProjectSealer, declarations map[string]string) (PendingDraft, error) {
 	draft := PendingDraft{
 		OwnerID: change.OwnerID, Valid: true,
 		VersionID: change.ID, KeyID: change.KeyID, Name: key.Name,
@@ -730,7 +747,11 @@ func pendingDraftView(change store.PendingChange, key store.CatalogueKey, presen
 		crypto.Zero(plain)
 		// Template drafts report structural validity; final config schemas run
 		// after caller parameters are supplied, matching publication semantics.
-		draft.Valid = validateValue(key, value) == nil && draft.Valid
+		draft.Valid = validateValueWithParameters(key, value, declarations) == nil && draft.Valid
+		if draft.Valid && key.Classification == string(schema.Config) && len(declarations) > 0 {
+			refs, err := parameters.References(value)
+			draft.ValidationDeferred = err == nil && len(refs) > 0
+		}
 		// Sticky historical secrecy also applies when a key is now config.
 		if key.Classification == string(schema.Config) && !change.MaterialSecret {
 			draft.Revealed = true

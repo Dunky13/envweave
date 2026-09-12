@@ -104,6 +104,20 @@ bounds declarations to 32, names to 64 bytes, patterns to 512 bytes and supplied
 values to 256 UTF-8 bytes without control characters. RE2 patterns match whole
 inputs. Unknown, missing and invalid parameters refuse the entire delivery.
 
+Upgrade compatibility: template interpretation is opt-in per environment, enabled
+only when its next publication captures at least one parameter declaration.
+Zero-declaration environments retain literal `${` and `$${` bytes, including on
+future publications after upgrade. With templating enabled, `$${` escapes a
+literal `${`; adding the first declaration requires escaping existing literal
+openings before publication. Frozen old snapshots retain their old behavior.
+Owner draft advisories expose `validation_deferred` for caller-dependent config
+schema checks. Structural validity is not a guarantee for all parameter inputs;
+escaped-only literals receive complete validation before publication.
+Stored contracts use semantic version 1, tolerate additive metadata at that
+version, and fail closed on unknown versions. Existing unversioned contracts
+retain their original parser: `$${NAME}` delivers a dollar followed by the
+parameter value. Version 1 introduces escapes without changing old snapshots. New semantic requirements must advance the version.
+
 Parameter declaration edits require project definitions-edit, serialize under
 the project lock, and advance definitions revision. They are database-managed
 metadata for the next publication only, not included in definitions bundles.
@@ -119,8 +133,9 @@ Snapshot browsing tokens identify stored templates. Parameterized delivery token
 bind canonical public input maps plus resolved manifests. Conditional cursors and
 operator keyed stamps move when inputs change, including unused inputs. Empty
 input maps preserve ordinary legacy tokens. Delivery access events record public
-inputs; per-value disclosures reference those events. Export disclosure events
-carry the same inputs, with ordinary credential-pattern audit redaction.
+inputs; per-value disclosures reference those events. Each successful parameterized export emits one `disclosure.values_exported` event
+with those inputs and ordinary credential-pattern audit redaction. Ordinary
+config-only exports remain unaudited; secret per-value disclosures are unchanged.
 
 Supported parameter consumers are CLI values export and the Kubernetes operator.
 Consumers without parameter inputs fail closed rather than publishing literal

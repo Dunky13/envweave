@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Hikyo-Org/hikyo/internal/audit"
+	"github.com/Hikyo-Org/hikyo/internal/freetext"
 )
 
 // pathPrefix mirrors api.PathPrefix ("/api/v1"). Duplicated as a const so the
@@ -62,10 +62,12 @@ type DeliveredKey struct {
 // fields § 0.1 fixes are decoded; any additive member the server grows is
 // ignored (no DisallowUnknownFields).
 type DeliveryResponse struct {
-	Current             bool           `json:"current"`
-	Cursor              string         `json:"cursor"`
-	ChangeToken         string         `json:"change_token"`
-	SchemaRevision      int64          `json:"schema_revision"`
+	Current        bool   `json:"current"`
+	Cursor         string `json:"cursor"`
+	ChangeToken    string `json:"change_token"`
+	SchemaRevision int64  `json:"schema_revision"`
+	// Revision is absent on older servers that may ignore parameter inputs.
+	Revision            *int64         `json:"revision,omitempty"`
 	PinnedRevision      *int64         `json:"pinned_revision,omitempty"`
 	PinExpired          bool           `json:"pin_expired"`
 	CredentialExpiresAt *time.Time     `json:"credential_expires_at,omitempty"`
@@ -154,6 +156,7 @@ type wireResponse struct {
 	Cursor              *string    `json:"cursor"`
 	ChangeToken         *string    `json:"change_token"`
 	SchemaRevision      *int64     `json:"schema_revision"`
+	Revision            *int64     `json:"revision"`
 	PinExpired          *bool      `json:"pin_expired"`
 	Keys                *[]wireKey `json:"keys"`
 	PinnedRevision      *int64     `json:"pinned_revision"`
@@ -208,6 +211,7 @@ func decodeDelivery(payload []byte) (*DeliveryResponse, error) {
 		Cursor:              *w.Cursor,
 		ChangeToken:         *w.ChangeToken,
 		SchemaRevision:      *w.SchemaRevision,
+		Revision:            w.Revision,
 		PinExpired:          *w.PinExpired,
 		PinnedRevision:      w.PinnedRevision,
 		CredentialExpiresAt: w.CredentialExpiresAt,
@@ -310,6 +314,13 @@ func (c *Client) Fetch(ctx context.Context, r FetchRequest) (*DeliveryResponse, 
 			// (§ 0.4/§ 0.11). Unknown additive members are still ignored.
 			return nil, OutcomeFetchFailed, fmt.Errorf("operator client: %w", err)
 		}
+		// Revision metadata and parameter support arrived together in API revision
+		// 3. Older servers may ignore the unknown query and return literal config.
+		// Require a selected snapshot even on current answers before accepting
+		// the response; an unsupported server must never advance the cursor.
+		if len(r.Parameters) > 0 && (out.Revision == nil || *out.Revision <= 0) {
+			return nil, OutcomeFetchFailed, errors.New("operator client: parameterized delivery requires API revision 3 with a positive snapshot revision; upgrade the server")
+		}
 		return out, OutcomeOK, nil
 	case resp.StatusCode == http.StatusBadRequest:
 		// Only the typed bad_request detail is caller-safe. Never relay bodies,
@@ -323,7 +334,7 @@ func (c *Client) Fetch(ctx context.Context, r FetchRequest) (*DeliveryResponse, 
 				} `json:"error"`
 			}
 			if json.Unmarshal(payload, &envelope) == nil && envelope.Error.Code == "bad_request" && envelope.Error.Detail != nil && *envelope.Error.Detail != "" {
-				return nil, OutcomeFetchFailed, fmt.Errorf("operator client: invalid fetch parameters: %s", audit.SanitizeFreeText(*envelope.Error.Detail))
+				return nil, OutcomeFetchFailed, fmt.Errorf("operator client: invalid fetch parameters: %s", freetext.SanitizeFreeText(*envelope.Error.Detail))
 			}
 		}
 		return nil, OutcomeFetchFailed, fmt.Errorf("operator client: fetch validation failed (400)")

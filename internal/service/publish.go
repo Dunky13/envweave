@@ -1138,8 +1138,11 @@ func materialize(ctx context.Context, r store.Repos, p authz.Proof, sealer *cryp
 		return PublishedEnvironment{}, err
 	}
 	contract := parameters.Contract{Declarations: declarations, Schemas: map[string]string{}}
+	if len(declarations) > 0 {
+		contract.Version = 1
+	}
 	for _, cell := range cells {
-		if !cell.set || cell.key.Classification != string(schema.Config) {
+		if len(declarations) == 0 || !cell.set || cell.key.Classification != string(schema.Config) {
 			continue
 		}
 		if err := parameters.CheckReferences(cell.value, declarations); err != nil {
@@ -1149,7 +1152,7 @@ func materialize(ctx context.Context, r store.Repos, p authz.Proof, sealer *cryp
 		if err != nil {
 			return PublishedEnvironment{}, err
 		}
-		if len(refs) > 0 {
+		if len(refs) > 0 || strings.Contains(cell.value, "$${") {
 			contract.Schemas[cell.key.Name] = cell.key.Declaration
 		}
 	}
@@ -1160,7 +1163,7 @@ func materialize(ctx context.Context, r store.Repos, p authz.Proof, sealer *cryp
 	if len(contractJSON) > parameters.MaxContractBytes {
 		return PublishedEnvironment{}, invalidDetail("environment parameter contract exceeds %d bytes", parameters.MaxContractBytes)
 	}
-	if err := groups.validateResolvedPublish(cells, string(scope.Env)); err != nil {
+	if err := groups.validateResolvedPublish(cells, string(scope.Env), contract); err != nil {
 		return PublishedEnvironment{}, err
 	}
 	if err := validateSelfConfigCells(p, cells); err != nil {

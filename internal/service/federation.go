@@ -1151,16 +1151,19 @@ func (s *Federation) postStateReach(ctx context.Context, az *authz.TxAuthorizer,
 }
 
 func issuerEvent(ctx context.Context, actor domain.PrincipalID, id, issuer, change string, req IssuerRequest) (audit.Event, error) {
+	payload := audit.Payload{
+		"issuer_id":         id,
+		"issuer":            audit.SanitizeFreeText(issuer),
+		"issuer_type":       string(req.Type),
+		"change":            change,
+		"jwks_mode":         string(req.KeySource.Mode()),
+		"refused_audiences": req.RefusedAudiences,
+	}
+	if req.CABundlePEM != "" {
+		payload["ca_bundle_sha256"] = fmt.Sprintf("%x", sha256.Sum256([]byte(req.CABundlePEM)))
+	}
 	return newAuditEvent(ctx, audit.EventFederationIssuerChanged, actor,
-		audit.Object{Type: "instance", ID: id}, audit.OutcomeSuccess, "", audit.Payload{
-			"issuer_id":         id,
-			"issuer":            audit.SanitizeFreeText(issuer),
-			"issuer_type":       string(req.Type),
-			"change":            change,
-			"jwks_mode":         string(req.KeySource.Mode()),
-			"ca_bundle_sha256":  fmt.Sprintf("%x", sha256.Sum256([]byte(req.CABundlePEM))),
-			"refused_audiences": req.RefusedAudiences,
-		})
+		audit.Object{Type: "instance", ID: id}, audit.OutcomeSuccess, "", payload)
 }
 
 func checkIssuerCABundle(source jwkssource.KeySource, bundle string) error {

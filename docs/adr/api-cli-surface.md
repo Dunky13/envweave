@@ -209,3 +209,10 @@ authority. The human historical export endpoint remains human-only. Explicit
 config-only projection; with it, a withheld set secret refuses the whole export
 before output. Delivery reports the selected snapshot revision so exports never
 infer it from a separate, racing metadata request.
+
+**Revision amendment (#723/#730, 2026-09-12):** API revision 3 introduces the
+parameter list/change operations and selected snapshot revision in delivery.
+The new operations declare minimum revision 3. Existing operation minimums stay
+unchanged because the added response metadata is compatible with old clients.
+Machine CLI export requires revision 3 before delivery so an older server's
+missing snapshot revision cannot silently become revision zero.

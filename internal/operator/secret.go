@@ -39,7 +39,7 @@ func (r *HikyoSecretReconciler) computeStamp(
 ) (string, error) {
 	targetBinding := cr.Spec.Target.Name
 	if len(cr.Spec.Parameters) > 0 {
-		targetBinding += "\x00parameters/v1\x00" + parameters.Encode(cr.Spec.Parameters)
+		targetBinding += "\x00parameters/v1\x00" + parameters.Encode(parameterInputs(cr))
 	}
 	key, err := crypto.StampKey(root, string(inst.UID), string(cr.UID), targetBinding)
 	if err != nil {

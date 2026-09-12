@@ -311,7 +311,14 @@ strategy avoids that shape but still needs the same workload patch authority.
 ## Native Secret types
 
 `spec.target.type` defaults to `Opaque`. Set a native type when a Kubernetes
-consumer requires one. Map Hikyo's uppercase source key to the native data key:
+consumer requires one. First opt in with Helm `--set operator.nativeSecretTypes=true`.
+This enables the runtime capability and adds Secret `delete` within the configured
+namespace authority. Opaque-only installs omit that permission. Standalone
+operators set `HIKYO_OPERATOR_NATIVE_SECRET_TYPES=true` with matching delete RBAC.
+Disabling the capability refuses typed targets before fetching and retains existing
+targets; migrate or remove them explicitly before disabling it.
+
+Map Hikyo's uppercase source key to the native data key:
 
 ```yaml
 spec:
@@ -356,13 +363,21 @@ and migrate its consumers explicitly.
 Authorization withdrawal differs from a type change. An authenticated 404, or
 a successful manifest that removes a mandatory mapped key, deletes an owned
 typed target because Kubernetes cannot represent the withdrawn state as an
-empty Secret of that type. Deletion uses UID and resource-version preconditions,
+empty Secret of that type. This includes an accidental published unset: the
+operator cannot distinguish it from intentional withdrawal and must not continue
+serving a removed credential. In contrast, malformed content for a still-present
+key rejects its replacement and retains the last accepted target. TLS content is
+not parsed by Kubernetes or Hikyo; malformed certificate/key bytes are delivered
+and the consumer decides whether to keep its previous certificate. Publish coupled
+credential changes atomically and monitor delivery conditions.
+
+Deletion uses UID and resource-version preconditions,
 followed by an uncached absence check. A replacement target is never deleted;
 pending deletion is reported as failure. The cursor is cleared and opted-in
 workloads receive the empty-content stamp. Repeated refusals keep the target
 absent; a later complete authorized delivery recreates it. `creationPolicy:
 Orphan` controls CR deletion only and does not suppress authorization withdrawal.
-Operator Secret RBAC therefore includes `delete` in bound namespaces, without
+With `operator.nativeSecretTypes=true`, Secret RBAC includes `delete` in bound namespaces, without
 granting `list` or `watch`. Pods may retain values already loaded into memory;
 removal from Kubernetes does not erase a consumer's cache.
 

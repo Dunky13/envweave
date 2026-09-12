@@ -106,7 +106,7 @@ func TestEnvironmentParametersDeliveryAndHistory(t *testing.T) {
 		if len(values) == 0 {
 			t.Fatal("historical export empty")
 		}
-		if n := queryInt(t, db, `SELECT COUNT(*) FROM audit_tenant_events WHERE type='disclosure.value_revealed' AND payload LIKE '%"surface":"export"%' AND payload LIKE '%"PR_NUMBER":"123"%'`); n < 1 {
+		if n := queryInt(t, db, `SELECT COUNT(*) FROM audit_tenant_events WHERE type='disclosure.values_exported' AND payload LIKE '%"revision":2%' AND payload LIKE '%"PR_NUMBER":"123"%'`); n != 1 {
 			t.Fatal("parameter export lacks disclosure audit inputs")
 		}
 		staged, err := valueSvc(t, db).Set(t.Context(), actor, scope, "DATABASE_URL", "${UNKNOWN}", nil)

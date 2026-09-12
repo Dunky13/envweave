@@ -262,6 +262,8 @@ WHERE org_id = ? AND project_id = ?;
 -- hikyo:instance-scoped
 -- name: SumSnapshotPayloadByProject :many
 -- Project sizes only, never whole encrypted payloads in a sorter.
+-- LIMIT -1 OFFSET 0 prevents flattening this projection into the GROUP BY:
+-- the temporary sorter must retain integer sizes, not ciphertext/contract blobs.
 WITH payload_sizes AS (
     SELECT org_id, project_id, LENGTH(ciphertext) AS bytes FROM snapshot_entries
     UNION ALL

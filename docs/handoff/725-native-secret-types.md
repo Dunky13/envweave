@@ -21,9 +21,17 @@ delivery. A failed deletion clears the cursor and reports failure. Successful
 withdrawal clears object identity, stamps opted-in workloads with empty
 content, and keeps the target absent until a complete authorized delivery.
 `Orphan` does not override withdrawal. A malformed mapping or invalid payload
-retains the prior target, matching existing content-refusal semantics.
+retains the prior target, matching existing content-refusal semantics. An
+accidentally published unset still withdraws: intent cannot be inferred, and
+continuing to serve an absent credential would violate the authorized manifest.
+Malformed present data rejects a replacement instead. TLS bytes are not parsed
+by the operator, so certificate recovery behavior belongs to the consumer.
 
-The chart grants Secret `delete` only within its existing namespace authority;
+The chart's `operator.nativeSecretTypes` defaults false. Explicit opt-in enables
+native targets and Secret `delete` within the existing namespace authority;
+Opaque-only installs omit delete. `HIKYO_OPERATOR_NATIVE_SECRET_TYPES` enforces
+the same boundary before credential acquisition or fetch. Disabling support
+retains existing typed targets for explicit migration and clears cursors.
 Secret list/watch remain absent. The chart structural and mutation checks
 track this exact verb set. The ADR amendment and Kubernetes guide document
 withdrawal, migration, native consumers, and the unchanged in-memory residual.
@@ -60,3 +68,8 @@ The Docker VM had approximately 2.35 GiB total memory. Both disposable clusters
 were removed; no third attempt was made because capacity was unsuitable.
 The reusable native acceptance test is wired into CI, but no successful local
 live native-consumer result is claimed.
+
+CI acceptance (2026-09-12): [validation / k8s-e2e run 34707669054](https://github.com/Hikyo-Org/Hikyo/actions/runs/34707669054/job/103590591973)
+passed on the initial PR #731 head, including the native consumer fixture. This
+supersedes the acceptance evidence gap from local bootstrap failures above;
+the capability-gate review fix still requires a fresh CI run.

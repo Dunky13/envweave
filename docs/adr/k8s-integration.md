@@ -198,7 +198,11 @@ authenticated 404, Opaque targets still converge to empty. Typed targets are
 deleted because Kubernetes rejects an empty typed Secret. The same deletion
 applies when a full authorized manifest no longer contains a mandatory mapped
 key: partial delivery is impossible, so the entire typed target is withdrawn.
-This is distinct from an invalid mapping detected before any fetch. Deletion
+An accidentally published unset has the same withdrawal semantics: the operator
+cannot infer publisher intent and cannot retain an absent authorized credential.
+An invalid mapping detected before any fetch, or malformed content of a key that
+remains present, rejects a replacement and retains the previously accepted target.
+TLS payload syntax is not validated here; its consumer owns certificate handling. Deletion
 rechecks controller ownership and type, requires UID and resource-version
 preconditions, and verifies absence through the uncached API reader. A
 replacement or pending deletion is a failure, never a successful scrub.
@@ -207,6 +211,10 @@ The cursor/binding and managed-object identity are cleared, and opted-in
 workloads receive the empty-content stamp. Repeated refusals leave the typed
 target absent. A later complete authorized delivery can recreate it.
 `creationPolicy: Orphan` only governs CR deletion; it cannot retain withdrawn
-credentials. This adds namespaced Secret `delete` to the operator RBAC, with no
-Secret `list` or `watch`. Consumers can retain already-loaded values in memory;
+credentials. `operator.nativeSecretTypes` defaults false and gates both the
+runtime capability (`HIKYO_OPERATOR_NATIVE_SECRET_TYPES`) and namespaced Secret
+`delete`. Opaque-only installs need no delete permission. Disabled operators
+refuse typed targets before credential acquisition or fetch, retain existing
+targets and clear cursors; migrate or remove typed targets before disabling.
+No Secret `list` or `watch` is added. Consumers can retain already-loaded values in memory;
 the existing restart and revocation limitations remain.

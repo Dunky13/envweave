@@ -1177,6 +1177,10 @@ export type PendingDraft = {
     advisory?: {
         owner_id: Id;
         valid: boolean;
+        /**
+         * True when caller parameters are needed for final config schema validation at fetch. Valid then describes template structure and presence only.
+         */
+        validation_deferred?: boolean;
     };
     version_id: Id;
     key_id: Id;

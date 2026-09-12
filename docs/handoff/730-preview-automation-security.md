@@ -105,6 +105,72 @@ Local validation completed on 2026-09-12:
 
 No push, PR, merge, deployment or external issue closure was performed.
 
+## PR #731 review remediation
+
+PR [#731](https://github.com/Hikyo-Org/Hikyo/pull/731) is open; merge remains on
+hold. The implementation above was pushed as `ce795929`. Its native Kubernetes
+acceptance job passed in CI, superseding the workstation-only limitation above.
+
+Review fixes preserve literal `${...}` config in environments without declared
+parameters, add `$${` escaping to version-1 template contracts, and preserve
+version-0 snapshot rendering and pin validation. Clone/copy paths explicitly
+refuse template sources without destination declarations. Owner draft advisories
+and the publish sheet identify schema validation deferred until fetch.
+
+Config export no longer emits per-key secret disclosure records. Supplied public
+parameters produce one export-level event per successful request; revealed secrets
+retain their per-key records. Environment deletion records every removed grant
+using the ordinary revocation payload and invalidates the affected sessions.
+Parameter and export services are wired through compile-time interfaces.
+
+Native Secret support now requires explicit `operator.nativeSecretTypes` opt-in,
+which also gates Secret delete RBAC. Missing authorized mandatory data withdraws
+the target; malformed present content retains the last accepted target. CEL
+admission checks UTF-8 bytes and includes the schema bounds required by
+Kubernetes' CEL cost budget. Parameterized operator responses require positive
+snapshot revision metadata, refusing older servers that may ignore the inputs.
+
+API revision 3 advertises parameter operations and delivery revision metadata.
+Machine export checks server compatibility and treats an unexpected conditional
+response as an internal error. Empty issuer CA hashes are omitted; parameter
+name/delete validation, bounded regex caching, compatible versioned contract
+decoding and a shared leaf-package text sanitizer address the smaller findings.
+
+The initial CI failures were traced to literal interpolation, config audit
+cardinality, two formatting defects, and the registry fixture importing bcrypt
+outside the crypto boundary. Those paths are corrected. A pinned handwritten-Go
+import formatter now runs in CI; generated files remain owned by their generators.
+The SQLite storage query retains its projection coroutine before grouping, as
+checked with `EXPLAIN QUERY PLAN`; its anti-flattening rationale is restored.
+
+Cross-provider review remains explicitly skipped. Local review and regression
+evidence is recorded with the PR follow-up; no merge is authorized.
+
+Remediation validation passed: affected Go packages (including full service,
+server, store and operator suites), `go vet ./...`, focused race regressions,
+SQLite/PostgreSQL parameter/export/grant/legacy-pin integrations, static audit
+and authorization invariants, generated Go/SQL/CRD drift, chart/admission checks,
+TypeScript generation/typecheck/20 tests, web typecheck/960 tests, and docs checks.
+The real history browser flow passed 14 desktop cases (one mobile-only case
+skipped) and all 15 mobile cases. Compose delivered 21 values byte-exactly and
+passed its refusal/doctor/sync cases. Gofmt and the new 1,292-file handwritten
+import check passed. Ordinary Standards and Spec reviews found no unresolved
+findings after compatibility corrections.
+
 Migrations 51 and 52 apply to SQLite and PostgreSQL. The generated development
 compatibility manifest includes both. Generated Go, TypeScript and CRD artifacts
 belong to this change; regenerate them from their source definitions.
+
+
+### PR #731 review corrections
+
+Environment grant cleanup now emits the ordinary `grant.revoked` payload for each
+removed grant, including all released origin kinds and session invalidation.
+Direct deletion and definitions apply share this transaction-bound implementation.
+Human holders of deleted environment grants must sign in again.
+
+Config exports no longer create per-key disclosure events. Successful exports with
+public parameters bind those inputs once in `disclosure.values_exported`; secret
+exports retain one `disclosure.value_revealed` per secret. Nonparameterized config
+exports retain their existing unaudited behavior. Parameter management and export
+are required compile-time server service methods, including transport test fakes.

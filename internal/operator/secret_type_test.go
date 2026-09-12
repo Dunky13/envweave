@@ -43,6 +43,7 @@ func TestNativeSecretTypes(t *testing.T) {
 				keys = append(keys, secretVal(source, value))
 			}
 			h := newHarness(t, interceptor.Funcs{}, makeInstance(""), makeBootstrapSecret("boot", testInstance, "tok", true), cr)
+			h.r.Config.NativeSecretTypes = effectiveSecretType(tt.typ) != corev1.SecretTypeOpaque
 			h.stub.set(200, deliveryJSON(false, "v1:cursor", "v1:token", keys, nil))
 			if _, err := h.reconcile("app"); err != nil {
 				t.Fatal(err)
@@ -283,5 +284,33 @@ func TestTypedWithdrawalWaitsForFinalizers(t *testing.T) {
 	stored, exists := h.getSecret(testNS, testTarget)
 	if !exists || stored.DeletionTimestamp == nil {
 		t.Fatal("finalizer fixture was not pending deletion")
+	}
+}
+
+func TestNativeSecretTypesDisabledRefusesBeforeFetchAndRetainsTarget(t *testing.T) {
+	cr := makeCR("app", withSecretType(corev1.SecretTypeSSHAuth), withMapping([2]string{"KEY", corev1.SSHAuthPrivateKey}))
+	cr.Status.Cursor, cr.Status.CursorBinding = "previous", "binding"
+	h := newHarness(t, interceptor.Funcs{Delete: func(context.Context, client.WithWatch, client.Object, ...client.DeleteOption) error {
+		t.Fatal("disabled native support attempted deletion")
+		return nil
+	}}, cr)
+	h.r.Config.NativeSecretTypes = false
+	sec := makeOwnedSecret(t, h.scheme, cr, map[string][]byte{corev1.SSHAuthPrivateKey: []byte("old-key")})
+	sec.Type = corev1.SecretTypeSSHAuth
+	if err := h.cl.Create(t.Context(), sec); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.reconcile("app"); err != nil {
+		t.Fatal(err)
+	}
+	got := h.getCR("app")
+	requireCond(t, got, hikyov1.ConditionDelivery, metav1.ConditionFalse, hikyov1.ReasonBlocked)
+	requireCond(t, got, hikyov1.ConditionReady, metav1.ConditionFalse, hikyov1.ReasonBlocked)
+	if h.stub.requests != 0 || got.Status.Cursor != "" {
+		t.Fatal("disabled native support fetched data or retained cursor")
+	}
+	stored, exists := h.getSecret(testNS, testTarget)
+	if !exists || string(stored.Data[corev1.SSHAuthPrivateKey]) != "old-key" {
+		t.Fatal("disabling native support modified target")
 	}
 }

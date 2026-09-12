@@ -1969,7 +1969,8 @@ export const zPendingChange = z.object({
 export const zPendingDraft = z.object({
     advisory: z.object({
         owner_id: zId,
-        valid: z.boolean()
+        valid: z.boolean(),
+        validation_deferred: z.boolean().optional()
     }).optional(),
     version_id: zId,
     key_id: zId,

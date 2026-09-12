@@ -190,7 +190,7 @@ func (r *HikyoSecretReconciler) eligibleCursor(
 
 func bindingInputFor(cr *hikyov1.HikyoSecret, inst *hikyov1.HikyoInstance, cred credential) bindingInput {
 	return bindingInput{
-		parameters:                cr.Spec.Parameters,
+		parameters:                parameterInputs(cr),
 		authObjectUID:             cred.uid,
 		authObjectResourceVersion: cred.resourceVersion,
 		org:                       string(cr.Spec.Scope.Org),
@@ -506,4 +506,16 @@ func decodeCABundle(b64 string) ([]byte, error) {
 		return nil, fmt.Errorf("caBundle is not valid base64 (the CRD documents base64-encoded PEM): %w", err)
 	}
 	return raw, nil
+}
+
+// parameterInputs converts the CRD's bounded string type to delivery inputs.
+func parameterInputs(cr *hikyov1.HikyoSecret) map[string]string {
+	if len(cr.Spec.Parameters) == 0 {
+		return nil
+	}
+	inputs := make(map[string]string, len(cr.Spec.Parameters))
+	for name, value := range cr.Spec.Parameters {
+		inputs[name] = string(value)
+	}
+	return inputs
 }
