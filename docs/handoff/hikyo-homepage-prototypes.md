@@ -71,6 +71,11 @@ a small bundled script, so it does not cover the matrix).
 - Playwright (`/tmp/hikyo-audit.mjs`, not in repo) at 375 and 1280 for every
   page: zero console errors, `scrollWidth - clientWidth = 0` on all twenty-two
   page/width pairs.
+- CI builds with PostHog enabled (`POSTHOG_REQUIRED=true` plus host and token
+  vars), which puts `array.js` in every page's CSP; `test-csp.mjs` then requires
+  each governed page to render `<PostHog />`. The switcher and the index render
+  it. Reproduce locally with
+  `POSTHOG_REQUIRED=true PUBLIC_POSTHOG_HOST=https://eu.i.posthog.com PUBLIC_POSTHOG_PROJECT_TOKEN=phc_x pnpm run verify`.
 - Mobile review is on the LAN: start the dev server bound to 0.0.0.0 with a
   tiny script calling Astro's `dev()` API via `pnpm exec node` (bare `astro
   dev` from the Bash tool exited before ready; `pnpm exec` is also needed for

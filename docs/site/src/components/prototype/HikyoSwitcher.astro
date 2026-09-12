@@ -1,5 +1,6 @@
 ---
 import { prototypes } from '../../lib/prototype/hikyo';
+import PostHog from '../posthog.astro';
 
 interface Props {
   current: number;
@@ -29,6 +30,7 @@ const total = prototypes.length;
     }
   </div>
 </nav>
+<PostHog />
 
 <script>
   const nav = document.querySelector('.proto-switch');
